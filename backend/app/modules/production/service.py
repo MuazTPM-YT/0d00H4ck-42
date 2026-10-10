@@ -90,6 +90,17 @@ def _lock_work_order(db: Session, work_order_id: int) -> WorkOrder:
     return wo
 
 
+# a cancelled or closed order takes no more work: no start, no output, no new rolls
+def _require_open_order(db: Session, wo: WorkOrder) -> None:
+    order = db.get(Order, wo.order_id)
+    if order.status != OrderStatus.confirmed:
+        raise Conflict(
+            f"Order {order.code} is {order.status}; {wo.code} cannot run",
+            field="work_order_id",
+            code="order_not_open",
+        )
+
+
 def _on_machine(db: Session, machine_id: int, status: WorkOrderStatus) -> WorkOrder | None:
     return db.scalar(
         select(WorkOrder)
@@ -227,6 +238,7 @@ def start_work_order(
 ) -> WorkOrder:
     wo = _lock_work_order(db, work_order_id)
     check_transition(WORK_ORDER_TRANSITIONS, wo.status, WorkOrderStatus.running)
+    _require_open_order(db, wo)
     machine = _usable_machine(db, wo.machine_id, wo.stage)
     other = _on_machine(db, machine.id, WorkOrderStatus.running)
     if other:
@@ -332,6 +344,7 @@ def log_output(db: Session, body: OutputIn, user_id: int, at: datetime | None = 
                 raise Conflict(f"No work order is running on {machine.code}", "machine_id")
         if wo.status not in (WorkOrderStatus.running, WorkOrderStatus.paused):
             raise Conflict(f"{wo.code} is {wo.status}, output needs a started job", "work_order_id")
+        _require_open_order(db, wo)
         log = _add_log(
             db,
             wo,
@@ -445,6 +458,7 @@ def cut_roll(db: Session, body: RollIn, user_id: int | None, at: datetime | None
             raise Conflict("Rolls are cut from a weaving work order", field="work_order_id")
         if wo.status not in (WorkOrderStatus.running, WorkOrderStatus.paused):
             raise Conflict(f"{wo.code} is {wo.status}, cut rolls from a started job")
+        _require_open_order(db, wo)
         issued = {b: v["issued"] for b, v in _wip_yarn(db, wo.id).items() if v["issued"] > 0}
         if not issued:
             raise Conflict(
@@ -518,6 +532,7 @@ def process_roll(
         wo = _lock_work_order(db, body.work_order_id)
         if wo.order_id != roll.order_id:
             raise Conflict(f"{roll.code} belongs to another order", field="work_order_id")
+        _require_open_order(db, wo)
         if wo.status != WorkOrderStatus.running:
             raise Conflict(f"Start {wo.code} before processing rolls", field="work_order_id")
         if wo.roll_id:
@@ -739,6 +754,19 @@ def timeline(db: Session, machine_id: int, day: date, now: datetime | None = Non
 
 
 # --- shared services (contract: docs/contracts.md). Never commit; caller owns the transaction.
+
+
+# order cancelled: its queued jobs leave the machine queues. Caller checks nothing is running.
+def unqueue_order(db: Session, order_id: int, user_id: int | None) -> int:
+    queued = db.scalars(
+        select(WorkOrder)
+        .where(WorkOrder.order_id == order_id, WorkOrder.status == WorkOrderStatus.queued)
+        .with_for_update()
+    ).all()
+    for wo in queued:
+        _set_wo_status(db, wo, WorkOrderStatus.waiting, user_id, "order cancelled")
+        wo.machine_id = wo.queue_position = None
+    return len(queued)
 
 
 # one waiting work order per route stage; safe to call twice (returns the existing set)

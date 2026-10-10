@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from app.core import audit, events
 from app.core.codes import next_code
 from app.core.enums import Stage
-from app.core.errors import NotFound
+from app.core.errors import Conflict, NotFound
 from app.core.pagination import Page, paginate
 from app.core.states import check_transition
 from app.core.units import qty, yarn_kg_for_fabric
@@ -16,6 +16,7 @@ from app.modules.inventory import service as inventory
 from app.modules.masters.models import Buyer, FabricType
 from app.modules.orders.models import Order, OrderStatus
 from app.modules.production import service as production
+from app.modules.production.models import WorkOrder, WorkOrderStatus
 
 ORDER_TRANSITIONS = {
     OrderStatus.draft: {OrderStatus.confirmed, OrderStatus.cancelled},
@@ -109,12 +110,33 @@ def reserve_again(db: Session, user: User, order_id: int) -> dict:
     return inventory.order_allocation(db, order_id)
 
 
+# row lock so a truck confirm and a cancel cannot pass each other. A loom mid-job is a physical
+# fact: stop it first rather than leave it weaving for an order nobody wants.
 def cancel_order(db: Session, user: User, order_id: int, reason: str) -> Order:
-    order = get_order(db, order_id)
+    locked = db.scalar(select(Order.id).where(Order.id == order_id).with_for_update())
+    if locked is None:
+        raise NotFound(f"Order {order_id} not found")
+    order = db.get(Order, order_id, populate_existing=True)
     check_transition(ORDER_TRANSITIONS, order.status, OrderStatus.cancelled)
+    busy = db.scalar(
+        select(WorkOrder.code)
+        .where(
+            WorkOrder.order_id == order.id,
+            WorkOrder.status.in_([WorkOrderStatus.running, WorkOrderStatus.paused]),
+        )
+        .limit(1)
+    )
+    if busy:
+        raise Conflict(
+            f"{busy} is still on a machine. Finish it on the floor first, then cancel.",
+            field="status",
+            code="job_running",
+        )
     order.status = OrderStatus.cancelled
     freed = inventory.release_order(db, order.id, user.id, f"Order cancelled: {reason}")
-    audit.record(db, user.id, "cancel", "orders", order.id, reason=reason, data={"freed": freed})
+    unqueued = production.unqueue_order(db, order.id, user.id)
+    data = {"freed": freed, "unqueued": unqueued}
+    audit.record(db, user.id, "cancel", "orders", order.id, reason=reason, data=data)
     db.commit()
     events.publish("orders", {"type": "cancelled", "id": order.id})
     events.publish("stock", {"type": "released", "id": order.id})
