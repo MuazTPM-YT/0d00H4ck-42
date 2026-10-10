@@ -25,3 +25,18 @@ Things the problem statement does not say, and what we chose. Change one only wi
 - **Money.** Indian rupees, stored in paise.
 - **Buyer tracking link.** Anyone with the token can read that one order's stage. No costs or internal IDs shown.
 - **Offline.** No feature needs the internet.
+- **Supplier labels (agreed with the evaluator).** Each supplier cone/bag label carries a QR code
+  with `KEY=value` pairs split by `;`. Keys: `SUP` supplier code, `LOT` supplier lot, `FIB` fibre,
+  `CNT` count, `COL` colour, `KG` net kg. Example:
+  `SUP=KSM;LOT=KSM-L2291;FIB=Cotton;CNT=Ne 40/1;COL=Raw White;KG=1200`. Keys are case-insensitive,
+  order does not matter, spaces around values are trimmed. A missing key is an unreadable label.
+  `/store/receive/labels` prints sample labels for open expected deliveries.
+- **Scanning.** USB or Bluetooth scanners type into a focused text field and press Enter (keyboard
+  wedge). Camera scanning is not built: a phone camera needs HTTPS or localhost.
+- **Weight tolerance.** A lot whose weighed kg differs from the label by more than 2% is flagged,
+  and both figures are kept. Never adjusted. One mill-wide value until a per-yarn column lands
+  (see schema-requests.md).
+- **Lot.** One batch = one supplier lot on one truck. "Prefer one lot per order line" means one batch.
+- **Rejected yarn** goes back to the supplier location (ledger move `return`).
+- **Expected delivery received** when received kg is at least expected kg minus the 2% tolerance;
+  less than that is `partially_received`.

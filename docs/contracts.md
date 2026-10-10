@@ -36,7 +36,7 @@ Rules every module follows. If your change breaks one, talk to the module owner 
 - **Live updates.** After commit, `events.publish(topic, {"type": ..., "id": ...})`. Topics:
   `stock`, `machines`, `orders`, `quality`, `dispatch`, `insights`. Frontend query keys start
   with the topic or module name, so `useSSE()` can invalidate them.
-- **Commits.** Odoo format, `[TAG] module: short message`, tags `[ADD] [FIX] [IMP] [REF] [REM]`.
+- **Commits.** Odoo format, `[TAG] module: short message`, tags `[ADD] [FIX] [IMP] [REF] [REM] [MRG]` (`[MRG]` = merge commit).
   Branch per feature, PR into `main`. Full rules in `CLAUDE.md`.
 
 ## Invariants
@@ -98,25 +98,37 @@ caller. Status: **done** = implemented and tested, **stub** = raises `NotImpleme
 
 | Function | Owner | Status | Returns |
 |---|---|---|---|
-| `inventory.stock_on_hand(db, yarn_item_id)` | Ammaar | stub | `Decimal` approved kg in store locations |
-| `inventory.free_stock(db, yarn_item_id)` | Ammaar | stub | `Decimal` stock on hand − active reservations |
-| `inventory.reserve(db, order_id, user_id)` | Ammaar | stub | `list[Reservation]`; locks batch rows, prefers one supplier lot per component |
-| `inventory.issue_to_work_order(db, work_order_id, yarn_batch_id, kg, user_id, source=manual, idempotency_key=None, reason=None)` | Ammaar | stub | `StockMove` store → WIP; over-issue needs `reason`. Must write `reason=issue`, `ref_type="work_order"`, `ref_id=work_order_id`: roll lineage and finish-consume read exactly that |
+| `inventory.stock_on_hand(db, yarn_item_id)` | Ammaar | done | `Decimal` approved kg in store locations |
+| `inventory.free_stock(db, yarn_item_id)` | Ammaar | done | `Decimal` stock on hand − active reservations |
+| `inventory.reserve(db, order_id, user_id)` | Ammaar | done | `list[Reservation]` (new ones); locks order + batch rows, best-fit single lot else fewest lots, tagged yarn first |
+| `inventory.issue_to_work_order(db, work_order_id, yarn_batch_id, kg, user_id, source=manual, idempotency_key=None, reason=None)` | Ammaar | done | `StockMove` store → WIP; over-issue needs `reason`. Writes `reason=issue`, `ref_type="work_order"`, `ref_id=work_order_id`: roll lineage and finish-consume read exactly that |
+| `inventory.return_to_store(db, work_order_id, yarn_batch_id, kg, user_id, idempotency_key=None)` | Ammaar | done | `StockMove` WIP → store; at most what the work order still holds |
+| `inventory.release_order(db, order_id, user_id, reason)` | Ammaar | done | `int` reservations released |
+| `inventory.stock_warnings(db)` | Ammaar | done | `list[dict]` items whose projected free kg is under reorder level (for `/owner`) |
+| `inventory.order_allocation(db, order_id)` | Ammaar | done | per line needed / reserved / issued / short, lots, `mixed_lots` |
+| `inventory.batch_kg_at(db, batch_id, location_kind)` | Ammaar | done | `Decimal` ledger balance of one batch at one location kind |
 | `orders.yarn_components(qty_m, fabric, order_colour)` | Ammaar | done | `[{fibre, count, colour, kg_needed}]`; dyed fabric uses `Raw White` yarn |
-| `orders.yarn_requirement(db, order_id)` | Ammaar | done (needs `free_stock`) | `[{fibre, count, colour, kg_needed, kg_free, kg_short}]` |
+| `orders.yarn_requirement(db, order_id)` | Ammaar | done | `[{fibre, count, colour, kg_needed, kg_free, kg_short}]` |
 | `production.create_work_orders(db, order_id, user_id)` | Muaz | done | `list[WorkOrder]`, one `waiting` per route stage; second call returns the same set |
 | `production.machine_status(db, machine_id)` | Muaz | done | `MachineStatus`, latest event or `off` |
 | `production.order_progress(db, order_id)` | Muaz | done | `{stage: {planned, produced, unit}}` |
 | `production.create_rework_work_order(db, roll_id, stage, user_id)` | Muaz | done | `WorkOrder` with `roll_id` set; roll must be `rework`; second call returns the open one. Processing the roll on that job sends it back to `awaiting_qc` |
 | `quality.roll_trace(db, roll_id)` | Razan | stub | order, loom, shift, weaver, yarn batches + suppliers, QC attempts, events |
-| `tracking.order_stage(db, order_id)` | Ashil | stub | derived buyer stage + metres per bucket |
-| `dispatch.finished_stock(db, order_id=None, shade_band=None)` | Ashil | stub | `list[Roll]` passed and not dispatched |
-| `finance.order_cost(db, order_id)` | Ashil | stub | yarn (FIFO GRN cost) + labour + machine + rework/reject vs revenue |
+| `tracking.order_stage(db, order_id)` | Ashil | done | derived buyer stage + metres per bucket |
+| `dispatch.finished_stock(db, order_id=None, shade_band=None)` | Ashil | done | `list[Roll]` passed and not dispatched |
+| `dispatch.corner_check(db, days=7)` | Ashil | done | rolls too long on shelf, order not open, or leftover of a shipped order |
+| `finance.order_cost(db, order_id)` | Ashil | done | yarn (FIFO GRN cost) + labour + machine + rework/reject vs revenue |
+| `finance.issue_invoice(db, user_id, dispatch, rolls)` | Ashil | done | `Invoice` + one line per roll; called only by dispatch confirm |
 | `analytics.delivery_estimate(db, order_id)` | Muaz | done | `{expected_at, status, slack_hours, stages, basis}`; status `on_track` / `at_risk` / `late`; 409 `not_forecastable` unless confirmed |
 | `analytics.attention_items(db, role)` | Muaz | done | up to 12 `{kind, severity, title, detail, href, entity_type, entity_id, since}`, worst first |
 
 Also callable: `workforce.current_shift(db, at)` → `(shift date, Shift)`, night shift belongs to
 the date it started; `workforce.crew_on_machine(db, machine_id, at)` → worker id or `None`.
+
+Cross-module writes agreed by the team (decision 22): dispatch confirm sets `rolls.status` to
+`dispatched` through `quality.service.ROLL_TRANSITIONS`, moves `rolls.location_id` and writes the
+FG → DISP `stock_moves`; tracking rotates `orders.tracking_token`. All in the caller's
+transaction, all audited.
 
 Pure helpers in `app.core.units`: `qty`, `rupees_to_paise`, `line_amount_paise`,
 `yarn_kg_for_fabric(metres, width_cm, gsm, loss_pct)`. Yarn kg = metres × width_m × GSM / 1000 /
@@ -133,7 +145,16 @@ Pure helpers in `app.core.units`: `qty`, `rupees_to_paise`, `line_amount_paise`,
 | `GET /api/masters/{suppliers,buyers,yarn-items,fabric-types,machines,workers,shifts}[/{id}]` | any logged in |
 | `POST`, `PUT` on the same paths | owner |
 | `GET /api/masters/locations` | any logged in |
-| `GET /api/inventory/batches` | any logged in |
+| `GET /api/inventory/{stock,stock/warnings,batches,batches/{id},expected-deliveries,receipts,receipts/{id},qr.svg}` | any logged in |
+| `POST /api/inventory/batches/{id}/{approve,quarantine,reject,identify}` | store |
+| `POST /api/inventory/batches/{id}/release` | owner only, reason required |
+| `POST /api/inventory/expected-deliveries`, `.../{id}/cancel` | store, sales |
+| `GET /api/inventory/sample-labels`, `POST /api/inventory/labels/check`, `POST /api/inventory/receipts[/{id}/lines,/{id}/confirm]` | store |
+| `GET /api/inventory/issue-plan?work_order=WO-…` | store, supervisor |
+| `POST /api/inventory/issues`, `POST /api/inventory/returns` | store |
+| `POST /api/orders`, `POST /api/orders/{id}/{confirm,reserve,cancel}` | sales |
+| `GET /api/orders/{id}`, `GET /api/orders/{id}/allocation`, `POST /api/orders/requirement-preview` | any logged in |
+| `GET /api/orders/to-buy` | sales, store |
 | `GET /api/orders`, `GET /api/orders/{id}/yarn-requirement` | any logged in |
 | `GET /api/production/work-orders`, `/work-orders/open`, `/board`, `/machines/{id}/timeline` | any logged in |
 | `POST /api/production/work-orders/{id}/{queue,unqueue,start,move,finish}`, `PUT /api/production/machines/{id}/queue` | supervisor |
@@ -141,12 +162,16 @@ Pure helpers in `app.core.units`: `qty`, `rupees_to_paise`, `line_amount_paise`,
 | `GET /api/quality/rolls` | any logged in |
 | `GET /api/workforce/attendance`, `/crew`, `/current-shift` | supervisor, accounts |
 | `PUT /api/workforce/attendance`, `POST /api/workforce/crew`, `POST /api/workforce/crew/{id}/end` | supervisor |
-| `GET /api/dispatch/dispatches` | dispatch, accounts |
-| `GET /api/finance/invoices` | accounts |
+| `GET /api/dispatch/dispatches[/{id}]`, `/finished-stock`, `/corner-check` | dispatch, accounts, supervisor |
+| `POST /api/dispatch/dispatches`, `.../{id}/scan`, `PUT .../{id}/vehicle`, `DELETE .../{id}/rolls/{roll_id}`, `POST .../{id}/confirm` | dispatch |
+| `POST /api/dispatch/dispatches/{id}/shade-override` | supervisor |
+| `/api/finance/*` (invoices, payments, wage-runs, expenses, orders/{id}/cost, machine-production, month, month/records) | accounts |
 | `GET /api/analytics/insights[/{id}]`, `/attention`, `/briefing` | any logged in (insights filtered to the role's kinds) |
 | `POST /api/analytics/insights/{id}/acknowledge`, `/resolve` | any logged in, own kinds |
 | `POST /api/analytics/run` | supervisor |
 | `GET /api/analytics/delivery`, `/orders/{id}/delivery-estimate` | sales, supervisor |
-| `GET /api/track/{token}` | public (501 until `order_stage` lands) |
+| `GET /api/track/{token}` | public |
+| `GET /api/track/orders/{id}` | sales, accounts, dispatch |
+| `POST /api/track/orders/{id}/rotate-token` | sales |
 
 Owner passes every role check. Full schema at http://localhost:8000/docs.

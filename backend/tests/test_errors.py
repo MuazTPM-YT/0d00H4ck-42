@@ -37,23 +37,25 @@ def test_duplicate_is_409_with_field(client_as):
     }
 
 
-def test_stub_is_501_in_error_shape(client, db, buyer, dyed_fabric):
-    from app.modules.orders.models import Order
+# own tiny app with the real handlers: stays valid after the last real stub is built
+def test_stub_is_501_in_error_shape():
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
 
-    order = Order(
-        code="SO-T1",
-        buyer_id=buyer.id,
-        fabric_type_id=dyed_fabric.id,
-        colour="Red",
-        qty_m=10,
-        rate_paise_per_m=100,
-        deadline="2026-12-01",
-    )
-    db.add(order)
-    db.commit()
-    res = client.get(f"/api/track/{order.tracking_token}")
+    from app.core.errors import install_error_handlers
+
+    app = FastAPI()
+    install_error_handlers(app)
+
+    @app.get("/stub")
+    def stub():
+        raise NotImplementedError("module.function")
+
+    res = TestClient(app).get("/stub")
     assert res.status_code == 501
-    assert res.json()["error"]["code"] == "not_implemented"
+    assert res.json() == {
+        "error": {"code": "not_implemented", "message": "module.function", "field": None}
+    }
 
 
 def test_unknown_tracking_token_is_404(client):

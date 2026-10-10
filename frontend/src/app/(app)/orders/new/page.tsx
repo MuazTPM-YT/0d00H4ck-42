@@ -1,5 +1,5 @@
-import { Placeholder } from "@/components/layout/Placeholder";
+import { NewOrderForm } from "@/features/orders/NewOrderForm";
 
 export default function Page() {
-  return <Placeholder />;
+  return <NewOrderForm />;
 }
