@@ -81,3 +81,4 @@ Start only after the Core items above work. Detail in `.claude/skills/odoo-hacka
 | D3 | Roll genealogy and root cause (machine, shift, supplier) | Razan | done: `quality.roll_trace`, `/qc/rolls/[id]` |
 | D4 | True cost per order (FIFO yarn, labour, machine, rework) | Ashil | done: `finance.order_cost` |
 | D5 | AI layer: detectors + insights + briefings (local, no model yet) | Muaz | done: `docs/ai.md`, evaluated in `docs/ai-evaluation.md` |
+| D6 | Proof of delivery: driver link + buyer's one-time code closes each truck | Ashil | done: `/deliver/[token]`, code on `/track/[token]`, office phone path, lock after 5 tries, tests in `test_delivery.py` |
