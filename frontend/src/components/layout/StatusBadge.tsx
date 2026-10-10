@@ -31,11 +31,14 @@ const STYLE: Record<Meaning, string> = {
   danger: "bg-danger-soft text-danger",
 };
 
+// statuses that mean "happening right now" get a soft pulse
+const LIVE = new Set(["running", "in_process", "loading"]);
+
 export function StatusBadge({ status, className }: { status: string; className?: string }) {
   const meaning = MEANING[status] ?? "neutral";
   return (
-    <span className={cn("inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium whitespace-nowrap", STYLE[meaning], className)}>
-      <span className="size-1.5 rounded-full bg-current" aria-hidden />
+    <span className={cn("inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[0.8rem] leading-none font-semibold whitespace-nowrap", STYLE[meaning], className)}>
+      <span className={cn("size-2 rounded-full bg-current", LIVE.has(status) && "ring-2 ring-current/25")} aria-hidden />
       {humanize(status)}
     </span>
   );

@@ -3,101 +3,126 @@
 
 /*
   Design tokens. Use these only: no one-off hex codes or pixel values in components.
-  Palette: indigo dye on cotton. One primary (indigo), cool cotton neutrals,
-  four semantic colours. Spacing = Tailwind's 4px scale (p-1 = 4px, p-4 = 16px).
-  Dark mode follows the OS setting.
+  Apple-style: black is the primary, white the surface, one quiet grey scale, and Apple's
+  system colours for meaning (green done, orange attention, red stopped, blue moving).
+  Spacing = Tailwind's 4px scale on a 17px root. Light by default; data-theme="dark"
+  inverts: white becomes the primary on black.
 */
 :root {
-  --radius: 0.5rem;
+  /* native popups (select lists, date pickers, scrollbars) follow our theme, not the OS */
+  color-scheme: light;
+  --radius: 1rem;
 
-  --background: #f4f6f9;
-  --foreground: #18213a;
+  --background: #f5f5f7;
+  --foreground: #1d1d1f;
   --card: #ffffff;
-  --card-foreground: #18213a;
+  --card-foreground: #1d1d1f;
   --popover: #ffffff;
-  --popover-foreground: #18213a;
-  --muted: #e9edf3;
-  --muted-foreground: #586377;
-  --border: #d9dfe8;
-  --input: #c7cfdc;
+  --popover-foreground: #1d1d1f;
+  --muted: #f0f0f3;
+  --muted-foreground: #6e6e73;
+  --border: #e3e3e8;
+  --input: #d2d2d7;
 
-  --primary: #2e4a86;
+  --primary: #1d1d1f;
   --primary-foreground: #ffffff;
-  --ring: #2e4a86;
-  --secondary: #e4e9f4;
-  --secondary-foreground: #22325a;
-  --accent: #e4e9f4;
-  --accent-foreground: #22325a;
+  --ring: #0071e3;
+  --secondary: #e8e8ed;
+  --secondary-foreground: #1d1d1f;
+  --accent: #ececf0;
+  --accent-foreground: #1d1d1f;
 
-  --success: #1e7a4a;
-  --success-soft: #dcf1e5;
-  --warning: #9a5a06;
-  --warning-soft: #fbecd2;
-  --danger: #b42318;
-  --danger-soft: #fbe2df;
-  --info: #0b6f86;
-  --info-soft: #d9eff4;
-  --neutral: #4b5568;
-  --neutral-soft: #e6e9ef;
+  --success: #157030;
+  --success-soft: #e3f5e8;
+  --warning: #b25000;
+  --warning-soft: #fff1e0;
+  --danger: #d70015;
+  --danger-soft: #ffe7e8;
+  --info: #0066cc;
+  --info-soft: #e5f1ff;
+  --neutral: #58585d;
+  --neutral-soft: #ececf0;
   --destructive: var(--danger);
 
-  /* sidebar: the one bold surface, dyed indigo with a faint warp-and-weft texture */
-  --sidebar: #1c2b52;
-  --sidebar-foreground: #d5ddef;
-  --sidebar-muted: #8f9cbd;
-  --sidebar-active: rgb(255 255 255 / 0.12);
-  --sidebar-accent: #a9bdf0;
-  --sidebar-thread: rgb(255 255 255 / 0.035);
+  /* translucent chrome: content scrolls underneath sidebar and top bar */
+  --material: rgb(255 255 255 / 0.72);
+  --material-strong: rgb(246 246 248 / 0.86);
+  --material-edge: rgb(255 255 255 / 0.6);
+  --elev-1: 0 1px 2px rgb(0 0 0 / 0.04), 0 2px 12px rgb(0 0 0 / 0.04);
+  --elev-2: 0 2px 6px rgb(0 0 0 / 0.06), 0 16px 40px rgb(0 0 0 / 0.08);
+
+  --sidebar: #f2f2f5;
+  --sidebar-foreground: #1d1d1f;
+  --sidebar-muted: #86868b;
+  --sidebar-active: #1d1d1f;
+  --sidebar-active-foreground: #ffffff;
+  --sidebar-hover: rgb(0 0 0 / 0.05);
+  --sidebar-accent: #1d1d1f;
+
+  /* motion: strong ease-out for UI, iOS drawer curve for sheets */
+  --curve-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --curve-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+  --curve-drawer: cubic-bezier(0.32, 0.72, 0, 1);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0f1525;
-    --foreground: #e3e8f2;
-    --card: #161e33;
-    --card-foreground: #e3e8f2;
-    --popover: #161e33;
-    --popover-foreground: #e3e8f2;
-    --muted: #1d2640;
-    --muted-foreground: #9aa5bc;
-    --border: #2a3552;
-    --input: #36436a;
+/* light for now; set data-theme="dark" on <html> to switch */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  & {
+    --background: #000000;
+    --foreground: #f5f5f7;
+    --card: #1c1c1e;
+    --card-foreground: #f5f5f7;
+    --popover: #1c1c1e;
+    --popover-foreground: #f5f5f7;
+    --muted: #2c2c2e;
+    --muted-foreground: #98989d;
+    --border: #2f2f33;
+    --input: #48484a;
 
-    --primary: #8aa6e8;
-    --primary-foreground: #0f1525;
-    --ring: #8aa6e8;
-    --secondary: #222d4a;
-    --secondary-foreground: #d5ddef;
-    --accent: #222d4a;
-    --accent-foreground: #d5ddef;
+    --primary: #f5f5f7;
+    --primary-foreground: #000000;
+    --ring: #2997ff;
+    --secondary: #2c2c2e;
+    --secondary-foreground: #f5f5f7;
+    --accent: #2c2c2e;
+    --accent-foreground: #f5f5f7;
 
-    --success: #5cc48d;
-    --success-soft: #133524;
-    --warning: #f0b75c;
-    --warning-soft: #3a2a0e;
-    --danger: #f2877d;
-    --danger-soft: #401b18;
-    --info: #5cc3da;
-    --info-soft: #0f3340;
-    --neutral: #aab3c5;
-    --neutral-soft: #252e45;
+    --success: #30d158;
+    --success-soft: #0f2e18;
+    --warning: #ff9f0a;
+    --warning-soft: #33230a;
+    --danger: #ff453a;
+    --danger-soft: #3a1513;
+    --info: #64aaff;
+    --info-soft: #0e2440;
+    --neutral: #98989d;
+    --neutral-soft: #2c2c2e;
 
-    --sidebar: #0b1122;
-    --sidebar-foreground: #c9d2e6;
-    --sidebar-muted: #7d8aa8;
-    --sidebar-active: rgb(255 255 255 / 0.08);
-    --sidebar-accent: #8aa6e8;
-    --sidebar-thread: rgb(255 255 255 / 0.025);
+    --material: rgb(28 28 30 / 0.72);
+    --material-strong: rgb(22 22 24 / 0.86);
+    --material-edge: rgb(255 255 255 / 0.06);
+    --elev-1: 0 0 0 1px rgb(255 255 255 / 0.04);
+    --elev-2: 0 0 0 1px rgb(255 255 255 / 0.06), 0 16px 40px rgb(0 0 0 / 0.5);
+
+    --sidebar: #0c0c0d;
+    --sidebar-foreground: #f5f5f7;
+    --sidebar-muted: #8e8e93;
+    --sidebar-active: #f5f5f7;
+    --sidebar-active-foreground: #000000;
+    --sidebar-hover: rgb(255 255 255 / 0.07);
+    --sidebar-accent: #f5f5f7;
   }
 }
 
 @theme inline {
-  --font-sans: ui-sans-serif, system-ui, "Segoe UI", Roboto, "Noto Sans", "Helvetica Neue", Arial,
-    sans-serif;
-  --radius-sm: calc(var(--radius) - 4px);
-  --radius-md: calc(var(--radius) - 2px);
+  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display",
+    "Segoe UI Variable Text", "Segoe UI", system-ui, Roboto, "Helvetica Neue", Arial, sans-serif;
+  --radius-sm: calc(var(--radius) - 6px);
+  --radius-md: calc(var(--radius) - 4px);
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
+  --radius-2xl: calc(var(--radius) + 8px);
 
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -133,35 +158,226 @@
   --color-sidebar-foreground: var(--sidebar-foreground);
   --color-sidebar-muted: var(--sidebar-muted);
   --color-sidebar-active: var(--sidebar-active);
+  --color-sidebar-active-foreground: var(--sidebar-active-foreground);
+  --color-sidebar-hover: var(--sidebar-hover);
   --color-sidebar-accent: var(--sidebar-accent);
+
+  --shadow-card: var(--elev-1);
+  --shadow-raised: var(--elev-2);
+  --ease-out: var(--curve-out);
+  --ease-in-out: var(--curve-in-out);
+  --ease-drawer: var(--curve-drawer);
 }
 
 @layer base {
   * {
     @apply border-border outline-ring/50;
   }
+  /* 17px root: Apple's body size. Every rem-based size and gap grows with it, so touch
+     targets get bigger too, and a user's browser text size still scales the whole layout */
+  html {
+    font-size: 106.25%;
+    -webkit-text-size-adjust: 100%;
+    -webkit-tap-highlight-color: transparent;
+  }
   body {
     @apply bg-background text-foreground antialiased;
+    font-feature-settings: "kern", "ss01";
+    font-optical-sizing: auto;
+    letter-spacing: -0.006em;
+    line-height: 1.47;
+  }
+  /* tracking is size-specific: big type tightens, small type stays open */
+  h1 {
+    letter-spacing: -0.022em;
+    line-height: 1.12;
+  }
+  h2,
+  h3 {
+    letter-spacing: -0.016em;
+    line-height: 1.2;
   }
   /* figures line up in tables and stat blocks */
   table,
   .tabular {
     font-variant-numeric: tabular-nums;
   }
+  ::selection {
+    background: color-mix(in srgb, var(--ring) 22%, transparent);
+  }
+  :focus-visible {
+    outline: 3px solid color-mix(in srgb, var(--ring) 55%, transparent);
+    outline-offset: 2px;
+  }
+  /* native selects match inputs: same border, radius and an SF-style chevron */
+  select {
+    appearance: none;
+    border-radius: var(--radius-md);
+    background-color: var(--card);
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2386868b' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 0.75rem center;
+    padding-right: 2.25rem !important;
+    min-height: 2.75rem;
+    cursor: pointer;
+  }
+  /* the option list is drawn by the browser: give it our colours so text never vanishes */
+  option,
+  optgroup {
+    background-color: var(--card);
+    color: var(--foreground);
+  }
+  option:disabled {
+    color: var(--muted-foreground);
+  }
+  textarea {
+    border-radius: var(--radius-md);
+    background-color: var(--card);
+  }
+  input[type="checkbox"],
+  input[type="radio"] {
+    accent-color: var(--primary);
+  }
 }
 
-@utility weave {
-  background-color: var(--sidebar);
-  background-image:
-    repeating-linear-gradient(0deg, var(--sidebar-thread) 0 1px, transparent 1px 4px),
-    repeating-linear-gradient(90deg, var(--sidebar-thread) 0 1px, transparent 1px 4px);
+/* frosted chrome: a floating layer, never an opaque strip */
+@utility material {
+  background-color: var(--material);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  backdrop-filter: blur(24px) saturate(180%);
+}
+
+@utility material-strong {
+  background-color: var(--material-strong);
+  -webkit-backdrop-filter: blur(32px) saturate(180%);
+  backdrop-filter: blur(32px) saturate(180%);
+}
+
+/* anything you press answers on press-down, not on release */
+@utility pressable {
+  transition: transform 160ms var(--curve-out), background-color 160ms ease, color 160ms ease,
+    box-shadow 160ms ease, opacity 160ms ease;
+  &:active:not(:disabled) {
+    transform: scale(0.97);
+  }
+}
+
+/* raised card on hover only where a real pointer exists, never on touch */
+@utility lift {
+  transition: transform 200ms var(--curve-out), box-shadow 200ms var(--curve-out),
+    border-color 200ms ease;
+  @media (hover: hover) and (pointer: fine) {
+    &:hover {
+      transform: translateY(-2px);
+      box-shadow: var(--elev-2);
+    }
+  }
+  &:active {
+    transform: scale(0.985);
+  }
+}
+
+/* page content arrives softly on navigation */
+@keyframes page-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+@utility page-in {
+  animation: page-in 260ms var(--curve-out) both;
+}
+
+/* a short cascade for grids of cards: 40ms apart, never blocks input */
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.99);
+  }
+}
+@utility stagger {
+  & > * {
+    animation: rise-in 320ms var(--curve-out) both;
+  }
+  & > *:nth-child(2) { animation-delay: 40ms; }
+  & > *:nth-child(3) { animation-delay: 80ms; }
+  & > *:nth-child(4) { animation-delay: 120ms; }
+  & > *:nth-child(5) { animation-delay: 160ms; }
+  & > *:nth-child(6) { animation-delay: 200ms; }
+  & > *:nth-child(n + 7) { animation-delay: 240ms; }
+}
+
+/* live signal: a soft pulse so a status that is "now" reads as alive */
+@keyframes live-pulse {
+  0% { box-shadow: 0 0 0 0 color-mix(in srgb, currentColor 45%, transparent); }
+  70% { box-shadow: 0 0 0 7px transparent; }
+  100% { box-shadow: 0 0 0 0 transparent; }
+}
+@utility live-dot {
+  animation: live-pulse 2s ease-out infinite;
 }
 
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
   *::after {
-    animation-duration: 0.01ms !important;
-    transition-duration: 0.01ms !important;
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 120ms !important;
+    transition-property: opacity, color, background-color, border-color !important;
   }
 }
+
+/* frostier, solid chrome for people who asked for less transparency */
+@media (prefers-reduced-transparency: reduce) {
+  :root {
+    --material: var(--card);
+    --material-strong: var(--background);
+  }
+  .material,
+  .material-strong {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+
+@media (prefers-contrast: more) {
+  :root {
+    --border: #8e8e93;
+    --muted-foreground: #3a3a3c;
+  }
+}
+
+/* sign-in entrance: each block rises out of a soft blur, a beat after the one above */
+@keyframes fade-slide-in {
+  to { opacity: 1; filter: blur(0); transform: translateY(0); }
+}
+@keyframes slide-right-in {
+  to { opacity: 1; filter: blur(0); transform: translateX(0); }
+}
+@keyframes testimonial-in {
+  to { opacity: 1; filter: blur(0); transform: translateY(0) scale(1); }
+}
+.animate-element {
+  opacity: 0; filter: blur(4px); transform: translateY(12px);
+  animation: fade-slide-in 0.6s var(--curve-out) forwards;
+}
+.animate-slide-right {
+  opacity: 0; filter: blur(4px); transform: translateX(32px);
+  animation: slide-right-in 0.8s var(--curve-out) forwards;
+}
+.animate-testimonial {
+  opacity: 0; filter: blur(4px); transform: translateY(16px) scale(0.97);
+  animation: testimonial-in 0.6s var(--curve-out) forwards;
+}
+.animate-delay-100 { animation-delay: 0.1s; }
+.animate-delay-200 { animation-delay: 0.2s; }
+.animate-delay-300 { animation-delay: 0.3s; }
+.animate-delay-400 { animation-delay: 0.4s; }
+.animate-delay-500 { animation-delay: 0.5s; }
+.animate-delay-600 { animation-delay: 0.6s; }
+.animate-delay-700 { animation-delay: 0.7s; }
+.animate-delay-800 { animation-delay: 0.8s; }
+.animate-delay-1000 { animation-delay: 1s; }
+.animate-delay-1200 { animation-delay: 1.2s; }
+.animate-delay-1400 { animation-delay: 1.4s; }

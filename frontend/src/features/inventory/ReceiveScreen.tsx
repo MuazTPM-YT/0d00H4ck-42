@@ -222,7 +222,7 @@ export function ReceiveScreen() {
             <ul className="grid gap-2">
               {r.batches.map((b) => (
                 <li key={b.id}>
-                  <button type="button" onClick={() => setOpenBatch(b.id)} className="flex min-h-12 w-full flex-wrap items-center gap-2 rounded-md border p-3 text-left hover:border-primary">
+                  <button type="button" onClick={() => setOpenBatch(b.id)} className="flex min-h-12 w-full flex-wrap items-center gap-2 pressable rounded-xl border p-3 text-left [@media(hover:hover)]:hover:border-input">
                     <span className="font-medium tabular">{b.code}</span>
                     <span className="text-sm text-muted-foreground">{itemLabel(b.yarn_item)} · lot {b.supplier_lot ?? "—"}</span>
                     <span className="ml-auto tabular">{kg(b.received_kg)}</span>

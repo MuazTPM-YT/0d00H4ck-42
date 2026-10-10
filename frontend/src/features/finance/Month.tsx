@@ -132,7 +132,7 @@ function Records({ month, kind }: { month: string; kind: MonthKind }) {
       {rows.data.map((r, i) => (
         <li key={i} className="flex flex-wrap items-center gap-3 px-3 py-2">
           <span className="w-24 text-muted-foreground">{date(r.on)}</span>
-          <span className="min-w-0 flex-1">{r.link ? <Link href={r.link} className="text-primary hover:underline">{r.ref}</Link> : humanize(r.ref)}<span className="block text-xs text-muted-foreground">{r.party}</span></span>
+          <span className="min-w-0 flex-1">{r.link ? <Link href={r.link} className="font-medium text-info hover:underline">{r.ref}</Link> : humanize(r.ref)}<span className="block text-xs text-muted-foreground">{r.party}</span></span>
           <span className="tabular">{inr(r.amount_paise)}</span>
         </li>
       ))}

@@ -26,7 +26,7 @@ export function MastersIndex() {
       <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {ALL.map((m, i) => (
           <li key={m.path}>
-            <Link href={`/masters/${m.path}`} className="flex h-full flex-col gap-1 rounded-lg border bg-card p-4 transition-colors hover:border-primary focus-visible:outline-2 focus-visible:outline-ring">
+            <Link href={`/masters/${m.path}`} className="flex h-full flex-col gap-1 lift rounded-2xl border border-border/60 bg-card p-5 shadow-card focus-visible:outline-2 focus-visible:outline-ring">
               <span className="flex items-baseline justify-between gap-2">
                 <span className="font-medium">{m.title}</span>
                 <span className="text-sm text-muted-foreground tabular">{counts[i].data?.total ?? "…"}</span>

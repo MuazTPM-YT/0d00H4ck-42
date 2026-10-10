@@ -41,7 +41,7 @@ export function BatchesForItem({ item, onClose, onOpenBatch }: { item: StockRow 
                     onClose();
                     onOpenBatch(b.id);
                   }}
-                  className="flex min-h-12 w-full flex-wrap items-center justify-between gap-2 rounded-md border bg-card p-3 text-left hover:border-primary focus-visible:outline-2 focus-visible:outline-ring"
+                  className="flex min-h-12 w-full flex-wrap items-center justify-between gap-2 pressable rounded-xl border bg-card p-3 text-left [@media(hover:hover)]:hover:border-input focus-visible:outline-2 focus-visible:outline-ring"
                 >
                   <span className="font-medium tabular">{b.code}</span>
                   <span className="text-sm text-muted-foreground">lot {b.supplier_lot ?? "—"}</span>

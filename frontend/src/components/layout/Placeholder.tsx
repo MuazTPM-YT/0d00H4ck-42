@@ -13,8 +13,8 @@ export function Placeholder() {
   return (
     <>
       <PageHeader title={route?.title ?? "Screen"} />
-      <EmptyState icon={Hammer} title="This screen is being built">
-        {route && `Part of the ${route.module} module, owned by ${route.owner}.`}
+      <EmptyState icon={Hammer} title="Coming soon">
+        This screen is on its way. Everything else in the menu works today.
       </EmptyState>
     </>
   );
