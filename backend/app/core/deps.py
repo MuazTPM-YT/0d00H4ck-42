@@ -27,6 +27,16 @@ def get_current_user(
     return user
 
 
+# same login check for a live stream, but its session closes before streaming starts: a tab
+# open for hours must not pin a pooled connection idle in a transaction
+def stream_user(
+    request: Request,
+    creds: HTTPAuthorizationCredentials | None = Depends(bearer),
+    db: Session = Depends(get_db, scope="function"),
+) -> User:
+    return get_current_user(request, creds, db)
+
+
 # owner is admin and passes every role check
 def require_roles(*roles: Role) -> Callable[..., User]:
     def check(user: User = Depends(get_current_user)) -> User:
