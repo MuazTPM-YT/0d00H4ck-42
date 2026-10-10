@@ -113,6 +113,7 @@ class Mill:
         self.down_until: dict[int, datetime] = {}
         self.resume_at: dict[int, datetime] = {}
         self.qc_due: list[tuple[datetime, int]] = []
+        self.qc_waiting: set[int] = set()  # rolls already given an inspection time
         self.payments: list[tuple[datetime, int, int]] = []
         self.orders_made = 0
         self.receipts_made = 0
@@ -203,7 +204,7 @@ class Mill:
             self.resume_at[m.id] = t + timedelta(minutes=gap)
         self.crew_change(t)
 
-    # queue ready jobs on the least busy machine of their stage; start the first in line
+    # queue ready jobs on the least busy machine of their stage; the service starts a free one
     def schedule(self, t: datetime) -> None:
         waiting = self.db.scalars(
             select(WorkOrder)
@@ -238,24 +239,10 @@ class Mill:
                 ).all()
             )
             best = min(options, key=lambda m: (load.get(m.id, 0), m.id))
-            production.queue_work_order(self.db, wo.id, best.id, self.sup())
-            if wo.stage == Stage.weaving and wo.roll_id is None:
-                issue_reserved_yarn(self, wo, t)
-        for m in self.machines:
-            if self.status(m) in production.DOWNTIME or m.id in self.down_until:
-                continue
-            if self.job(m, WorkOrderStatus.running) or self.job(m, WorkOrderStatus.paused):
-                continue
-            first = self.db.scalar(
-                select(WorkOrder)
-                .where(WorkOrder.machine_id == m.id, WorkOrder.status == WorkOrderStatus.queued)
-                .order_by(WorkOrder.queue_position)
-                .limit(1)
-            )
-            if first:
-                at = max(t, self.resume_at.get(m.id, t)) + timedelta(minutes=2)
-                production.start_work_order(self.db, first.id, self.sup(), at, Source.machine)
-                self.resume_at[m.id] = at
+            if wo.roll_id is None and wo.seq == 1:
+                issue_reserved_yarn(self, wo, t)  # the store issues to the route's first stage
+            at = max(t, self.resume_at.get(best.id, t)) + timedelta(minutes=2)
+            production.queue_work_order(self.db, wo.id, best.id, self.sup(), at)
 
     def efficiency(self, m: Machine, t: datetime) -> float:
         if m.code == DECLINE_LOOM and self.day(t) in DECLINE_DAYS:
@@ -292,6 +279,8 @@ class Mill:
         del self.down_until[m.id]
         if m.id in self.late_upload and paused:
             self.late_upload.discard(m.id)
+            if self.produced.get(paused.id, Decimal(0)) + 6 >= paused.planned_qty:
+                return at  # the late metres would finish the job back in time; skip them
             # counter buffered during the stoppage and uploads now, stamped inside the breakdown
             stamp = at - timedelta(minutes=70)
             self.log(m, paused, Decimal("6.000"), stamp)
@@ -306,7 +295,8 @@ class Mill:
         wo = self.job(m, WorkOrderStatus.running)
         if not wo:
             return
-        begin = max(begin, self.resume_at.get(m.id, t))
+        # a job the service pulled off the queue mid-hour works from its start, not the hour
+        begin = max(begin, self.resume_at.get(m.id, t), wo.started_at)
         end = t + HOUR
         forced = self.forced_breakdown(m, t)
         broke = None
@@ -365,25 +355,30 @@ class Mill:
         amount = qty(min(m.rated_output_per_hour * minutes / 60 * rate, wo.planned_qty - made))
         if amount > 0:
             self.log(m, wo, amount, at)
-        if wo.stage == Stage.weaving:
+        # reaching planned finishes the job and cuts the tail roll in the service
+        if wo.stage == Stage.weaving and wo.status != WorkOrderStatus.done:
             self.uncut[wo.id] = self.uncut.get(wo.id, Decimal(0)) + max(amount, Decimal(0))
             while self.uncut[wo.id] >= self.target.setdefault(wo.id, self.roll_length()):
                 self.cut(wo, self.target.pop(wo.id), at)
-        if self.produced.get(wo.id, Decimal(0)) >= wo.planned_qty:
-            if wo.stage == Stage.weaving and self.uncut.get(wo.id, 0) >= 1:
-                self.cut(wo, self.uncut[wo.id], at)
-            production.finish_work_order(self.db, wo.id, self.sup(), at, Source.machine)
 
     def roll_length(self) -> Decimal:
         return Decimal(self.rng.randint(55, 65))
 
     def cut(self, wo: WorkOrder, length: Decimal, at: datetime) -> None:
-        roll = production.cut_roll(
+        production.cut_roll(
             self.db, RollIn(work_order_id=wo.id, length_m=length, source=Source.machine), None, at
         )
         self.uncut[wo.id] -= length
-        if roll["status"] == RollStatus.awaiting_qc:
-            self.qc_due.append((at + timedelta(hours=self.rng.randint(2, 8)), roll["id"]))
+
+    # every roll waiting for QC gets an inspection time once, tail rolls the service cut too
+    def plan_qc(self, t: datetime) -> None:
+        waiting = self.db.scalars(
+            select(Roll.id).where(Roll.status == RollStatus.awaiting_qc).order_by(Roll.id)
+        ).all()
+        for roll_id in waiting:
+            if roll_id not in self.qc_waiting:
+                self.qc_waiting.add(roll_id)
+                self.qc_due.append((t + timedelta(hours=self.rng.randint(2, 8)), roll_id))
 
     # dyeing and rework take whole rolls: as many as the hour's capacity allows
     def process_rolls(self, m: Machine, wo: WorkOrder, minutes: Decimal, at: datetime) -> None:
@@ -400,30 +395,10 @@ class Mill:
             if roll.length_m > room and room < m.rated_output_per_hour / 2:
                 break
             room -= roll.length_m
+            # the service finishes a rework job, and dyeing once weaving is done and dyed
             body = RollProcessIn(work_order_id=wo.id, source=Source.machine)
-            result = production.process_roll(self.db, roll.id, body, None, at)
+            production.process_roll(self.db, roll.id, body, None, at)
             self.produced[wo.id] = self.produced.get(wo.id, Decimal(0)) + roll.length_m
-            if result["status"] == RollStatus.awaiting_qc:
-                self.qc_due.append((at + timedelta(hours=self.rng.randint(2, 8)), roll.id))
-        if wo.roll_id:
-            finished = todo[0].status != RollStatus.rework
-        else:
-            weaving_open = self.db.scalar(
-                select(func.count()).where(
-                    WorkOrder.order_id == wo.order_id,
-                    WorkOrder.stage == Stage.weaving,
-                    WorkOrder.roll_id.is_(None),
-                    WorkOrder.status != WorkOrderStatus.done,
-                )
-            )
-            rolls_left = self.db.scalar(
-                select(func.count()).where(
-                    Roll.order_id == wo.order_id, Roll.status == RollStatus.in_process
-                )
-            )
-            finished = not weaving_open and not rolls_left
-        if finished:
-            production.finish_work_order(self.db, wo.id, self.sup(), at, Source.machine)
 
     def hour(self, t: datetime) -> None:
         local = t.astimezone(IST)
@@ -437,9 +412,11 @@ class Mill:
         self.schedule(t)
         for m in self.machines:
             self.run_machine(m, t)
+        self.plan_qc(t)
         due = sorted(d for d in self.qc_due if d[0] < t + HOUR)
         self.qc_due = [d for d in self.qc_due if d[0] >= t + HOUR]
         for at, roll_id in due:
+            self.qc_waiting.discard(roll_id)
             qc_decision(self, roll_id, at)
         if local.hour == 16:
             dispatch_ready(self, t)
@@ -912,78 +889,106 @@ class Api:
             return json.loads(res.read() or "null")
 
 
+# one request; an error answer or a network blip is printed and the feed goes on
+def post(api: Api, label: str, path: str, body: dict):
+    try:
+        return api.call("POST", path, body)
+    except urllib.error.HTTPError as e:
+        print(f"{label}: {e.code} {e.read().decode()[:160]}")
+    except (urllib.error.URLError, OSError) as e:
+        print(f"{label}: {getattr(e, 'reason', e)}")
+    return None
+
+
+class Feed:
+    def __init__(self, api: Api, interval: float, seed: int):
+        self.api, self.rng = api, random.Random(seed)
+        self.down: dict[int, int] = {}  # machine id -> ticks left in a breakdown we reported
+        self.uncut: dict[int, float] = {}  # loom job -> metres woven since the last cut
+        self.target: dict[int, float] = {}  # loom job -> length of the next roll
+        self.seen: dict[int, int] = {}  # rework job -> ticks it has been running
+        # a feed breakdown older than this, left by an earlier run, gets repaired
+        self.stale = timedelta(seconds=interval * 10)
+        self.tick = 0
+
+    def event(self, tile: dict, status: str, reason: str | None = None):
+        body = {"machine_id": tile["machine_id"], "status": status, "source": "machine"}
+        if reason:
+            body["reason"] = reason
+        return post(self.api, tile["code"], "/production/machine-events", body)
+
+    # board is the truth every tick, so a restart picks up where the floor is
+    def step(self, tile: dict, now: datetime) -> None:
+        mid, job, status = tile["machine_id"], tile["job"], tile["status"]
+        ours = tile.get("source") == "machine"
+        if status == "breakdown" and ours:
+            if mid in self.down:
+                self.down[mid] -= 1
+                if self.down[mid] > 0:
+                    return
+                del self.down[mid]
+            elif now - datetime.fromisoformat(tile["since"]) < self.stale:
+                return
+            self.event(tile, "running" if job else "idle")
+            return
+        # a supervisor's manual stop is theirs to undo; only resume what the feed stopped
+        if status == "idle" and job and job["status"] == "paused" and ours:
+            self.event(tile, "running")
+            return
+        if status != "running" or not job or job["status"] != "running":
+            return
+        wo = job["work_order_id"]
+        if job["roll_id"]:
+            self.seen[wo] = self.seen.get(wo, 0) + 1
+            if self.seen[wo] >= 3:
+                path = f"/production/rolls/{job['roll_id']}/process"
+                if post(self.api, tile["code"], path, {"work_order_id": wo, "source": "machine"}):
+                    del self.seen[wo]
+            return
+        if job["stage"] == "dyeing":
+            if self.tick % 5 == 0:
+                path = f"/production/work-orders/{wo}/process-waiting"
+                post(self.api, tile["code"], path, {"source": "machine"})
+            return
+        left = float(job["planned"]) - float(job["produced"])
+        if left <= 0:
+            return
+        if self.rng.random() < 0.02:
+            if self.event(tile, "breakdown", self.rng.choice(REASONS)):
+                self.down[mid] = self.rng.randint(4, 10)
+            return
+        amount = round(min(left, self.rng.uniform(1.0, 2.5)), 3)
+        body = {"machine_id": mid, "qty": str(amount), "source": "machine"}
+        if not post(self.api, tile["code"], "/production/output", body):
+            return
+        # the last metres finish the job; the service cuts that tail roll itself
+        if job["stage"] != "weaving" or amount >= left:
+            return
+        self.uncut[wo] = self.uncut.get(wo, 0) + amount
+        length = self.target.setdefault(wo, self.rng.uniform(55, 65))
+        if self.uncut[wo] >= length:
+            body = {"work_order_id": wo, "length_m": f"{length:.3f}", "source": "machine"}
+            if post(self.api, tile["code"], "/production/rolls", body):
+                self.uncut[wo] -= length
+                del self.target[wo]
+
+
 def live(base: str, interval: float, seed: int) -> None:
-    rng = random.Random(seed)
-    api = Api(base, "supervisor@everest.local", "demo1234")
-    down: dict[int, int] = {}  # machine id -> ticks left in breakdown
-    uncut: dict[int, float] = {}
+    feed = Feed(Api(base, "supervisor@everest.local", "demo1234"), interval, seed)
     print(f"live feed on {base}, every {interval}s. Ctrl+C stops.")
     while True:
-        for tile in api.call("GET", "/production/board")["machines"]:
-            mid, job = tile["machine_id"], tile["job"]
-            try:
-                if mid in down:
-                    down[mid] -= 1
-                    if down[mid] <= 0:
-                        del down[mid]
-                        status = "running" if job else "idle"
-                        api.call(
-                            "POST",
-                            "/production/machine-events",
-                            {"machine_id": mid, "status": status, "source": "machine"},
-                        )
-                    continue
-                if tile["status"] == "idle" and job and job["status"] == "paused":
-                    api.call(
-                        "POST",
-                        "/production/machine-events",
-                        {"machine_id": mid, "status": "running", "source": "machine"},
-                    )
-                    continue
-                if (
-                    tile["status"] != "running"
-                    or not job
-                    or job["stage"] == "dyeing"
-                    or job["roll_id"]
-                ):
-                    continue
-                if rng.random() < 0.02:
-                    api.call(
-                        "POST",
-                        "/production/machine-events",
-                        {
-                            "machine_id": mid,
-                            "status": "breakdown",
-                            "source": "machine",
-                            "reason": rng.choice(REASONS),
-                        },
-                    )
-                    down[mid] = rng.randint(4, 10)
-                    continue
-                left = float(job["planned"]) - float(job["produced"])
-                amount = round(min(left, rng.uniform(1.0, 2.5)), 3)
-                if amount <= 0:
-                    continue
-                api.call(
-                    "POST",
-                    "/production/output",
-                    {"machine_id": mid, "qty": str(amount), "source": "machine"},
-                )
-                if job["stage"] == "weaving":
-                    uncut[mid] = uncut.get(mid, 0) + amount
-                    if uncut[mid] >= 20:
-                        api.call(
-                            "POST",
-                            "/production/rolls",
-                            {
-                                "work_order_id": job["work_order_id"],
-                                "length_m": f"{uncut[mid]:.3f}",
-                                "source": "machine",
-                            },
-                        )
-                        uncut[mid] = 0
-            except urllib.error.HTTPError as e:
-                print(f"{tile['code']}: {e.code} {e.read().decode()[:160]}")
+        feed.tick += 1
+        try:
+            tiles = feed.api.call("GET", "/production/board")["machines"]
+        except urllib.error.HTTPError as e:
+            print(f"board: {e.code} {e.read().decode()[:160]}")
+            tiles = []
+        except (urllib.error.URLError, OSError) as e:
+            print(f"board: {getattr(e, 'reason', e)}")
+            tiles = []
+        now = datetime.now(UTC)
+        for tile in tiles:
+            feed.step(tile, now)
         wall.sleep(interval)
 
 

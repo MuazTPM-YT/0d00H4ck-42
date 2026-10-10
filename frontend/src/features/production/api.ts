@@ -22,6 +22,8 @@ export type BoardTile = {
   status: MachineStatus;
   since: string | null;
   reason: string | null;
+  // who reported the latest status: a machine feed or a person
+  source: "manual" | "scanner" | "machine" | null;
   job: {
     work_order_id: number;
     code: string;

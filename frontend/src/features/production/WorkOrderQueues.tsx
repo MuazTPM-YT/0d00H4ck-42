@@ -124,12 +124,24 @@ function MoveDialog({ wo, machines, onClose }: { wo: OpenWorkOrder | null; machi
   );
 }
 
+// why the server will refuse Start, where the queue screen can already tell; null = try it
+function startBlocker(wo: OpenWorkOrder, active: OpenWorkOrder[], all: OpenWorkOrder[]): string | null {
+  const other = active.find((a) => a.id !== wo.id);
+  // a rework job may pause the route job on its machine, never another rework
+  if (other && (!wo.roll_id || active.some((a) => a.roll_id && a.id !== wo.id))) return `Machine busy with ${other.code}`;
+  if (wo.roll_id) return null;
+  const earlier = all.filter((w) => w.order_id === wo.order_id && !w.roll_id && w.seq < wo.seq).sort((a, b) => b.seq - a.seq)[0];
+  if (earlier && (earlier.status === "waiting" || earlier.status === "queued")) return `Start ${earlier.code} first`;
+  return null;
+}
+
 // one machine: its running or paused job, then its queue in order
-function MachineQueue({ machine, jobs, onMove }: { machine: BoardTile; jobs: OpenWorkOrder[]; onMove: (wo: OpenWorkOrder) => void }) {
+function MachineQueue({ machine, jobs, all, onMove }: { machine: BoardTile; jobs: OpenWorkOrder[]; all: OpenWorkOrder[]; onMove: (wo: OpenWorkOrder) => void }) {
   const queued = jobs.filter((w) => w.status === "queued").sort((a, b) => (a.queue_position ?? 0) - (b.queue_position ?? 0));
   const active = jobs.filter((w) => w.status === "running" || w.status === "paused");
   const reorder = useFloorAction<{ work_order_ids: number[] }>(() => `/production/machines/${machine.machine_id}/queue`, "PUT");
   const act = useFloorAction<{ id: number; verb: string }>((b) => `/production/work-orders/${b.id}/${b.verb}`);
+  const processRoll = useFloorAction<{ roll: number; work_order_id: number; source: string }>((b) => `/production/rolls/${b.roll}/process`);
 
   function swap(i: number, j: number) {
     const ids = queued.map((w) => w.id);
@@ -150,15 +162,23 @@ function MachineQueue({ machine, jobs, onMove }: { machine: BoardTile; jobs: Ope
             <div className="flex flex-wrap items-center gap-2">
               <StatusBadge status={wo.status} />
               <span className="flex-1" aria-hidden />
-              {wo.status === "paused" ? (
+              {wo.status === "paused" && (
                 <>
                   <Button variant="outline" onClick={() => onMove(wo)}>
                     Move
                   </Button>
-                  <Button onClick={() => act.mutate({ id: wo.id, verb: "start" })} disabled={act.isPending}>
+                  <Button onClick={() => act.mutate({ id: wo.id, verb: "start" })} disabled={act.isPending || startBlocker(wo, active, all) !== null} title={startBlocker(wo, active, all) ?? undefined}>
                     <Play /> Resume
                   </Button>
                 </>
+              )}
+              {/* a rework job is done when its roll is processed; a paused route job can finish while its machine is down */}
+              {wo.roll_id ? (
+                wo.status === "running" && (
+                  <Button variant="outline" onClick={() => processRoll.mutate({ roll: wo.roll_id!, work_order_id: wo.id, source: "manual" })} disabled={processRoll.isPending}>
+                    <Square /> Process roll
+                  </Button>
+                )
               ) : (
                 <Button variant="outline" onClick={() => act.mutate({ id: wo.id, verb: "finish" })} disabled={act.isPending}>
                   <Square /> Finish
@@ -167,39 +187,43 @@ function MachineQueue({ machine, jobs, onMove }: { machine: BoardTile; jobs: Ope
             </div>
           </li>
         ))}
-        {queued.map((wo, i) => (
-          <li key={wo.id} className="grid gap-2 px-4 py-3">
-            <div className="flex min-w-0 items-start gap-2">
-              <span className="w-6 shrink-0 pt-0.5 text-center text-sm text-muted-foreground tabular">{i + 1}</span>
-              <div className="min-w-0 flex-1">
-                <JobLine wo={wo} />
+        {queued.map((wo, i) => {
+          const blocked = startBlocker(wo, active, all);
+          return (
+            <li key={wo.id} className="grid gap-2 px-4 py-3">
+              <div className="flex min-w-0 items-start gap-2">
+                <span className="w-6 shrink-0 pt-0.5 text-center text-sm text-muted-foreground tabular">{i + 1}</span>
+                <div className="min-w-0 flex-1">
+                  <JobLine wo={wo} />
+                </div>
               </div>
-            </div>
-            <div className="flex flex-wrap items-center gap-1 pl-8">
-              <StatusBadge status={wo.status} />
-              <span className="flex-1" aria-hidden />
-              <Button size="icon" variant="ghost" aria-label={`Move ${wo.code} up`} disabled={i === 0 || reorder.isPending} onClick={() => swap(i, i - 1)}>
-                <ArrowUp />
-              </Button>
-              <Button size="icon" variant="ghost" aria-label={`Move ${wo.code} down`} disabled={i === queued.length - 1 || reorder.isPending} onClick={() => swap(i, i + 1)}>
-                <ArrowDown />
-              </Button>
-              <Button size="icon" variant="ghost" aria-label={`Take ${wo.code} off the queue`} disabled={act.isPending} onClick={() => act.mutate({ id: wo.id, verb: "unqueue" })}>
-                <Undo2 />
-              </Button>
-              <Button variant="outline" onClick={() => onMove(wo)}>
-                Move
-              </Button>
-              <Button disabled={active.length > 0 || act.isPending} onClick={() => act.mutate({ id: wo.id, verb: "start" })}>
-                <Play /> Start
-              </Button>
-            </div>
-          </li>
-        ))}
+              <div className="flex flex-wrap items-center gap-1 pl-8">
+                <StatusBadge status={wo.status} />
+                <span className="flex-1" aria-hidden />
+                <Button size="icon" variant="ghost" aria-label={`Move ${wo.code} up`} disabled={i === 0 || reorder.isPending} onClick={() => swap(i, i - 1)}>
+                  <ArrowUp />
+                </Button>
+                <Button size="icon" variant="ghost" aria-label={`Move ${wo.code} down`} disabled={i === queued.length - 1 || reorder.isPending} onClick={() => swap(i, i + 1)}>
+                  <ArrowDown />
+                </Button>
+                <Button size="icon" variant="ghost" aria-label={`Take ${wo.code} off the queue`} disabled={act.isPending} onClick={() => act.mutate({ id: wo.id, verb: "unqueue" })}>
+                  <Undo2 />
+                </Button>
+                <Button variant="outline" onClick={() => onMove(wo)}>
+                  Move
+                </Button>
+                <Button disabled={blocked !== null || act.isPending} title={blocked ?? undefined} onClick={() => act.mutate({ id: wo.id, verb: "start" })}>
+                  <Play /> Start
+                </Button>
+              </div>
+              {blocked && <p className="label pl-8 text-right normal-case tracking-[0.04em]">{blocked}</p>}
+            </li>
+          );
+        })}
         {active.length + queued.length === 0 && <li className="px-4 py-3 text-sm text-muted-foreground">Nothing queued.</li>}
       </ul>
       <div className="px-4 empty:hidden">
-        <ActionError errors={{ ...reorder.errors, ...act.errors }} />
+        <ActionError errors={{ ...reorder.errors, ...act.errors, ...processRoll.errors }} />
       </div>
     </section>
   );
@@ -228,7 +252,7 @@ export function WorkOrderQueues() {
 
   return (
     <>
-      <PageHeader title="Work orders" description="Queue jobs on machines of the right type. A broken machine takes no new work." />
+      <PageHeader title="Work orders" description="Queue jobs on machines of the right type. A free machine starts the head of its queue; rework jumps the line." />
       {jobs.isPending || board.isPending ? (
         <div className="grid gap-4 lg:grid-cols-[22rem_minmax(0,1fr)]">
           <Skeleton className="h-64" />
@@ -264,7 +288,7 @@ export function WorkOrderQueues() {
                   <h2 className="eyebrow mb-3">{humanize(stage)}</h2>
                   <div className="grid gap-4 xl:grid-cols-2">
                     {ofStage.map((m) => (
-                      <MachineQueue key={m.machine_id} machine={m} jobs={all.filter((w) => w.machine_id === m.machine_id)} onMove={setMoving} />
+                      <MachineQueue key={m.machine_id} machine={m} jobs={all.filter((w) => w.machine_id === m.machine_id)} all={all} onMove={setMoving} />
                     ))}
                   </div>
                 </section>

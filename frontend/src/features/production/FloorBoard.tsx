@@ -2,7 +2,7 @@
 
 import { AlertTriangle, ClipboardList, Factory, Users } from "lucide-react";
 import Link from "next/link";
-import { type ReactNode, useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 
 import { EmptyState } from "@/components/layout/EmptyState";
 import { PageHeader } from "@/components/layout/PageHeader";
@@ -59,6 +59,11 @@ export function FloorBoard({ top }: { top?: ReactNode }) {
   const board = useBoard();
   const now = useNow();
   const [openId, setOpenId] = useState<number | null>(null);
+  // alerts deep-link a machine: /floor?machine=<id> opens its panel
+  useEffect(() => {
+    const m = Number(new URLSearchParams(window.location.search).get("machine"));
+    if (m > 0) setOpenId(m);
+  }, []);
   const [filter, setFilter] = useState<MachineStatus | null>(null);
   const tiles = board.data?.machines ?? [];
   const open = tiles.find((t) => t.machine_id === openId) ?? null;

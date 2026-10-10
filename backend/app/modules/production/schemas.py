@@ -133,6 +133,16 @@ class RollProcessIn(BaseModel):
     idempotency_key: IdempotencyKey | None = None
 
 
+class ProcessWaitingIn(BaseModel):
+    source: Source = Source.manual
+    idempotency_key: IdempotencyKey | None = None
+
+
+class ProcessWaitingOut(BaseModel):
+    work_order_id: int
+    processed: int
+
+
 class RollOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -169,6 +179,8 @@ class BoardTile(BaseModel):
     status: MachineStatus
     since: datetime | None
     reason: str | None
+    # who reported the latest status; the live feed leaves a supervisor's call alone
+    source: Source | None
     job: BoardJob | None
     today_output: Decimal
     queued: int
