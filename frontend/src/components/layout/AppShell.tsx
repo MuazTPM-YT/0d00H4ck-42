@@ -49,7 +49,8 @@ export function AppShell({ children }: { children: ReactNode }) {
   }
 
   const user = me.data;
-  const allowed = !route || canSee(route, user.role);
+  // a page missing from the route table is refused, not open to everyone
+  const allowed = !!route && canSee(route, user.role);
 
   return (
     <div className="min-h-dvh md:grid md:grid-cols-[16.5rem_1fr]">

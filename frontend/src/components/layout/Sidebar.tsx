@@ -8,6 +8,7 @@ import { useEffect, useState } from "react";
 import { SECTION } from "@/components/dither/motifs";
 import { setMotion, useMotion } from "@/components/dither/ticker";
 import { BrandMark } from "@/components/layout/BrandMark";
+import { TourButton } from "@/features/tour/Tour";
 import { ROLE_LABEL, type User, useLogout } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 import { navFor, ROUTES } from "@/nav";
@@ -93,6 +94,8 @@ export function Sidebar({ user, onNavigate }: { user: User; onNavigate?: () => v
           </div>
         ))}
       </nav>
+
+      <TourButton className="mx-3 h-9 text-[0.85rem]" />
 
       <div className="m-3 flex items-center gap-2 border-t border-foreground pt-3">
         <span className="grid size-10 shrink-0 place-items-center border border-foreground font-mono text-sm font-medium" aria-hidden>

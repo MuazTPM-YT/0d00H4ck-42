@@ -3,6 +3,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { type ReactNode, useState } from "react";
 
+import { TourProvider } from "@/features/tour/Tour";
 import { ApiError } from "@/lib/api";
 
 export function Providers({ children }: { children: ReactNode }) {
@@ -18,5 +19,9 @@ export function Providers({ children }: { children: ReactNode }) {
         },
       }),
   );
-  return <QueryClientProvider client={client}>{children}</QueryClientProvider>;
+  return (
+    <QueryClientProvider client={client}>
+      <TourProvider>{children}</TourProvider>
+    </QueryClientProvider>
+  );
 }

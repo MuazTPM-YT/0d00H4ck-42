@@ -119,7 +119,8 @@ caller. Status: **done** = implemented and tested, **stub** = raises `NotImpleme
 | `inventory.first_stage_work_order(db, order_id)` | Ammaar | done | the order's first route job, the only job that takes yarn |
 | `orders.close_order(db, order_id, user_id, reason=None)` | Ammaar | done | `Order` confirmed → closed, releases its reservations; 409 while a job is on a machine or a truck is open |
 | `orders.shipped_m(db, order_id)` | Ammaar | done | `Decimal` metres on confirmed dispatches |
-| `production.pull_next(db, machine_id, user_id, at=None)`, `pull_ready(db, user_id, at=None)` | Muaz | done | start the head of a free machine's queue when its rules allow; run after every floor write and after a yarn issue |
+| `production.pull_next(db, machine_id, user_id, at=None)`, `pull_ready(db, user_id, at=None)` | Muaz | done | start the first job in a free machine's queue that its rules allow (a blocked one does not hold up the next) |
+| `production.plan_waiting(db, user_id)`, `advance(db, user_id, at=None)` | Muaz | done | `plan_waiting` queues every ready waiting job on the least busy working machine of its stage, earliest deadline first; `advance` = plan, then pull. Run after every floor write, a yarn issue and a QC rework |
 | `production.release_order_jobs(db, order_id, user_id)` | Muaz | done | `int` queued jobs sent back to waiting; 409 if a job is running or paused. Called by order cancel |
 | `dispatch.order_fully_shipped(db, order_id)` | Ashil | done | `bool` shipped ≥ qty × 0.98; dispatch confirm then closes the order |
 | `finance.period_locked(db, day)` | Ashil | done | `bool` a final or paid wage run covers the day; attendance writes refuse it |
@@ -143,6 +144,10 @@ The simulator, the live feed and people all go through these; none of them lives
 - A later stage starts once the earlier one has started; dyeing also needs a woven roll waiting.
 - A stage finishes by itself at its plan (weaving cuts the tail roll). Dyeing finishes when weaving
   is done and no roll waits. A free machine starts its next queued job by itself.
+- Nobody has to queue a job. Once ready, a waiting job goes to the least busy running or idle machine
+  of its stage: the first stage once its yarn is issued, a later stage once the one before started,
+  dyeing once weaving is done (so a dye range never holds a job with nothing to dye), rework at once.
+  With no working machine it waits; the supervisor can still move, unqueue or queue by hand.
 - One active (running or paused) job per machine. A rework job jumps the queue and pauses the main
   job until its roll is processed.
 - QC: a third check cannot send a roll to rework again; rework only on a confirmed order.

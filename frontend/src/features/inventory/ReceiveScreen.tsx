@@ -214,7 +214,7 @@ export function ReceiveScreen() {
       )}
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-        <section className="grid content-start gap-4 rounded-lg border bg-card p-4">
+        <section data-tour="receive-lots" className="grid content-start gap-4 rounded-lg border bg-card p-4">
           <h2 className="font-semibold">{r ? `Truck ${r.code} · ${r.supplier_name}` : "New truck"}</h2>
           {!r && (
             <div className="grid gap-4 sm:grid-cols-2">

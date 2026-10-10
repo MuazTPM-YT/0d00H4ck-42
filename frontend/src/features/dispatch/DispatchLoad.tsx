@@ -122,7 +122,7 @@ function ScanBox({ id, onScanned }: { id: string; onScanned: () => void }) {
   }
 
   return (
-    <form onSubmit={submit} className="rounded-lg border bg-card p-4">
+    <form onSubmit={submit} data-tour="truck-scan" className="rounded-lg border bg-card p-4">
       <label htmlFor="roll_code" className="mb-2 flex items-center gap-2 font-medium">
         <ScanLine className="size-5" aria-hidden /> Scan roll onto truck
       </label>

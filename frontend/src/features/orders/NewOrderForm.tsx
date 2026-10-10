@@ -142,7 +142,7 @@ export function NewOrderForm() {
     <>
       <PageHeader title="New order" description="Yarn needed = metres × width × GSM ÷ 1000 ÷ (1 − loss%), split by the fabric recipe. Dyed fabrics use Raw White yarn." />
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-        <form noValidate onSubmit={(e: FormEvent) => { e.preventDefault(); submit(true); }} className="grid content-start gap-4 rounded-lg border bg-card p-4">
+        <form noValidate data-tour="order-form" onSubmit={(e: FormEvent) => { e.preventDefault(); submit(true); }} className="grid content-start gap-4 rounded-lg border bg-card p-4">
           <FormField name="buyer_id" label="Buyer" error={errors.buyer_id} required>
             <select id="buyer_id" value={v.buyer_id} onChange={(e) => set("buyer_id", e.target.value)} className={selectClass} {...a11y("buyer_id")}>
               <option value="">Choose…</option>

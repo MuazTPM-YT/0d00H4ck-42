@@ -23,7 +23,7 @@ const EDGE: Record<AttentionItem["severity"], string> = {
 export function BriefingCard() {
   const briefing = useBriefing();
   return (
-    <section aria-label="Briefing" className="mb-6 flex gap-3 border border-border bg-card p-4">
+    <section aria-label="Briefing" data-tour="briefing" className="mb-6 flex gap-3 border border-border bg-card p-4">
       <Sparkles className="mt-0.5 size-5 shrink-0 text-primary" aria-hidden />
       {briefing.isPending ? (
         <Skeleton className="h-5 w-full max-w-xl" />

@@ -272,7 +272,7 @@ def report_machine_event(
         machine = _lock_machine(db, body.machine_id)
         event = _set_machine_status(db, machine, body.status, user_id, body.source, body.reason, at)
         if body.status in PULLABLE:
-            pull_next(db, machine.id, user_id, at)
+            advance(db, user_id, at)
         return MachineEventOut.model_validate(event)
 
     result = run_once(db, body.idempotency_key, "production.machine_event", work)
@@ -406,7 +406,7 @@ def start_work_order(
 ) -> WorkOrder:
     wo = _lock_work_order(db, work_order_id)
     _start(db, wo, user_id, at, source)
-    pull_ready(db, user_id, at)
+    advance(db, user_id, at)
     db.commit()
     events.publish("machines", {"type": "work_order", "id": wo.id})
     return wo
@@ -529,7 +529,7 @@ def finish_work_order(
     wo = _lock_work_order(db, work_order_id)
     _finish(db, wo, user_id, at, source)
     _settle(db, wo.order_id, user_id, at, source)
-    pull_ready(db, user_id, at)
+    advance(db, user_id, at)
     db.commit()
     events.publish("machines", {"type": "work_order", "id": wo.id})
     events.publish("orders", {"type": "work_order", "id": wo.order_id})
@@ -600,7 +600,7 @@ def log_output(db: Session, body: OutputIn, user_id: int, at: datetime | None = 
         )
         # a buffered counter time stamps the log only; finishing happens now
         if _settle(db, wo.order_id, user_id, at, body.source):
-            pull_ready(db, user_id, at)
+            advance(db, user_id, at)
         return ProductionLogOut.model_validate(log)
 
     result = run_once(db, body.idempotency_key, "production.output", work)
@@ -785,7 +785,7 @@ def cut_roll(db: Session, body: RollIn, user_id: int | None, at: datetime | None
         roll = _cut(
             db, wo, body.length_m, user_id, _now(at), body.source, body.shift_id, body.weaver_id
         )
-        pull_ready(db, user_id, at)  # a first woven roll can let dyeing start
+        advance(db, user_id, at)  # a first woven roll can let dyeing start
         return RollOut.model_validate(roll)
 
     result = run_once(db, body.idempotency_key, "production.roll", work)
@@ -851,7 +851,7 @@ def process_roll(
         _require_open_order(db, wo)
         _process(db, roll, wo, user_id, at, body.source)
         _settle(db, wo.order_id, user_id, at, body.source)
-        pull_ready(db, user_id, at)
+        advance(db, user_id, at)
         return RollOut.model_validate(roll)
 
     result = run_once(db, body.idempotency_key, "production.roll_process", work)
@@ -881,7 +881,7 @@ def process_waiting(
         for roll in rolls:
             _process(db, roll, wo, user_id, at, body.source)
         _settle(db, wo.order_id, user_id, at, body.source)
-        pull_ready(db, user_id, at)
+        advance(db, user_id, at)
         return {"work_order_id": wo.id, "processed": len(rolls)}
 
     result = run_once(db, body.idempotency_key, "production.process_waiting", work)
@@ -1204,14 +1204,15 @@ def create_rework_work_order(db: Session, roll_id: int, stage: Stage, user_id: i
     return wo
 
 
-# start the head of this machine's queue if the machine is on and free; skip quietly otherwise
+# start the first job in this machine's queue that can run (a dye job with no roll yet waits
+# without holding up the one behind it); skip quietly if the machine is stopped or busy
 def pull_next(
     db: Session, machine_id: int, user_id: int | None, at: datetime | None = None
 ) -> WorkOrder | None:
     if machine_status(db, machine_id) not in PULLABLE or _active_jobs(db, machine_id):
         return None
-    head = db.scalar(
-        select(WorkOrder)
+    queue = db.scalars(
+        select(WorkOrder.id)
         .join(Order, Order.id == WorkOrder.order_id)
         .where(
             WorkOrder.machine_id == machine_id,
@@ -1219,14 +1220,81 @@ def pull_next(
             Order.status == OrderStatus.confirmed,
         )
         .order_by(WorkOrder.queue_position.nulls_last(), WorkOrder.id)
-        .limit(1)
+    ).all()
+    for wo_id in queue:
+        try:
+            return _start(db, _lock_work_order(db, wo_id), user_id, at, Source.manual)
+        except Conflict:
+            continue
+    return None
+
+
+# a waiting job can go on a machine: rework at once, the first stage once its yarn is issued,
+# a later stage once the one before it has started; dyeing once weaving is done, so a dye
+# range never sits on a job with nothing to dye while other orders' rolls wait
+def _ready_to_plan(db: Session, wo: WorkOrder) -> bool:
+    if wo.roll_id:
+        return True
+    earlier = [m for m in _mains(db, wo.order_id) if m.seq < wo.seq]
+    if not earlier:
+        return bool(_order_issued(db, wo.order_id))
+    if wo.stage == Stage.dyeing:
+        return earlier[-1].status == WorkOrderStatus.done
+    return earlier[-1].status in (*ACTIVE, WorkOrderStatus.done)
+
+
+# ready waiting jobs go to the least busy working machine of their stage, earliest deadline
+# first; with no working machine the job waits and the supervisor decides
+def plan_waiting(db: Session, user_id: int | None) -> list[WorkOrder]:
+    waiting = db.scalars(
+        select(WorkOrder)
+        .join(Order, Order.id == WorkOrder.order_id)
+        .where(
+            WorkOrder.status == WorkOrderStatus.waiting,
+            Order.status == OrderStatus.confirmed,
+        )
+        .order_by(Order.deadline, WorkOrder.id)
+    ).all()
+    if not waiting:
+        return []
+    up = [
+        m
+        for m in db.scalars(select(Machine).where(Machine.active).order_by(Machine.code))
+        if machine_status(db, m.id) in PULLABLE
+    ]
+    load = dict(
+        db.execute(
+            select(WorkOrder.machine_id, func.count())
+            .where(
+                WorkOrder.status.in_([WorkOrderStatus.queued, *ACTIVE]),
+                WorkOrder.machine_id.is_not(None),
+            )
+            .group_by(WorkOrder.machine_id)
+        ).all()
     )
-    if not head:
-        return None
-    try:
-        return _start(db, _lock_work_order(db, head.id), user_id, at, Source.manual)
-    except Conflict:
-        return None
+    planned = []
+    for wo in waiting:
+        options = [m for m in up if m.type == wo.stage]
+        if not options or not _ready_to_plan(db, wo):
+            continue
+        best = min(options, key=lambda m: (load.get(m.id, 0), m.code))
+        wo = _lock_work_order(db, wo.id)
+        if wo.status != WorkOrderStatus.waiting:
+            continue
+        _lock_machine(db, best.id)
+        _set_wo_status(db, wo, WorkOrderStatus.queued, user_id, "auto plan")
+        wo.machine_id = best.id
+        _place_in_queue(db, wo, best.id)
+        db.flush()
+        load[best.id] = load.get(best.id, 0) + 1
+        planned.append(wo)
+    return planned
+
+
+# after any floor change: queue what became ready, then start whatever a free machine can take
+def advance(db: Session, user_id: int | None, at: datetime | None = None) -> list[WorkOrder]:
+    plan_waiting(db, user_id)
+    return pull_ready(db, user_id, at)
 
 
 # every free machine with a queue gets its head started; locked machines are left to their owner
