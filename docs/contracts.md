@@ -148,13 +148,13 @@ Pure helpers in `app.core.units`: `qty`, `rupees_to_paise`, `line_amount_paise`,
 | `GET /api/inventory/{stock,stock/warnings,batches,batches/{id},expected-deliveries,receipts,receipts/{id},qr.svg}` | any logged in |
 | `POST /api/inventory/batches/{id}/{approve,quarantine,reject,identify}` | store |
 | `POST /api/inventory/batches/{id}/release` | owner only, reason required |
-| `POST /api/inventory/expected-deliveries`, `.../{id}/cancel` | store, sales |
+| `POST /api/inventory/expected-deliveries`, `.../{id}/cancel` | store, accounts |
 | `GET /api/inventory/sample-labels`, `POST /api/inventory/labels/check`, `POST /api/inventory/receipts[/{id}/lines,/{id}/confirm]` | store |
 | `GET /api/inventory/issue-plan?work_order=WO-…` | store, supervisor |
 | `POST /api/inventory/issues`, `POST /api/inventory/returns` | store |
-| `POST /api/orders`, `POST /api/orders/{id}/{confirm,reserve,cancel}` | sales |
+| `POST /api/orders`, `POST /api/orders/{id}/{confirm,reserve,cancel}` | accounts |
 | `GET /api/orders/{id}`, `GET /api/orders/{id}/allocation`, `POST /api/orders/requirement-preview` | any logged in |
-| `GET /api/orders/to-buy` | sales, store |
+| `GET /api/orders/to-buy` | accounts, store |
 | `GET /api/orders`, `GET /api/orders/{id}/yarn-requirement` | any logged in |
 | `GET /api/production/work-orders`, `/work-orders/open`, `/board`, `/machines/{id}/timeline` | any logged in |
 | `POST /api/production/work-orders/{id}/{queue,unqueue,start,move,finish}`, `PUT /api/production/machines/{id}/queue` | supervisor |
@@ -169,9 +169,9 @@ Pure helpers in `app.core.units`: `qty`, `rupees_to_paise`, `line_amount_paise`,
 | `GET /api/analytics/insights[/{id}]`, `/attention`, `/briefing` | any logged in (insights filtered to the role's kinds) |
 | `POST /api/analytics/insights/{id}/acknowledge`, `/resolve` | any logged in, own kinds |
 | `POST /api/analytics/run` | supervisor |
-| `GET /api/analytics/delivery`, `/orders/{id}/delivery-estimate` | sales, supervisor |
+| `GET /api/analytics/delivery`, `/orders/{id}/delivery-estimate` | accounts, supervisor |
 | `GET /api/track/{token}` | public |
-| `GET /api/track/orders/{id}` | sales, accounts, dispatch |
-| `POST /api/track/orders/{id}/rotate-token` | sales |
+| `GET /api/track/orders/{id}` | accounts, dispatch |
+| `POST /api/track/orders/{id}/rotate-token` | accounts |
 
 Owner passes every role check. Full schema at http://localhost:8000/docs.

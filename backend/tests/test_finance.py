@@ -173,7 +173,7 @@ def test_order_cost_hand_calculated(db, mill):
 def test_order_cost_is_accounts_only(client_as, mill, db):
     o = mill.order()
     db.commit()
-    assert client_as(Role.sales).get(f"/api/finance/orders/{o.id}/cost").status_code == 403
+    assert client_as(Role.store).get(f"/api/finance/orders/{o.id}/cost").status_code == 403
     res = client_as(Role.accounts).get(f"/api/finance/orders/{o.id}/cost")
     assert res.status_code == 200 and res.json()["rules"]
 

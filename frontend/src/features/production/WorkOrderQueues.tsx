@@ -236,7 +236,7 @@ export function WorkOrderQueues() {
         </div>
       ) : all.length === 0 ? (
         <EmptyState icon={ClipboardList} title="No open work orders">
-          Work orders appear here when sales confirms an order.
+          Work orders appear here when the accounts desk confirms an order.
         </EmptyState>
       ) : (
         <div className="grid items-start gap-6 lg:grid-cols-[22rem_minmax(0,1fr)]">

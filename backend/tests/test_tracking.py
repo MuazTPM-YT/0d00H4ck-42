@@ -136,7 +136,7 @@ def test_bad_or_rotated_token_is_404(client_as, client, db):
     old = o.tracking_token
     assert client.get("/api/track/not-a-real-token-123").status_code == 404
 
-    res = client_as(Role.sales).post(f"/api/track/orders/{o.id}/rotate-token")
+    res = client_as(Role.accounts).post(f"/api/track/orders/{o.id}/rotate-token")
     assert res.status_code == 200
     assert res.json()["tracking_token"] != old
     assert client.get(f"/api/track/{old}").status_code == 404
@@ -149,7 +149,7 @@ def test_order_view_lists_rolls_and_roles(client_as, db):
     mill.roll(mill.work_order(o), 100)
     db.commit()
     assert client_as(Role.qc).get(f"/api/track/orders/{o.id}").status_code == 403
-    body = client_as(Role.sales).get(f"/api/track/orders/{o.id}").json()
+    body = client_as(Role.accounts).get(f"/api/track/orders/{o.id}").json()
     assert [r["status"] for r in body["rolls"]] == ["passed"]
     assert body["buyer_name"] == "Mill Buyer"
 

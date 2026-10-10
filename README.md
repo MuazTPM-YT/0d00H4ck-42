@@ -18,7 +18,7 @@ make dev              # API on :8000, web on :3000. Ctrl+C stops both.
 ```
 
 Open http://localhost:3000. Log in as any role: `<role>@everest.local` / `demo1234`.
-Roles: `owner`, `store`, `supervisor`, `qc`, `dispatch`, `accounts`, `sales`.
+Roles: `owner`, `store`, `supervisor`, `qc`, `dispatch`, `accounts` (accounts and sales, one desk).
 
 API docs: http://localhost:8000/docs.
 
@@ -27,7 +27,7 @@ API docs: http://localhost:8000/docs.
 | `make install` | `.env` from `.env.example` (random `POSTGRES_PASSWORD`, `JWT_SECRET`), `uv sync`, `npm ci` |
 | `make db-up` / `make db-down` | Start / stop Postgres 16 in Docker on `127.0.0.1:${DB_PORT}` (default 5435) |
 | `make migrate` | `alembic upgrade head` |
-| `make seed` | Demo data: masters, 7 users, at least one row in every status. Safe to run twice. |
+| `make seed` | Demo data: masters, 6 users, at least one row in every status. Safe to run twice. |
 | `make dev` | FastAPI with reload + Next dev server |
 | `make test` | pytest against a separate `everest_test` database |
 | `make lint` | ruff check, ruff format check, `tsc --noEmit` |

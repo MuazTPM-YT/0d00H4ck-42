@@ -244,7 +244,7 @@ def test_corner_check_flags_old_closed_and_leftover(client_as, mill):
 
 
 def test_dispatch_roles(client_as):
-    assert client_as(Role.sales).get("/api/dispatch/dispatches").status_code == 403
+    assert client_as(Role.store).get("/api/dispatch/dispatches").status_code == 403
 
 
 def test_accounts_reads_register_but_cannot_load(client_as, mill, dispatch_for):

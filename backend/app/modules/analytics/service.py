@@ -328,9 +328,8 @@ ATTENTION_RULES = {
     Role.store: [_low_stock],
     Role.supervisor: [_stopped_machines],
     Role.qc: [_qc_waiting],
-    Role.sales: [_orders_at_risk],
     Role.dispatch: [_shelf],
-    Role.accounts: [_overdue],
+    Role.accounts: [_orders_at_risk, _overdue],
     Role.owner: [_orders_at_risk, _low_stock, _overdue],
 }
 RANK = {Severity.critical: 0, Severity.warn: 1, Severity.info: 2}

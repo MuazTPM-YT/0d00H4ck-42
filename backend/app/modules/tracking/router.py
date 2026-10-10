@@ -10,8 +10,8 @@ from app.modules.tracking.schemas import OrderView, TrackOut
 router = APIRouter(prefix="/track", tags=["tracking"])
 
 # office view of an order: sales talks to the buyer, accounts and dispatch look things up
-Office = Depends(require_roles(Role.sales, Role.accounts, Role.dispatch))
-Sales = Depends(require_roles(Role.sales))
+Office = Depends(require_roles(Role.accounts, Role.dispatch))
+Sales = Depends(require_roles(Role.accounts))
 
 
 @router.get("/orders/{order_id}", response_model=OrderView, dependencies=[Office])

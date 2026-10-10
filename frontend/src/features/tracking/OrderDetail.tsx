@@ -100,7 +100,7 @@ export function OrderDetail({ id, costPanel, yarnPanel }: { id: string; costPane
           </Section>
         </div>
         <div className="grid content-start gap-6">
-          <BuyerLink o={o} canRotate={role === "sales" || role === "owner"} />
+          <BuyerLink o={o} canRotate={role === "accounts" || role === "owner"} />
           <Timeline events={o.timeline} />
         </div>
       </div>

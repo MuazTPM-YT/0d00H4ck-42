@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { api } from "@/lib/api";
 
-export const ROLES = ["owner", "store", "supervisor", "qc", "dispatch", "accounts", "sales"] as const;
+export const ROLES = ["owner", "store", "supervisor", "qc", "dispatch", "accounts"] as const;
 export type Role = (typeof ROLES)[number];
 
 export type User = { id: number; name: string; email: string; role: Role; active: boolean };
@@ -15,8 +15,7 @@ export const ROLE_LABEL: Record<Role, string> = {
   supervisor: "Floor supervisor",
   qc: "QC inspector",
   dispatch: "Dispatch",
-  accounts: "Accounts",
-  sales: "Sales",
+  accounts: "Accounts & sales",
 };
 
 const HOME: Record<Role, string> = {
@@ -25,8 +24,7 @@ const HOME: Record<Role, string> = {
   supervisor: "/floor",
   qc: "/qc",
   dispatch: "/dispatch",
-  accounts: "/finance/invoices",
-  sales: "/orders",
+  accounts: "/orders",
 };
 
 export const roleHome = (role: Role) => HOME[role];

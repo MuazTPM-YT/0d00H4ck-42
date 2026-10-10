@@ -31,7 +31,7 @@ export function OrderYarnPanel({ orderId }: { orderId: number }) {
   if (alloc.isError) return <ErrorText error={alloc.error} />;
   if (alloc.isPending) return <Skeleton className="h-32 w-full" />;
   const a = alloc.data;
-  const canReserve = a.status === "confirmed" && !a.fully_covered && (role === "sales" || role === "owner");
+  const canReserve = a.status === "confirmed" && !a.fully_covered && (role === "accounts" || role === "owner");
 
   return (
     <section className="grid gap-3">

@@ -10,7 +10,7 @@ import { useMe } from "@/lib/auth";
 export default function Page() {
   const { id } = useParams<{ id: string }>();
   const role = useMe().data?.role;
-  // cost is for the owner's eyes (and accounts); sales sees stage, rolls and invoices only
+  // cost is for the owner and the accounts desk
   const showCost = role === "owner" || role === "accounts";
   return (
     <OrderDetail

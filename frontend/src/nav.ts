@@ -42,9 +42,9 @@ export const ROUTES: AppRoute[] = [
   { path: "/store/batches", title: "Yarn batches", roles: ["store"], module: "inventory", owner: "Ammaar", nav: { group: "Yarn store", icon: Layers } },
   { path: "/store/stock", title: "Yarn stock", roles: ["store"], module: "inventory", owner: "Ammaar", nav: { group: "Yarn store", icon: Boxes } },
 
-  { path: "/orders", title: "Orders", roles: ["sales", "owner"], module: "orders", owner: "Ammaar", nav: { group: "Sales", icon: ShoppingCart } },
-  { path: "/orders/new", title: "New order", roles: ["sales", "owner"], module: "orders", owner: "Ammaar" },
-  { path: "/orders/[id]", title: "Order", roles: ["sales", "owner"], module: "tracking", owner: "Ashil" },
+  { path: "/orders", title: "Orders", roles: ["accounts", "owner"], module: "orders", owner: "Ammaar", nav: { group: "Sales", icon: ShoppingCart } },
+  { path: "/orders/new", title: "New order", roles: ["accounts", "owner"], module: "orders", owner: "Ammaar" },
+  { path: "/orders/[id]", title: "Order", roles: ["accounts", "owner"], module: "tracking", owner: "Ashil" },
 
   { path: "/floor", title: "Floor board", roles: ["supervisor"], module: "production", owner: "Muaz", nav: { group: "Production", icon: Factory } },
   { path: "/floor/work-orders", title: "Work orders", roles: ["supervisor"], module: "production", owner: "Muaz", nav: { group: "Production", icon: ClipboardList } },

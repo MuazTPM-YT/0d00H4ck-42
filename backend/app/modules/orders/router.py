@@ -22,7 +22,7 @@ from app.modules.orders.schemas import (
 
 router = APIRouter(prefix="/orders", tags=["orders"], dependencies=[Depends(get_current_user)])
 
-Sales = Depends(require_roles(Role.sales))
+Sales = Depends(require_roles(Role.accounts))
 
 
 @router.get("", response_model=Paged[OrderOut])
@@ -49,7 +49,7 @@ def requirement_preview(data: RequirementIn, db: Session = Depends(get_db)):
 @router.get(
     "/to-buy",
     response_model=list[ToBuyRow],
-    dependencies=[Depends(require_roles(Role.sales, Role.store))],
+    dependencies=[Depends(require_roles(Role.accounts, Role.store))],
 )
 def to_buy(db: Session = Depends(get_db)):
     return inventory.to_buy(db)

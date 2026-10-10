@@ -24,7 +24,7 @@ router = APIRouter(
     lifespan=worker.lifespan,
 )
 # who promises dates to buyers, and who plans the floor that keeps them
-Planners = Depends(require_roles(Role.sales, Role.supervisor))
+Planners = Depends(require_roles(Role.accounts, Role.supervisor))
 
 
 # every role sees the kinds of finding it acts on (owner sees all)

@@ -78,7 +78,7 @@ export function DeliveryBoard() {
   if (board.data?.length === 0)
     return (
       <EmptyState icon={CalendarCheck} title="No confirmed orders">
-        Forecasts appear when sales confirms an order.
+        Forecasts appear when the accounts desk confirms an order.
       </EmptyState>
     );
 

@@ -9,7 +9,6 @@ import {
   type LucideIcon,
   Radio,
   ScanLine,
-  ShoppingCart,
   Truck,
   Warehouse,
   WifiOff,
@@ -33,7 +32,6 @@ const ROLE_ICON: Record<Role, LucideIcon> = {
   qc: ClipboardCheck,
   dispatch: Truck,
   accounts: IndianRupee,
-  sales: ShoppingCart,
 };
 
 // tap a role and the print shows that person's part of the mill
@@ -43,8 +41,7 @@ const ROLE_ART: Record<Role, { motif: MotifName; caption: string }> = {
   supervisor: { motif: "loom", caption: "Plate 04 · the loom floor" },
   qc: { motif: "loupe", caption: "Plate 05 · quality check" },
   dispatch: { motif: "truck", caption: "Plate 06 · dispatch" },
-  accounts: { motif: "bars", caption: "Plate 07 · the books" },
-  sales: { motif: "orders", caption: "Plate 08 · order book" },
+  accounts: { motif: "orders", caption: "Plate 07 · orders and books" },
 };
 
 // what the mill gets, said plainly, on the photo
@@ -154,7 +151,7 @@ function LoginForm({ onRole }: { onRole: (role: Role | null) => void }) {
         <span className="label absolute bg-background px-4">Demo · tap who you are</span>
       </div>
 
-      <div className="animate-element animate-delay-700 flex flex-wrap gap-2">
+      <div className="animate-element animate-delay-700 grid grid-cols-2 gap-2 sm:grid-cols-3">
         {ROLES.map((role) => {
           const Icon = ROLE_ICON[role];
           const picked = email === `${role}@everest.local`;
@@ -170,12 +167,12 @@ function LoginForm({ onRole }: { onRole: (role: Role | null) => void }) {
                 setErrors({});
               }}
               className={cn(
-                "pressable inline-flex h-11 items-center gap-2 border px-4 text-sm font-medium",
+                "pressable inline-flex h-11 min-w-0 items-center gap-2 border px-3 text-left text-sm font-medium",
                 picked ? "border-primary bg-primary text-primary-foreground" : "border-input bg-card hover:border-ember hover:text-ember",
               )}
             >
-              <Icon className="size-4" aria-hidden />
-              {ROLE_LABEL[role]}
+              <Icon className="size-4 shrink-0" aria-hidden />
+              <span className="truncate">{ROLE_LABEL[role]}</span>
             </button>
           );
         })}
