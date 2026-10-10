@@ -1,6 +1,10 @@
 // Procedural 1-bit pictures of the mill, one per part of it (Dither Ledger "BayerEmblem" idea):
 // each motif fills a w×h density field (0..1) plus an ember-accent mask, and the Bayer pass in
 // DitherPlate turns density into dots. Pure arithmetic, no data: same motif + seed, same picture.
+// A motif with a moving part (smoke, shuttle, gears...) leaves it out when `live` is set, and
+// LIVE draws just that part each frame on a second canvas, so the still picture is painted once.
+
+import { mulberry32 } from "@/lib/bayer";
 
 // cov marks cells that hide whatever is drawn underneath (paper fill), for overlays
 export type Field = { val: Float32Array; acc: Uint8Array; w: number; h: number; cov?: Uint8Array };
@@ -75,9 +79,20 @@ function frame(w: number, h: number) {
 
 const cyl = (u: number) => 0.18 + 0.72 * Math.sin(Math.PI * clamp(u)); // a round thing lit from the front
 
+// shuttle: a pointed boat riding in the shed
+function shuttle(f: Field, sx: number) {
+  const { U, Y } = frame(f.w, f.h);
+  const sw = U * 0.16;
+  for (let y = Y(0.465); y < Y(0.505); y++) {
+    const t = (y - Y(0.465)) / (Y(0.505) - Y(0.465));
+    const half = sw * (0.55 + 0.45 * Math.sin(Math.PI * t));
+    line(f, sx - half, y, sx + half, y, 1, true);
+  }
+}
+
 // ── a loom: warp beam, warp threads through the heddles, the shed with the shuttle in it,
 //    woven cloth below the fell and the cloth beam rolling it up
-const loom = (w: number, h: number, rnd: Rnd): Field => {
+const loom = (w: number, h: number, rnd: Rnd, live = false): Field => {
   const f = field(w, h);
   paper(f);
   const { U, X, Y } = frame(w, h);
@@ -96,14 +111,7 @@ const loom = (w: number, h: number, rnd: Rnd): Field => {
     line(f, x, odd ? Y(0.45) : Y(0.51), x, Y(0.58), 0.62);
   }
   box(f, X(0.08), Y(0.33), X(0.92), Y(0.35), () => 0.95); // heddle bar
-  // shuttle: a pointed boat riding in the shed
-  const sx = X(shuttleX);
-  const sw = U * 0.16;
-  for (let y = Y(0.465); y < Y(0.505); y++) {
-    const t = (y - Y(0.465)) / (Y(0.505) - Y(0.465));
-    const half = sw * (0.55 + 0.45 * Math.sin(Math.PI * t));
-    line(f, sx - half, y, sx + half, y, 1, true);
-  }
+  if (!live) shuttle(f, X(shuttleX));
   // woven cloth: a 2/2 twill below the fell, the newest pick drawn in ember
   box(f, X(0.11), Y(0.58), X(0.89), Y(0.82), (_, __, x, y) => ((x + y) % 4 < 2 ? 0.78 : 0.3));
   line(f, X(0.11), Y(0.58), X(0.89), Y(0.58), 1, true, 2);
@@ -111,8 +119,17 @@ const loom = (w: number, h: number, rnd: Rnd): Field => {
   return f;
 };
 
+// the yarn climbs off the cone tip and drifts right; `sway` ripples it along its length
+function thread(f: Field, x0: number, y0: number, sway: number) {
+  const { U, X } = frame(f.w, f.h);
+  for (let s = 0; s <= 160; s++) {
+    const t = s / 160;
+    put(f, x0 + t * (X(0.98) - x0), y0 - Math.sin(t * Math.PI) * U * 0.14 + t * U * 0.05 + Math.sin(t * 9 - sway) * U * 0.02 * t, 1, true);
+  }
+}
+
 // ── yarn cones on the store shelf, wound in bands; one cone feeds a thread out to the right
-const cones = (w: number, h: number, rnd: Rnd): Field => {
+const cones = (w: number, h: number, rnd: Rnd, live = false): Field => {
   const f = field(w, h);
   paper(f);
   const { U, X, Y } = frame(w, h);
@@ -136,22 +153,14 @@ const cones = (w: number, h: number, rnd: Rnd): Field => {
       }
     }
     box(f, cx - tw * 0.55, top - U * 0.06, cx + tw * 0.55, top, () => 0.95); // the paper tube
-    if (accentCone) {
-      // the thread climbs off the tip and drifts right
-      const x0 = cx;
-      const y0 = top - U * 0.06;
-      for (let s = 0; s <= 120; s++) {
-        const t = s / 120;
-        put(f, x0 + t * (X(0.98) - x0), y0 - Math.sin(t * Math.PI) * U * 0.14 + t * U * 0.05, 1, true);
-      }
-    }
+    if (accentCone && !live) thread(f, cx, top - U * 0.06, 0);
   }
   box(f, X(0.02), Y(0.86), X(0.98), Y(0.9), () => 0.9);
   return f;
 };
 
 // ── finished rolls stacked end-on, the layers of cloth as rings; one carries its ember label
-const rolls = (w: number, h: number, rnd: Rnd): Field => {
+const rolls = (w: number, h: number, rnd: Rnd, live = false): Field => {
   const f = field(w, h);
   paper(f);
   const { U, X, Y } = frame(w, h);
@@ -178,7 +187,7 @@ const rolls = (w: number, h: number, rnd: Rnd): Field => {
 };
 
 // ── the QC loupe over the cloth: the weave is magnified inside the lens, and one broken pick shows
-const loupe = (w: number, h: number, rnd: Rnd): Field => {
+const loupe = (w: number, h: number, rnd: Rnd, live = false): Field => {
   const f = field(w, h);
   const { U, X, Y } = frame(w, h);
   box(f, 0, 0, w, h, (u, _, x, y) => (((x >> 1) + (y >> 1)) % 4 < 2 ? 0.2 : 0.06) * (0.4 + u * 0.6));
@@ -207,7 +216,7 @@ const loupe = (w: number, h: number, rnd: Rnd): Field => {
 };
 
 // ── the order book: sheets fanned out, ruled lines of text, a confirmed stamp in ember
-const orders = (w: number, h: number, rnd: Rnd): Field => {
+const orders = (w: number, h: number, rnd: Rnd, live = false): Field => {
   const f = field(w, h);
   paper(f);
   const { U, X, Y } = frame(w, h);
@@ -226,6 +235,7 @@ const orders = (w: number, h: number, rnd: Rnd): Field => {
     for (let r = 0; r < 9; r++) {
       const y = y0 + U * 0.1 + r * U * 0.072;
       const len = 0.35 + rnd() * 0.5;
+      if (live && r === 8) continue; // the line still being written
       line(f, x0 + U * 0.12, y, x0 + U * 0.12 + len * U * 0.7, y, r === 0 ? 1 : 0.6, false, r === 0 ? 2 : 1);
     }
     const sx = x1 - U * 0.2;
@@ -238,7 +248,7 @@ const orders = (w: number, h: number, rnd: Rnd): Field => {
 };
 
 // ── the books: month bars, shaded heavy at the top, with the trend drawn through them in ember
-const bars = (w: number, h: number, rnd: Rnd): Field => {
+const bars = (w: number, h: number, rnd: Rnd, live = false): Field => {
   const f = field(w, h);
   paper(f);
   const { U, X, Y } = frame(w, h);
@@ -260,7 +270,7 @@ const bars = (w: number, h: number, rnd: Rnd): Field => {
 };
 
 // ── the mill: a north-light sawtooth roof over the shed, rows of windows, the chimney smoking
-const mill = (w: number, h: number, rnd: Rnd): Field => {
+const mill = (w: number, h: number, rnd: Rnd, live = false): Field => {
   const f = field(w, h);
   paper(f);
   const { U, X, Y } = frame(w, h);
@@ -287,20 +297,29 @@ const mill = (w: number, h: number, rnd: Rnd): Field => {
   }
   box(f, X(0.8), Y(0.2), X(0.8) + U * 0.09, Y(0.9), (u) => cyl(u));
   box(f, X(0.8), Y(0.28), X(0.8) + U * 0.09, Y(0.31), () => 1, () => true);
-  for (let p = 0; p < 7; p++) {
-    const px = X(0.82) + p * U * 0.1;
-    const py = Y(0.15) - p * U * 0.025;
-    disc(f, px, py, U * (0.05 + p * 0.012), (_, __, d) => (0.5 - p * 0.06) * (1 - d * 0.6));
+  if (!live) {
+    for (let p = 0; p < 7; p++) {
+      const px = X(0.82) + p * U * 0.1;
+      const py = Y(0.15) - p * U * 0.025;
+      disc(f, px, py, U * (0.05 + p * 0.012), (_, __, d) => (0.5 - p * 0.06) * (1 - d * 0.6));
+    }
   }
   box(f, X(0.02), Y(0.9), X(0.98), Y(0.93), () => 0.95);
   return f;
 };
 
 // ── setup: two meshing gears
-const gear = (w: number, h: number, rnd: Rnd): Field => {
+const gear = (w: number, h: number, rnd: Rnd, live = false): Field => {
   const f = field(w, h);
   paper(f);
-  const { U, X, Y } = frame(w, h);
+  const [p1, p2] = [rnd() * 3, rnd() * 3];
+  if (!live) cogs(f, p1, p2);
+  return f;
+};
+
+// two meshing gears; phases turn them (the small one runs 12:8 faster, the other way)
+function cogs(f: Field, p1: number, p2: number) {
+  const { U, X, Y } = frame(f.w, f.h);
   const cog = (cx: number, cy: number, R: number, n: number, phase: number, accentHub: boolean) => {
     const outer = R * 1.18;
     for (let y = Math.floor(cy - outer); y <= cy + outer; y++) {
@@ -318,13 +337,21 @@ const gear = (w: number, h: number, rnd: Rnd): Field => {
       }
     }
   };
-  cog(X(0.36), Y(0.5), U * 0.36, 12, rnd() * 3, true);
-  cog(X(0.36) + U * 0.36 * 1.18 + U * 0.22 * 1.05, Y(0.42), U * 0.22, 8, rnd() * 3, false);
-  return f;
-};
+  cog(X(0.36), Y(0.5), U * 0.36, 12, p1, true);
+  cog(X(0.36) + U * 0.36 * 1.18 + U * 0.22 * 1.05, Y(0.42), U * 0.22, 8, p2, false);
+}
+
+function looseEnd(f: Field, lift: number, sway: number) {
+  const { U, X, Y } = frame(f.w, f.h);
+  const x0 = X(0.5) + U * 0.2;
+  for (let s = 0; s <= 160; s++) {
+    const t = s / 160;
+    put(f, x0 + t * U * 0.55, Y(0.55 + lift) + Math.sin(t * 9 - sway) * U * 0.05 * (1 - t * 0.6) + t * U * 0.25, 1, true);
+  }
+}
 
 // ── a single spool with a loose thread curling off it: the empty-state picture
-const spool = (w: number, h: number, rnd: Rnd): Field => {
+const spool = (w: number, h: number, rnd: Rnd, live = false): Field => {
   const f = field(w, h);
   paper(f, 10);
   const { U, X, Y } = frame(w, h);
@@ -336,15 +363,23 @@ const spool = (w: number, h: number, rnd: Rnd): Field => {
   box(f, cx - half * 1.35, bot, cx + half * 1.35, bot + U * 0.05, () => 0.95);
   box(f, cx - half, top, cx + half, bot, (u, _, __, y) => cyl(u) * (0.8 + 0.2 * Math.sin(y * 1.1)));
   const lift = rnd() * 0.1;
-  for (let s = 0; s <= 160; s++) {
-    const t = s / 160;
-    put(f, cx + half + t * U * 0.55, Y(0.55 + lift) + Math.sin(t * 9) * U * 0.05 * (1 - t) + t * U * 0.25, 1, true);
-  }
+  if (!live) looseEnd(f, lift, 0);
   return f;
 };
 
+// the road, dashed, with speed lines behind; `shift` slides the dashes back
+function road(f: Field, shift: number, jitter: number[]) {
+  const { U, X, Y } = frame(f.w, f.h);
+  const gap = U * 0.06;
+  for (let x = X(0.02) - (shift % gap); x < X(0.98); x += gap) line(f, Math.max(X(0.02), x), Y(0.96), Math.max(X(0.02), x + U * 0.03), Y(0.96), 0.9);
+  for (let k = 0; k < 4; k++) {
+    const y = Y(0.4 + k * 0.08 + jitter[k] * 0.02);
+    line(f, X(-0.05), y, X(0.04 - k * 0.01), y, 0.7);
+  }
+}
+
 // ── dispatch: a lorry with its slatted bed loaded with rolls, tail light in ember, on the road
-const truck = (w: number, h: number, rnd: Rnd): Field => {
+const truck = (w: number, h: number, rnd: Rnd, live = false): Field => {
   const f = field(w, h);
   paper(f);
   const { U, X, Y } = frame(w, h);
@@ -372,32 +407,28 @@ const truck = (w: number, h: number, rnd: Rnd): Field => {
   for (const a of [0.2, 0.5, 0.8]) {
     disc(f, X(a), deck + U * 0.08, U * 0.085, (_, __, d) => (d < 0.35 ? 0.2 : 0.95));
   }
-  // the road, dashed, with speed lines behind
-  for (let x = X(0.02); x < X(0.98); x += U * 0.06) line(f, x, Y(0.96), x + U * 0.03, Y(0.96), 0.9);
-  for (let k = 0; k < 4; k++) {
-    const y = Y(0.4 + k * 0.08 + rnd() * 0.02);
-    line(f, X(-0.05), y, X(0.04 - k * 0.01), y, 0.7);
-  }
+  if (!live) road(f, 0, [rnd(), rnd(), rnd(), rnd()]);
   return f;
 };
 
+// Everest's skyline as a fraction of the height, left to right: Nuptse, the summit, Lhotse
+const PEAKS: [number, number][] = [
+  [0, 0.74], [0.07, 0.6], [0.14, 0.66], [0.24, 0.44], [0.3, 0.5], [0.36, 0.38], [0.47, 0.12],
+  [0.53, 0.26], [0.6, 0.22], [0.66, 0.36], [0.74, 0.3], [0.82, 0.46], [0.9, 0.42], [1, 0.56],
+];
+function ridge(u: number) {
+  let k = 0;
+  while (k < PEAKS.length - 2 && PEAKS[k + 1][0] < u) k++;
+  const [u0, v0] = PEAKS[k];
+  const [u1, v1] = PEAKS[k + 1];
+  return v0 + ((v1 - v0) * (u - u0)) / (u1 - u0) + Math.sin(u * 91 + 1.3) * 0.008 + Math.sin(u * 37) * 0.012;
+}
+
 // ── Mount Everest across the whole width: Nuptse, the summit pyramid with its wind plume, Lhotse.
 //    Lit faces stay snow-white, shadow faces carry the dots; the mountain covers what is under it.
-const everest = (w: number, h: number, rnd: Rnd): Field => {
+const everest = (w: number, h: number, rnd: Rnd, live = false): Field => {
   const f = field(w, h);
   f.cov = new Uint8Array(w * h);
-  const pts: [number, number][] = [
-    [0, 0.74], [0.07, 0.6], [0.14, 0.66], [0.24, 0.44], [0.3, 0.5], [0.36, 0.38], [0.47, 0.12],
-    [0.53, 0.26], [0.6, 0.22], [0.66, 0.36], [0.74, 0.3], [0.82, 0.46], [0.9, 0.42], [1, 0.56],
-  ];
-  const jag = (u: number) => Math.sin(u * 91 + 1.3) * 0.008 + Math.sin(u * 37) * 0.012;
-  const ridge = (u: number) => {
-    let k = 0;
-    while (k < pts.length - 2 && pts[k + 1][0] < u) k++;
-    const [u0, v0] = pts[k];
-    const [u1, v1] = pts[k + 1];
-    return v0 + ((v1 - v0) * (u - u0)) / (u1 - u0) + jag(u);
-  };
   for (let x = 0; x < w; x++) {
     const u = x / w;
     const top = ridge(u) * h;
@@ -414,19 +445,125 @@ const everest = (w: number, h: number, rnd: Rnd): Field => {
     put(f, x, top, 1); // the skyline itself, in ink
   }
   // the summit plume: wind-blown snow streaming east
-  const sx = 0.47 * w;
-  const sy = ridge(0.47) * h;
-  for (let p = 0; p < 14; p++) {
-    const px = sx + p * w * 0.018;
-    const py = sy - h * 0.02 - Math.sin(p * 0.5) * h * 0.02;
-    disc(f, px, py, h * (0.012 + p * 0.0035), (_, __, d) => (0.42 - p * 0.026) * (1 - d * 0.7) + rnd() * 0.02);
+  if (!live) {
+    const sx = 0.47 * w;
+    const sy = ridge(0.47) * h;
+    for (let p = 0; p < 14; p++) {
+      const px = sx + p * w * 0.018;
+      const py = sy - h * 0.02 - Math.sin(p * 0.5) * h * 0.02;
+      disc(f, px, py, h * (0.012 + p * 0.0035), (_, __, d) => (0.42 - p * 0.026) * (1 - d * 0.7) + rnd() * 0.02);
+    }
   }
   // a low ember sun above Nuptse
   disc(f, w * 0.2, h * 0.2, Math.min(w, h) * 0.05, () => 0.9, () => true);
   return f;
 };
 
-export const MOTIFS: Record<MotifName, (w: number, h: number, rnd: Rnd) => Field> = { loom, cones, rolls, loupe, orders, bars, mill, gear, spool, truck, everest };
+export const MOTIFS: Record<MotifName, (w: number, h: number, rnd: Rnd, live?: boolean) => Field> = { loom, cones, rolls, loupe, orders, bars, mill, gear, spool, truck, everest };
+
+// 0..1 position in a repeating cycle of `period` seconds, offset by `k` of a cycle
+const cycle = (t: number, period: number, k = 0) => (((t / period + k) % 1) + 1) % 1;
+const ease = (x: number) => 0.5 - 0.5 * Math.cos(Math.PI * x);
+
+// ── the moving parts, drawn into an empty field each frame. Slow on purpose: background, not show.
+export const LIVE: Partial<Record<MotifName, (f: Field, t: number, seed: number) => void>> = {
+  // smoke leaves the chimney, swells, drifts east on the wind and thins out
+  mill: (f, t) => {
+    const { U, X, Y } = frame(f.w, f.h);
+    const cx = X(0.8) + U * 0.045;
+    const top = Y(0.2);
+    const n = 9;
+    for (let i = 0; i < n; i++) {
+      const p = cycle(t, 11, i / n);
+      const fadeIn = Math.min(1, p / 0.12);
+      const x = cx + p * U * 0.95 + Math.sin(t * 0.35 + i * 1.7) * U * 0.015;
+      const y = top - U * 0.03 - Math.sqrt(p) * U * 0.2;
+      const r = U * (0.03 + p * 0.1);
+      disc(f, x, y, r, (_, __, d) => fadeIn * (0.55 * (1 - p)) * (1 - d * 0.65));
+    }
+  },
+  // the shuttle flies across the shed and back, easing at each selvedge
+  loom: (f, t) => {
+    const { X } = frame(f.w, f.h);
+    const p = cycle(t, 6);
+    const there = p < 0.5 ? ease(p * 2) : 1 - ease((p - 0.5) * 2);
+    shuttle(f, X(0.22 + there * 0.56));
+  },
+  // the running yarn ripples as it feeds off the cone
+  cones: (f, t, seed) => {
+    const { U, X, Y } = frame(f.w, f.h);
+    const rnd = mulberry32(seed);
+    const n = 5;
+    const lead = Math.floor(rnd() * n);
+    let tall = 0;
+    for (let i = 0; i <= lead; i++) tall = U * (0.52 + 0.18 * rnd());
+    thread(f, X(0.12 + (lead * 0.76) / (n - 1)), Y(0.86) - tall - U * 0.06, t * 1.6);
+  },
+  // an ember scan line sweeps the lens: the inspection in progress
+  loupe: (f, t) => {
+    const { U, X, Y } = frame(f.w, f.h);
+    const cx = X(0.56);
+    const cy = Y(0.44);
+    const R = U * 0.34 * 0.86;
+    const p = cycle(t, 7);
+    const y = cy - R + ease(p < 0.5 ? p * 2 : 2 - p * 2) * 2 * R;
+    const half = Math.sqrt(Math.max(0, R * R - (y - cy) * (y - cy)));
+    line(f, cx - half, y, cx + half, y, 1, true);
+  },
+  // the newest line of the order is written out, held, and written again
+  orders: (f, t, seed) => {
+    const { U, X, Y } = frame(f.w, f.h);
+    const rnd = mulberry32(seed);
+    let len = 0;
+    for (let r = 0; r < 9; r++) len = 0.35 + rnd() * 0.5;
+    const x0 = X(0.18) + U * 0.12;
+    const y = Y(0.08) + U * 0.1 + 8 * U * 0.072;
+    const p = cycle(t, 7);
+    const shown = Math.min(1, p / 0.55);
+    const x1 = x0 + shown * len * U * 0.7;
+    line(f, x0, y, x1, y, 0.6);
+    if (p < 0.8 && Math.floor(t * 2) % 2 === 0) line(f, x1 + 1, y - 2, x1 + 1, y + 2, 1, true);
+  },
+  // the latest point on the trend breathes, a ring opening out from it
+  bars: (f, t, seed) => {
+    const { U, X, Y } = frame(f.w, f.h);
+    const rnd = mulberry32(seed);
+    let level = 0.3;
+    for (let i = 0; i < 9; i++) level = clamp(level + 0.04 + (rnd() - 0.35) * 0.1, 0.15, 0.85);
+    const x = X(0.06 + 8 * 0.1) + U * 0.055;
+    const y = Y(0.9) - level * U * 0.8 - U * 0.06;
+    const p = cycle(t, 3.2);
+    const r = U * (0.03 + p * 0.07);
+    disc(f, x, y, r, (_, __, d) => (d > 0.82 ? 1 - p : 0), (_, __, d) => d > 0.82);
+  },
+  // the gears turn, slowly, meshing
+  gear: (f, t, seed) => {
+    const rnd = mulberry32(seed);
+    const [p1, p2] = [rnd() * 3, rnd() * 3];
+    const w = t * 0.12;
+    cogs(f, p1 - 12 * w, p2 + 12 * w);
+  },
+  spool: (f, t, seed) => looseEnd(f, mulberry32(seed)() * 0.1, t * 1.2),
+  // the road slides back under the lorry
+  truck: (f, t, seed) => {
+    const { U } = frame(f.w, f.h);
+    const rnd = mulberry32(seed);
+    road(f, t * U * 0.09, [rnd(), rnd(), rnd(), rnd()]);
+  },
+  // the summit plume streams east off the top of the world
+  everest: (f, t) => {
+    const sx = 0.47 * f.w;
+    const sy = ridge(0.47) * f.h;
+    const n = 14;
+    for (let i = 0; i < n; i++) {
+      const p = cycle(t, 16, i / n);
+      const fadeIn = Math.min(1, p / 0.1);
+      const px = sx + p * f.w * 0.26;
+      const py = sy - f.h * 0.02 - Math.sin(p * 7) * f.h * 0.02;
+      disc(f, px, py, f.h * (0.012 + p * 0.05), (_, __, d) => fadeIn * (0.42 * (1 - p)) * (1 - d * 0.7));
+    }
+  },
+};
 
 // every part of the mill wears its own picture and a ledger index
 export const SECTION: Record<string, { motif: MotifName; index: string }> = {
