@@ -1,6 +1,7 @@
-from collections import defaultdict
+from collections import Counter, defaultdict
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
+from statistics import median
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -9,7 +10,11 @@ from app.modules.analytics.models import Severity
 from app.modules.inventory.models import BatchStatus, ExpectedDelivery, Receipt, YarnBatch
 from app.modules.masters.models import FabricType, Machine, Shift, Supplier, Worker
 from app.modules.orders.models import Order
+from app.modules.production.models import MachineEvent, MachineStatus, ProductionLog, WorkOrder
+from app.modules.production.service import status_durations
 from app.modules.quality.models import QcCheck, Roll, RollBatch
+from app.modules.workforce.schemas import IST
+from app.modules.workforce.service import day_start
 
 # Detector layer. Each detector reads the ledger and event tables (never writes them) and
 # returns findings: {kind, severity, entity_type, entity_id, title, facts}. Facts carry the
@@ -356,7 +361,333 @@ def detect_root_cause(db: Session, now: datetime) -> list[dict]:
     return [found] if found else []
 
 
-DETECTORS = [detect_suppliers, detect_root_cause]
+# --- machines: slowdowns (robust z on own history), breakdown clusters, shift-change idle
+
+MIN_DAY_HOURS = 2.0
+SLOW_Z, SLOW_DAYS = -3.0, 3
+MAD_TO_SIGMA = 1.4826  # MAD x 1.4826 ~ standard deviation for normal data
+
+
+# median and MAD ignore outliers, so past breakdown days do not drag the baseline down
+def robust_z(values: list[float]) -> tuple[float, list[float]]:
+    mid = median(values)
+    spread = max(median(abs(v - mid) for v in values) * MAD_TO_SIGMA, 0.01 * mid, 1e-9)
+    return mid, [(v - mid) / spread for v in values]
+
+
+# runs of at least SLOW_DAYS days in a row (days with data) far below the machine's own median
+def slowdown_episodes(series: list[tuple[date, float]]) -> tuple[float, list[list[tuple]]]:
+    if len(series) < 2 * SLOW_DAYS:
+        return 0.0, []
+    mid, zs = robust_z([v for _, v in series])
+    episodes, run = [], []
+    for (day, value), z in zip(series, zs, strict=True):
+        if z <= SLOW_Z:
+            run.append((day, value, z))
+            continue
+        if len(run) >= SLOW_DAYS:
+            episodes.append(run)
+        run = []
+    if len(run) >= SLOW_DAYS:
+        episodes.append(run)
+    return mid, episodes
+
+
+@dataclass
+class MachineDays:
+    id: int
+    code: str
+    unit: str
+    series: list[tuple[date, float]]  # IST day -> output per running hour
+    breakdowns: list[tuple[int, datetime, str]]  # (event id, at, reason)
+
+
+def machine_slowdowns(machines: list[MachineDays]) -> list[dict]:
+    found = []
+    for m in machines:
+        mid, episodes = slowdown_episodes(m.series)
+        if not episodes:
+            continue
+        run = episodes[-1]
+        start, end = run[0][0], run[-1][0]
+        low = min(v for _, v, _ in run)
+        drop = pct(mid - sum(v for _, v, _ in run) / len(run), mid)
+        after = [
+            b
+            for b in m.breakdowns
+            if start <= b[1].astimezone(IST).date() <= end + timedelta(days=3)
+        ]
+        facts = {
+            "key": start.isoformat(),
+            "machine": m.code,
+            "unit": m.unit,
+            "days": len(run),
+            "from": start.isoformat(),
+            "to": end.isoformat(),
+            "baseline_per_hour": round(mid, 1),
+            "low_per_hour": round(low, 1),
+            "drop_pct": drop,
+            "daily": [
+                {"day": d.isoformat(), "per_hour": round(v, 1), "z": round(z, 1)} for d, v, z in run
+            ],
+            "followed_by": {"at": after[0][1].isoformat(), "reason": after[0][2]}
+            if after
+            else None,
+            "records": [{"type": "machines", "id": m.id, "code": m.code}]
+            + [{"type": "machine_events", "id": b[0], "code": b[2]} for b in after],
+        }
+        found.append(
+            finding(
+                "machine_slowdown",
+                Severity.critical if after or drop >= 20 else Severity.warn,
+                "machines",
+                m.id,
+                f"{m.code} slowed {drop}% for {len(run)} days",
+                facts,
+            )
+        )
+    return found
+
+
+def _events_by_machine(db: Session, since: datetime, now: datetime) -> dict[int, list]:
+    events = defaultdict(list)
+    for e in db.scalars(
+        select(MachineEvent)
+        .where(MachineEvent.at < now)
+        .order_by(MachineEvent.machine_id, MachineEvent.at, MachineEvent.id)
+    ):
+        events[e.machine_id].append(e)
+    # keep the last event before the window: it tells the status the window starts in
+    return {
+        mid: [
+            e
+            for i, e in enumerate(rows)
+            if e.at >= since or (i + 1 < len(rows) and rows[i + 1].at >= since)
+        ]
+        for mid, rows in events.items()
+    }
+
+
+def load_machine_days(db: Session, now: datetime, days: int = 30) -> list[MachineDays]:
+    first = now.astimezone(IST).date() - timedelta(days=days)
+    since = day_start(first)
+    events = _events_by_machine(db, since, now)
+    output = defaultdict(float)
+    for machine_id, at, amount in db.execute(
+        select(ProductionLog.machine_id, ProductionLog.at, ProductionLog.qty)
+        .join(WorkOrder, WorkOrder.id == ProductionLog.work_order_id)
+        .where(ProductionLog.at >= since, ProductionLog.at < now, WorkOrder.roll_id.is_(None))
+    ):
+        output[machine_id, at.astimezone(IST).date()] += float(amount)
+    result = []
+    for m in db.scalars(select(Machine).where(Machine.active).order_by(Machine.code)):
+        rows = events.get(m.id, [])
+        points = [(e.at, e.status) for e in rows]
+        series = []
+        for d in range(days + 1):
+            day = first + timedelta(days=d)
+            start = day_start(day)
+            end = min(start + timedelta(days=1), now)
+            if end <= start:
+                break
+            hours = status_durations(points, start, end)[MachineStatus.running] / 3600
+            if hours >= MIN_DAY_HOURS:
+                series.append((day, output[m.id, day] / hours))
+        breakdowns = [(e.id, e.at, e.reason) for e in rows if e.status == MachineStatus.breakdown]
+        result.append(MachineDays(m.id, m.code, m.output_unit, series, breakdowns))
+    return result
+
+
+CLUSTER_DAYS, MACHINE_CLUSTER, REASON_CLUSTER = 7, 4, 4
+SHIFT_CLUSTER, SHIFT_SHARE = 8, 0.6
+
+
+@dataclass
+class Breakdown:
+    id: int
+    machine_id: int
+    machine: str
+    reason: str
+    shift_id: int
+    shift: str
+    at: datetime
+    hours: float
+
+
+def breakdown_clusters(events: list[Breakdown], now: datetime) -> list[dict]:
+    recent = [e for e in events if e.at >= now - timedelta(days=CLUSTER_DAYS)]
+    week = now.astimezone(IST).strftime("%G-W%V")
+    found = []
+
+    def cluster(group: list[Breakdown], what: str, entity_type: str, entity_id: int, name: str):
+        reasons = Counter(e.reason for e in group).most_common()
+        facts = {
+            "key": f"{what}:{week}",
+            "what": what,
+            "name": name,
+            "count": len(group),
+            "days": CLUSTER_DAYS,
+            "downtime_hours": round(sum(e.hours for e in group), 1),
+            "top_reason": reasons[0][0],
+            "top_reason_count": reasons[0][1],
+            "machines": sorted({e.machine for e in group}),
+            "records": [{"type": "machine_events", "id": e.id, "code": e.machine} for e in group],
+        }
+        return finding(
+            "breakdown_cluster",
+            Severity.critical if len(group) >= 2 * MACHINE_CLUSTER else Severity.warn,
+            entity_type,
+            entity_id,
+            f"{len(group)} breakdowns in {CLUSTER_DAYS} days: {name}",
+            facts,
+        )
+
+    for (machine_id, code), group in _group(recent, lambda e: (e.machine_id, e.machine)).items():
+        if len(group) >= MACHINE_CLUSTER:
+            found.append(cluster(group, "machine", "machines", machine_id, code))
+    for group in _group(recent, lambda e: e.reason.strip().lower()).values():
+        if len(group) >= REASON_CLUSTER and len({e.machine_id for e in group}) > 1:
+            busiest = Counter(e.machine_id for e in group).most_common(1)[0][0]
+            found.append(cluster(group, "reason", "machines", busiest, group[0].reason))
+    for (shift_id, code), group in _group(recent, lambda e: (e.shift_id, e.shift)).items():
+        # a shift pattern needs several days; one bad afternoon is not a pattern
+        days = {e.at.astimezone(IST).date() for e in group}
+        if (
+            len(group) >= SHIFT_CLUSTER
+            and len(group) >= SHIFT_SHARE * len(recent)
+            and len(days) >= 3
+        ):
+            found.append(cluster(group, "shift", "shifts", shift_id, f"shift {code}"))
+    return found
+
+
+def _group(items, key) -> dict:
+    groups = defaultdict(list)
+    for item in items:
+        groups[key(item)].append(item)
+    return groups
+
+
+def _shift_of(shifts: list[Shift], at: datetime) -> Shift:
+    minute = _minute_of_day(at)
+    for s in shifts:
+        start, end = _minute_of_day(s.start_time), _minute_of_day(s.end_time)
+        if (start <= minute < end) if start < end else (minute >= start or minute < end):
+            return s
+    return shifts[0]
+
+
+def _minute_of_day(t) -> int:
+    t = t.astimezone(IST) if isinstance(t, datetime) else t
+    return t.hour * 60 + t.minute
+
+
+def load_breakdowns(db: Session, now: datetime) -> list[Breakdown]:
+    shifts = list(db.scalars(select(Shift).order_by(Shift.start_time)))
+    codes = dict(db.execute(select(Machine.id, Machine.code)).all())
+    result = []
+    for rows in _events_by_machine(db, now - timedelta(days=CLUSTER_DAYS), now).values():
+        for e, nxt in zip(rows, [*rows[1:], None], strict=False):
+            if e.status != MachineStatus.breakdown or not shifts:
+                continue
+            shift = _shift_of(shifts, e.at)
+            hours = ((nxt.at if nxt else now) - e.at).total_seconds() / 3600
+            reason = e.reason or "No reason"
+            result.append(
+                Breakdown(
+                    e.id,
+                    e.machine_id,
+                    codes[e.machine_id],
+                    reason,
+                    shift.id,
+                    shift.code,
+                    e.at,
+                    hours,
+                )
+            )
+    return result
+
+
+IDLE_WINDOW_MIN, IDLE_MIN_SPELLS, IDLE_MIN_MEDIAN, IDLE_RATIO = 15, 5, 20, 2.0
+
+
+@dataclass
+class IdleSpell:
+    event_id: int
+    machine: str
+    at: datetime
+    minutes: float
+
+
+# idle stops that begin right after a shift starts: is one handover much slower than the rest?
+def shift_change_idle(spells: list[IdleSpell], shifts: list[Shift], days: int) -> list[dict]:
+    by_shift = {}
+    for s in shifts:
+        start = _minute_of_day(s.start_time)
+        by_shift[s] = [
+            sp for sp in spells if (_minute_of_day(sp.at) - start) % 1440 <= IDLE_WINDOW_MIN
+        ]
+    found = []
+    order = sorted(shifts, key=lambda s: s.start_time)
+    for s, mine in by_shift.items():
+        others = [sp for o, group in by_shift.items() if o != s for sp in group]
+        if len(mine) < IDLE_MIN_SPELLS or not others:
+            continue
+        mid, other_mid = median(sp.minutes for sp in mine), median(sp.minutes for sp in others)
+        if mid < IDLE_MIN_MEDIAN or mid < IDLE_RATIO * other_mid:
+            continue
+        before = order[order.index(s) - 1]
+        worst = sorted(mine, key=lambda sp: -sp.minutes)[:20]
+        facts = {
+            "key": s.code,
+            "from_shift": before.code,
+            "to_shift": s.code,
+            "at": s.start_time.strftime("%H:%M"),
+            "days": days,
+            "spells": len(mine),
+            "median_min": round(mid),
+            "others_median_min": round(other_mid),
+            "lost_hours": round(sum(sp.minutes - other_mid for sp in mine) / 60, 1),
+            "machines": len({sp.machine for sp in mine}),
+            "records": [
+                {"type": "machine_events", "id": sp.event_id, "code": sp.machine} for sp in worst
+            ],
+        }
+        found.append(
+            finding(
+                "shift_change_idle",
+                Severity.warn,
+                "shifts",
+                s.id,
+                f"Handover at {facts['at']}: machines idle {facts['median_min']} min",
+                facts,
+            )
+        )
+    return found
+
+
+def load_idle_spells(db: Session, now: datetime, days: int = 30) -> list[IdleSpell]:
+    codes = dict(db.execute(select(Machine.id, Machine.code)).all())
+    spells = []
+    for rows in _events_by_machine(db, now - timedelta(days=days), now).values():
+        for e, nxt in zip(rows, rows[1:], strict=False):
+            if e.status == MachineStatus.idle and e.at >= now - timedelta(days=days):
+                spells.append(
+                    IdleSpell(e.id, codes[e.machine_id], e.at, (nxt.at - e.at).total_seconds() / 60)
+                )
+    return spells
+
+
+def detect_machines(db: Session, now: datetime) -> list[dict]:
+    shifts = list(db.scalars(select(Shift)))
+    return (
+        machine_slowdowns(load_machine_days(db, now))
+        + breakdown_clusters(load_breakdowns(db, now), now)
+        + shift_change_idle(load_idle_spells(db, now), shifts, 30)
+    )
+
+
+DETECTORS = [detect_suppliers, detect_root_cause, detect_machines]
 
 
 def find_all(db: Session, now: datetime) -> list[dict]:

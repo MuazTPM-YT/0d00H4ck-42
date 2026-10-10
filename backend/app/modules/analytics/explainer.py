@@ -1,6 +1,7 @@
 import json
 import re
 from collections.abc import Callable
+from datetime import datetime
 from decimal import Decimal
 
 # Explainer layer. Today: fixed sentence templates filled from an insight's facts.
@@ -48,9 +49,50 @@ def root_cause_text(f: dict) -> str:
     return text
 
 
+# "2026-09-28" or a timestamp -> "28 Sep" (day and month only, so no new numbers appear)
+def day(iso: str) -> str:
+    d = datetime.fromisoformat(iso)
+    return f"{d.day} {d:%b}"
+
+
+def slowdown_text(f: dict) -> str:
+    text = (
+        f"{f['machine']} made {f['drop_pct']}% less per running hour for {f['days']} days in a "
+        f"row ({day(f['from'])} to {day(f['to'])}): down to {f['low_per_hour']} {f['unit']} "
+        f"against its usual {f['baseline_per_hour']} {f['unit']}."
+    )
+    if f["followed_by"]:
+        text += (
+            f" It then broke down on {day(f['followed_by']['at'])}: {f['followed_by']['reason']}."
+        )
+    else:
+        text += " A slow, steady drop like this often comes before a breakdown: plan a check."
+    return text
+
+
+def cluster_text(f: dict) -> str:
+    return (
+        f"{f['name']} had {f['count']} breakdowns in the last {f['days']} days, "
+        f"{f['downtime_hours']} hours of downtime. Most common reason: {f['top_reason']} "
+        f"({f['top_reason_count']} times)."
+    )
+
+
+def idle_text(f: dict) -> str:
+    return (
+        f"When shift {f['from_shift']} hands over to shift {f['to_shift']} at {f['at']}, machines "
+        f"stand idle for {f['median_min']} min (median of {f['spells']} stops over {f['days']} "
+        f"days). Other handovers take {f['others_median_min']} min. That is about "
+        f"{f['lost_hours']} machine-hours lost."
+    )
+
+
 TEMPLATES: dict[str, Callable[[dict], str]] = {
     "supplier_defects": supplier_text,
     "defect_root_cause": root_cause_text,
+    "machine_slowdown": slowdown_text,
+    "breakdown_cluster": cluster_text,
+    "shift_change_idle": idle_text,
 }
 
 
