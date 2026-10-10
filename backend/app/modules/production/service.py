@@ -1,4 +1,6 @@
+from collections import defaultdict
 from datetime import UTC, datetime
+from decimal import Decimal
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -11,7 +13,8 @@ from app.core.idempotency import run_once
 from app.core.pagination import Page, paginate
 from app.core.states import check_transition
 from app.core.units import qty, yarn_kg_for_fabric
-from app.modules.masters.models import FabricType, Machine
+from app.modules.inventory.models import ItemKind, MoveReason, StockMove
+from app.modules.masters.models import FabricType, Location, LocationKind, Machine
 from app.modules.orders.models import Order, OrderStatus
 from app.modules.production.models import (
     MachineEvent,
@@ -25,7 +28,12 @@ from app.modules.production.schemas import (
     MachineEventOut,
     OutputIn,
     ProductionLogOut,
+    RollIn,
+    RollOut,
+    RollProcessIn,
 )
+from app.modules.quality.models import Roll, RollBatch, RollEvent, RollStatus
+from app.modules.quality.service import ROLL_TRANSITIONS
 from app.modules.workforce.service import crew_on_machine, current_shift
 
 WORK_ORDER_TRANSITIONS = {
@@ -265,6 +273,7 @@ def finish_work_order(
     machine = _lock_machine(db, wo.machine_id)
     if machine_status(db, machine.id) == MachineStatus.running:
         _set_machine_status(db, machine, MachineStatus.idle, user_id, source, at=at)
+    _consume_rest(db, wo, user_id, _now(at))
     db.commit()
     events.publish("machines", {"type": "work_order", "id": wo.id})
     events.publish("orders", {"type": "work_order", "id": wo.order_id})
@@ -335,6 +344,214 @@ def log_output(db: Session, body: OutputIn, user_id: int, at: datetime | None = 
     db.commit()
     events.publish("machines", {"type": "output", "id": body.machine_id})
     events.publish("orders", {"type": "output", "id": result["work_order_id"]})
+    return result
+
+
+def _location_id(db: Session, kind: LocationKind) -> int:
+    return db.scalar(select(Location.id).where(Location.kind == kind).order_by(Location.id))
+
+
+# per yarn batch for one work order: kg issued (net of returns) and kg still on the floor
+def _wip_yarn(db: Session, work_order_id: int) -> dict[int, dict[str, Decimal]]:
+    wip = set(db.scalars(select(Location.id).where(Location.kind == LocationKind.wip)))
+    moves = db.execute(
+        select(
+            StockMove.yarn_batch_id,
+            StockMove.reason,
+            StockMove.from_location_id,
+            StockMove.to_location_id,
+            StockMove.qty,
+        ).where(
+            StockMove.ref_type == "work_order",
+            StockMove.ref_id == work_order_id,
+            StockMove.item_kind == ItemKind.yarn,
+        )
+    ).all()
+    out = defaultdict(lambda: {"issued": Decimal(0), "left": Decimal(0)})
+    for batch_id, reason, frm, to, kg in moves:
+        if to in wip:
+            out[batch_id]["issued"] += kg
+            out[batch_id]["left"] += kg
+        if frm in wip:
+            out[batch_id]["left"] -= kg
+            if reason == MoveReason.return_:
+                out[batch_id]["issued"] -= kg
+    return dict(out)
+
+
+# proportional split; the biggest share takes the rounding remainder so rows sum exactly
+def split_kg(total: Decimal, weights: dict[int, Decimal]) -> dict[int, Decimal]:
+    whole = sum(weights.values())
+    biggest = max(weights, key=lambda k: (weights[k], -k))
+    out = {k: qty(total * w / whole) for k, w in weights.items() if k != biggest}
+    out[biggest] = total - sum(out.values())
+    return {k: v for k, v in out.items() if v > 0}
+
+
+# job done: yarn still on the floor for it is used up (WIP -> production)
+def _consume_rest(db: Session, wo: WorkOrder, user_id: int | None, at: datetime) -> None:
+    left = {b: v["left"] for b, v in _wip_yarn(db, wo.id).items() if v["left"] > 0}
+    if not left:
+        return
+    wip, used = _location_id(db, LocationKind.wip), _location_id(db, LocationKind.consumed)
+    for batch_id, kg in left.items():
+        db.add(
+            StockMove(
+                at=at,
+                item_kind=ItemKind.yarn,
+                yarn_batch_id=batch_id,
+                qty=kg,
+                unit=Unit.kg,
+                from_location_id=wip,
+                to_location_id=used,
+                reason=MoveReason.consume,
+                ref_type="work_order",
+                ref_id=wo.id,
+                user_id=user_id,
+            )
+        )
+
+
+def _set_roll_status(db: Session, roll: Roll, new: RollStatus, user_id: int | None) -> None:
+    check_transition(ROLL_TRANSITIONS, roll.status, new)
+    audit.record(db, user_id, str(new), "rolls", roll.id, data={"from": roll.status, "to": new})
+    roll.status = new
+
+
+# after the last stage of the fabric's route the roll waits for QC
+def _after_stage(db: Session, roll: Roll, stage: Stage, user_id: int | None) -> None:
+    order = db.get(Order, roll.order_id)
+    fabric = db.get(FabricType, order.fabric_type_id)
+    if fabric.stages[-1].stage == stage:
+        _set_roll_status(db, roll, RollStatus.awaiting_qc, user_id)
+
+
+def _publish_roll(result: dict) -> None:
+    events.publish("machines", {"type": "roll", "id": result["id"]})
+    events.publish("orders", {"type": "roll", "id": result["order_id"]})
+    if result["status"] == RollStatus.awaiting_qc:
+        events.publish("quality", {"type": "roll", "id": result["id"]})
+
+
+# weaver cuts a roll off the loom: new identity, yarn lineage, fabric enters WIP
+def cut_roll(db: Session, body: RollIn, user_id: int | None, at: datetime | None = None) -> dict:
+    def work():
+        wo = _lock_work_order(db, body.work_order_id)
+        if wo.stage != Stage.weaving or wo.roll_id:
+            raise Conflict("Rolls are cut from a weaving work order", field="work_order_id")
+        if wo.status not in (WorkOrderStatus.running, WorkOrderStatus.paused):
+            raise Conflict(f"{wo.code} is {wo.status}, cut rolls from a started job")
+        issued = {b: v["issued"] for b, v in _wip_yarn(db, wo.id).items() if v["issued"] > 0}
+        if not issued:
+            raise Conflict(
+                f"No yarn issued to {wo.code} yet. The store issues yarn first.",
+                field="work_order_id",
+                code="no_yarn_issued",
+            )
+        when = _now(at)
+        order = db.get(Order, wo.order_id)
+        fabric = db.get(FabricType, order.fabric_type_id)
+        roll = Roll(
+            code=next_code(db, "R"),
+            order_id=order.id,
+            work_order_id=wo.id,
+            loom_machine_id=wo.machine_id,
+            shift_id=body.shift_id or current_shift(db, when)[1].id,
+            weaver_id=body.weaver_id or crew_on_machine(db, wo.machine_id, when),
+            length_m=body.length_m,
+            status=RollStatus.in_process,
+            location_id=_location_id(db, LocationKind.wip),
+        )
+        db.add(roll)
+        db.flush()
+        kg = yarn_kg_for_fabric(body.length_m, fabric.width_cm, fabric.gsm, fabric.process_loss_pct)
+        for batch_id, share in split_kg(kg, issued).items():
+            db.add(RollBatch(roll_id=roll.id, yarn_batch_id=batch_id, kg=share))
+        db.add(
+            RollEvent(
+                roll_id=roll.id,
+                at=when,
+                kind="woven",
+                machine_id=wo.machine_id,
+                work_order_id=wo.id,
+            )
+        )
+        db.add(
+            StockMove(
+                at=when,
+                item_kind=ItemKind.fabric,
+                roll_id=roll.id,
+                qty=body.length_m,
+                unit=Unit.m,
+                from_location_id=_location_id(db, LocationKind.consumed),
+                to_location_id=roll.location_id,
+                reason=MoveReason.produce,
+                ref_type="work_order",
+                ref_id=wo.id,
+                user_id=user_id,
+                source=body.source,
+            )
+        )
+        audit.record(db, user_id, "create", "rolls", roll.id, data={"work_order_id": wo.id})
+        _after_stage(db, roll, wo.stage, user_id)
+        db.flush()
+        return RollOut.model_validate(roll)
+
+    result = run_once(db, body.idempotency_key, "production.roll", work)
+    db.commit()
+    _publish_roll(result)
+    return result
+
+
+# a later stage (dyeing) or a rework job takes a whole roll: roll event + output log, one fact
+def process_roll(
+    db: Session, roll_id: int, body: RollProcessIn, user_id: int | None, at: datetime | None = None
+) -> dict:
+    def work():
+        roll = db.scalar(select(Roll).where(Roll.id == roll_id).with_for_update())
+        if not roll:
+            raise NotFound(f"Roll {roll_id} not found")
+        wo = _lock_work_order(db, body.work_order_id)
+        if wo.order_id != roll.order_id:
+            raise Conflict(f"{roll.code} belongs to another order", field="work_order_id")
+        if wo.status != WorkOrderStatus.running:
+            raise Conflict(f"Start {wo.code} before processing rolls", field="work_order_id")
+        if wo.roll_id:
+            if wo.roll_id != roll.id:
+                raise Conflict(f"{wo.code} is rework for another roll", field="work_order_id")
+            expected = RollStatus.rework
+        elif wo.stage != Stage.dyeing:
+            raise Conflict("Only dyeing and rework jobs process finished rolls", "work_order_id")
+        else:
+            expected = RollStatus.in_process
+        if roll.status != expected:
+            raise Conflict(f"{roll.code} is {roll.status}")
+        seen = select(RollEvent.id).where(
+            RollEvent.roll_id == roll.id, RollEvent.work_order_id == wo.id
+        )
+        if db.scalar(seen):
+            raise Conflict(f"{roll.code} already went through {wo.code}")
+        when = _now(at)
+        db.add(
+            RollEvent(
+                roll_id=roll.id,
+                at=when,
+                kind="rework" if wo.roll_id else "dyed",
+                machine_id=wo.machine_id,
+                work_order_id=wo.id,
+            )
+        )
+        _add_log(db, wo, wo.machine_id, roll.length_m, when, body.source)
+        if wo.roll_id:
+            _set_roll_status(db, roll, RollStatus.awaiting_qc, user_id)
+        else:
+            _after_stage(db, roll, wo.stage, user_id)
+        db.flush()
+        return RollOut.model_validate(roll)
+
+    result = run_once(db, body.idempotency_key, "production.roll_process", work)
+    db.commit()
+    _publish_roll(result)
     return result
 
 
@@ -415,4 +632,34 @@ def order_progress(db: Session, order_id: int) -> dict[Stage, dict]:
 
 # new work order for one roll sent back by QC; roll_id set, seq after the original stage
 def create_rework_work_order(db: Session, roll_id: int, stage: Stage, user_id: int) -> WorkOrder:
-    raise NotImplementedError("production.create_rework_work_order")
+    roll = db.get(Roll, roll_id)
+    if not roll:
+        raise NotFound(f"Roll {roll_id} not found")
+    if roll.status != RollStatus.rework:
+        raise Conflict(f"{roll.code} is {roll.status}, not rework")
+    order = db.get(Order, roll.order_id)
+    fabric = db.get(FabricType, order.fabric_type_id)
+    seq = next((s.seq for s in fabric.stages if s.stage == stage), None)
+    if stage == Stage.spinning or seq is None:
+        raise Unprocessable(f"{stage} cannot rework a roll of {fabric.code}", field="stage")
+    open_wo = db.scalar(
+        select(WorkOrder).where(
+            WorkOrder.roll_id == roll.id, WorkOrder.status != WorkOrderStatus.done
+        )
+    )
+    if open_wo:
+        return open_wo
+    wo = WorkOrder(
+        code=next_code(db, "WO"),
+        order_id=order.id,
+        stage=stage,
+        seq=seq,
+        planned_qty=roll.length_m,
+        unit=Unit.m,
+        status=WorkOrderStatus.waiting,
+        roll_id=roll.id,
+    )
+    db.add(wo)
+    db.flush()
+    audit.record(db, user_id, "create", "work_orders", wo.id, data={"rework_roll_id": roll.id})
+    return wo

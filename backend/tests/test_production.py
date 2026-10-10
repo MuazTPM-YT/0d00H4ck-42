@@ -5,14 +5,17 @@ import pytest
 from sqlalchemy import select
 
 from app.core.audit import AuditLog
-from app.core.enums import Source
-from app.core.errors import Conflict
+from app.core.enums import Source, Stage
+from app.core.errors import Conflict, Unprocessable
+from app.core.units import qty, yarn_kg_for_fabric
 from app.modules.auth.models import Role
+from app.modules.inventory.models import StockMove
 from app.modules.orders.models import Order
 from app.modules.production import service
 from app.modules.production.models import MachineStatus, WorkOrder, WorkOrderStatus
-from app.modules.production.schemas import MachineEventIn, OutputIn
+from app.modules.production.schemas import MachineEventIn, OutputIn, RollIn, RollProcessIn
 from app.modules.production.service import create_work_orders
+from app.modules.quality.models import Roll, RollBatch, RollStatus
 from app.modules.workforce.schemas import CrewIn
 from app.modules.workforce.service import assign_crew
 from tests.floor import build_floor
@@ -224,3 +227,87 @@ def test_output_time_must_be_recent():
         OutputIn(machine_id=1, qty=1, at=datetime.now(UTC) - timedelta(days=2))
     with pytest.raises(ValueError):
         OutputIn(machine_id=1, qty=0)
+
+
+def cut(db, floor, wo, length):
+    return service.cut_roll(db, RollIn(work_order_id=wo.id, length_m=Decimal(length)), None)
+
+
+def test_split_kg_is_proportional_and_exact():
+    parts = service.split_kg(Decimal("10.000"), {1: Decimal(1), 2: Decimal(1), 3: Decimal(1)})
+    assert sum(parts.values()) == Decimal("10.000")
+    assert sorted(parts.values()) == [Decimal("3.333"), Decimal("3.333"), Decimal("3.334")]
+
+
+def test_roll_lineage_sums_to_formula_kg_split_by_issued_share(db, floor):
+    wo = run_on(db, floor, floor.shirt_weave, floor.loom1)
+    with pytest.raises(Conflict) as e:
+        cut(db, floor, wo, 60)
+    assert e.value.code == "no_yarn_issued"
+
+    b1, b2 = floor.batches
+    floor.issue(wo, b1, 90)
+    floor.issue(wo, b2, 30)
+    roll = cut(db, floor, wo, 60)
+    rows = db.scalars(select(RollBatch).where(RollBatch.roll_id == roll["id"])).all()
+    kg = yarn_kg_for_fabric(Decimal(60), Decimal(147), Decimal(115), Decimal(5))
+    by_batch = {r.yarn_batch_id: r.kg for r in rows}
+    assert sum(by_batch.values()) == kg
+    assert by_batch[b1.id] == qty(kg * 3 / 4)  # 90 of 120 kg issued came from batch 1
+    assert roll["code"].startswith("R-") and roll["loom_machine_id"] == floor.loom1.id
+
+
+def test_last_stage_moves_roll_to_awaiting_qc(db, floor):
+    wo = run_on(db, floor, floor.shirt_weave, floor.loom1)
+    floor.issue(wo, floor.batches[0], 50)
+    assert cut(db, floor, wo, 55)["status"] == RollStatus.awaiting_qc  # shirting: weaving only
+
+
+def test_dyed_roll_waits_for_dyeing_then_qc(db, floor):
+    weave = run_on(db, floor, floor.dyed_weave, floor.loom1)
+    floor.issue(weave, floor.batches[0], 50)
+    roll = cut(db, floor, weave, 60)
+    assert roll["status"] == RollStatus.in_process
+
+    dye = run_on(db, floor, floor.dyed_dye, floor.jigger)
+    body = RollProcessIn(work_order_id=dye.id)
+    done = service.process_roll(db, roll["id"], body, None)
+    assert done["status"] == RollStatus.awaiting_qc
+    assert service.order_progress(db, floor.dyed_order.id)["dyeing"]["produced"] == 60
+    with pytest.raises(Conflict):
+        service.process_roll(db, roll["id"], body, None)
+
+
+def test_rework_work_order_returns_roll_to_qc(db, floor):
+    wo = run_on(db, floor, floor.shirt_weave, floor.loom1)
+    floor.issue(wo, floor.batches[0], 50)
+    roll = db.get(Roll, cut(db, floor, wo, 40)["id"])
+    with pytest.raises(Conflict):
+        service.create_rework_work_order(db, roll.id, Stage.weaving, None)  # not in rework yet
+    roll.status = RollStatus.rework  # quality module's decision
+    db.commit()
+    with pytest.raises(Unprocessable):
+        service.create_rework_work_order(db, roll.id, Stage.dyeing, None)  # not on route
+
+    rework = service.create_rework_work_order(db, roll.id, Stage.weaving, None)
+    db.commit()
+    assert (rework.roll_id, rework.planned_qty, rework.status) == (
+        roll.id,
+        roll.length_m,
+        "waiting",
+    )
+    assert service.create_rework_work_order(db, roll.id, Stage.weaving, None).id == rework.id
+
+    run_on(db, floor, rework, floor.loom2)
+    result = service.process_roll(db, roll.id, RollProcessIn(work_order_id=rework.id), None)
+    assert result["status"] == RollStatus.awaiting_qc
+
+
+def test_finish_consumes_yarn_left_on_the_floor(db, floor):
+    wo = run_on(db, floor, floor.shirt_weave, floor.loom1)
+    floor.issue(wo, floor.batches[0], 50)
+    service.finish_work_order(db, wo.id, None)
+    consumed = db.scalars(
+        select(StockMove).where(StockMove.ref_id == wo.id, StockMove.reason == "consume")
+    ).all()
+    assert [m.qty for m in consumed] == [Decimal(50)]

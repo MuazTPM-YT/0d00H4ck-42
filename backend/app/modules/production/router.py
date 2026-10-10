@@ -15,6 +15,9 @@ from app.modules.production.schemas import (
     ProductionLogOut,
     QueueIn,
     ReorderIn,
+    RollIn,
+    RollOut,
+    RollProcessIn,
     WorkOrderOut,
 )
 
@@ -78,3 +81,15 @@ def machine_event(body: MachineEventIn, db: Session = Depends(get_db), user: Use
 @router.post("/output", response_model=ProductionLogOut, status_code=201)
 def output(body: OutputIn, db: Session = Depends(get_db), user: User = Supervisor):
     return service.log_output(db, body, user.id)
+
+
+@router.post("/rolls", response_model=RollOut, status_code=201)
+def cut_roll(body: RollIn, db: Session = Depends(get_db), user: User = Supervisor):
+    return service.cut_roll(db, body, user.id)
+
+
+@router.post("/rolls/{roll_id}/process", response_model=RollOut)
+def process_roll(
+    roll_id: int, body: RollProcessIn, db: Session = Depends(get_db), user: User = Supervisor
+):
+    return service.process_roll(db, roll_id, body, user.id)

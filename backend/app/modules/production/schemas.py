@@ -8,6 +8,7 @@ from app.core.enums import Source, Stage, Unit
 from app.core.errors import FieldError
 from app.core.types import Note, PositiveQty
 from app.modules.production.models import MachineStatus, WorkOrderStatus
+from app.modules.quality.models import RollStatus
 
 Id = Annotated[int, Field(gt=0)]
 # scanner or machine feed retry key; same key twice returns the first response
@@ -109,3 +110,32 @@ class ProductionLogOut(BaseModel):
     unit: Unit
     at: datetime
     source: Source
+
+
+class RollIn(BaseModel):
+    work_order_id: Id
+    length_m: Annotated[Decimal, Field(gt=0, le=1000, max_digits=12, decimal_places=3)]
+    shift_id: Id | None = None
+    weaver_id: Id | None = None
+    source: Source = Source.manual
+    idempotency_key: IdempotencyKey | None = None
+
+
+class RollProcessIn(BaseModel):
+    work_order_id: Id
+    source: Source = Source.manual
+    idempotency_key: IdempotencyKey | None = None
+
+
+class RollOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    code: str
+    order_id: int
+    work_order_id: int
+    loom_machine_id: int
+    shift_id: int
+    weaver_id: int | None
+    length_m: Decimal
+    status: RollStatus
