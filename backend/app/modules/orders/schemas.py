@@ -4,6 +4,7 @@ from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from app.core.dates import mill_today
 from app.core.errors import FieldError
 from app.core.types import Paise, ShortText
 from app.modules.orders.models import OrderStatus
@@ -66,7 +67,7 @@ class OrderIn(RequirementIn):
     @field_validator("deadline")
     @classmethod
     def deadline_ahead(cls, v: date) -> date:
-        today = date.today()
+        today = mill_today()
         if v <= today:
             raise FieldError("deadline", "Deadline must be after today")
         if v > today + timedelta(days=730):

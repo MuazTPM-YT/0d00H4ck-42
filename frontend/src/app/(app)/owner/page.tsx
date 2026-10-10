@@ -31,7 +31,7 @@ export default function Page() {
       <DitherBand className="my-8" direction="center" />
       <div className="grid gap-8 xl:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
         <AttentionList />
-        <section aria-labelledby="delivery-title" className="grid content-start gap-3">
+        <section aria-labelledby="delivery-title" className="grid min-w-0 content-start gap-3">
           <h2 id="delivery-title" className="text-base font-semibold">
             Delivery forecast
           </h2>

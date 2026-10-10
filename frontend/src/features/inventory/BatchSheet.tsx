@@ -1,5 +1,7 @@
 "use client";
 
+import { Select } from "@/components/ui/select";
+
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Printer } from "lucide-react";
 import { type FormEvent, useState } from "react";
@@ -32,7 +34,7 @@ export function BatchSheet({ batchId, onClose }: { batchId: number | null; onClo
     <Sheet open={batchId !== null} onOpenChange={(open) => !open && onClose()}>
       <SheetContent className="w-full overflow-y-auto sm:max-w-xl">
         <SheetHeader>
-          <SheetTitle className="flex items-center gap-2">
+          <SheetTitle className="flex flex-wrap items-center gap-2">
             {b?.code ?? "Batch"} {b && <StatusBadge status={b.status} />}
           </SheetTitle>
           <SheetDescription>{b ? `${itemLabel(b.yarn_item)} · lot ${b.supplier_lot ?? "—"} · ${b.supplier?.name}` : "Loading…"}</SheetDescription>
@@ -224,12 +226,12 @@ function Identify({ batchId, onDone }: { batchId: number; onDone: () => void }) 
     <form onSubmit={submit} noValidate className="grid gap-3 rounded-lg border p-3">
       <p className="text-sm">Label missing. Check the cones and say what this yarn is.</p>
       <FormField name="yarn_item_id" label="Yarn" error={errors.yarn_item_id} required>
-        <select id="yarn_item_id" value={itemId} onChange={(e) => setItemId(e.target.value)} className={selectClass} aria-invalid={!!errors.yarn_item_id}>
+        <Select id="yarn_item_id" value={itemId} onChange={(e) => setItemId(e.target.value)} className={selectClass} aria-invalid={!!errors.yarn_item_id}>
           <option value="">Choose…</option>
           {items.data?.items.map((i) => (
             <option key={i.id} value={i.id}>{`${i.fibre} ${i.count} ${i.colour}`}</option>
           ))}
-        </select>
+        </Select>
       </FormField>
       <FormField name="supplier_lot" label="Supplier lot (if known)" error={errors.supplier_lot}>
         <Input id="supplier_lot" value={lot} maxLength={60} onChange={(e) => setLot(e.target.value)} />
@@ -243,9 +245,9 @@ function Identify({ batchId, onDone }: { batchId: number; onDone: () => void }) 
 // printable internal label: the batch code as QR, scanned again at issue time
 export function BatchLabel({ code, title }: { code: string; title: string }) {
   return (
-    <section className="flex items-center gap-4 rounded-lg border p-3">
+    <section className="flex flex-wrap items-center gap-4 rounded-lg border p-3">
       <img src={qrSrc(code)} alt={`QR code for ${code}`} className="size-24 rounded bg-white p-1" />
-      <div className="min-w-0 flex-1">
+      <div className="min-w-24 flex-1">
         <div className="text-lg font-semibold tabular">{code}</div>
         <div className="text-sm text-muted-foreground">{title}</div>
       </div>

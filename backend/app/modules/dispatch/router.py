@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.core.db import get_db
 from app.core.deps import require_roles
+from app.core.errors import Unprocessable
 from app.core.pagination import Paged, PageDep
 from app.modules.auth.models import Role, User
 from app.modules.dispatch import service
@@ -45,6 +46,8 @@ def list_dispatches(
     date_to: date | None = None,
     db: Session = Depends(get_db),
 ):
+    if date_from and date_to and date_to < date_from:
+        raise Unprocessable("To date must be on or after from date", "date_to")
     return service.list_dispatches(
         db, page, status, order_id, buyer_id, vehicle, date_from, date_to
     )

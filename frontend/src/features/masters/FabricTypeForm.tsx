@@ -1,5 +1,7 @@
 "use client";
 
+import { Select } from "@/components/ui/select";
+
 import { Plus, X } from "lucide-react";
 import { useState } from "react";
 
@@ -62,8 +64,8 @@ export function FabricTypeForm({ row, onDone }: { row: FabricRow | null; onDone:
       <div className="grid gap-4 sm:grid-cols-2">
         {headField("code", "Code", { maxLength: 20, pattern: "[A-Za-z0-9][A-Za-z0-9\\-]{0,19}" })}
         {headField("name", "Name", { maxLength: 120 })}
-        {headField("width_cm", "Width (cm)", { type: "number", min: 0.01, step: "0.01" })}
-        {headField("gsm", "GSM", { type: "number", min: 0.01, step: "0.01" }, "Grams per square metre")}
+        {headField("width_cm", "Width (cm)", { type: "number", min: 0.01, max: 1000, step: "0.01" })}
+        {headField("gsm", "GSM", { type: "number", min: 0.01, max: 2000, step: "0.01" }, "Grams per square metre")}
         {headField("process_loss_pct", "Process loss (%)", { type: "number", min: 0, max: 99.99, step: "0.01" }, "Yarn lost between yarn and finished fabric")}
       </div>
 
@@ -74,9 +76,9 @@ export function FabricTypeForm({ row, onDone }: { row: FabricRow | null; onDone:
           {stages.map((stage, i) => (
             <li key={i} className="flex items-center gap-2">
               <span className="w-5 text-sm text-muted-foreground tabular">{i + 1}.</span>
-              <select aria-label={`Stage ${i + 1}`} value={stage} onChange={(e) => setStages((s) => s.map((x, j) => (j === i ? (e.target.value as Stage) : x)))} className={cn(selectClass, "flex-1")}>
+              <Select aria-label={`Stage ${i + 1}`} value={stage} onChange={(e) => setStages((s) => s.map((x, j) => (j === i ? (e.target.value as Stage) : x)))} className={cn(selectClass, "flex-1")}>
                 {STAGES.map((s) => <option key={s} value={s}>{s}</option>)}
-              </select>
+              </Select>
               <Button type="button" variant="ghost" size="icon" aria-label={`Remove stage ${i + 1}`} disabled={stages.length === 1} onClick={() => setStages((s) => s.filter((_, j) => j !== i))}>
                 <X />
               </Button>
@@ -94,7 +96,7 @@ export function FabricTypeForm({ row, onDone }: { row: FabricRow | null; onDone:
       <fieldset className="grid gap-2">
         <legend className="mb-1 text-sm font-medium">Yarn recipe</legend>
         {recipe.map((r, i) => (
-          <div key={i} className="grid grid-cols-[1fr_1fr_5rem_auto] items-center gap-2">
+          <div key={i} className="grid grid-cols-2 items-center gap-2 border-b pb-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_5rem_auto] sm:border-0 sm:pb-0">
             <Input aria-label={`Fibre ${i + 1}`} placeholder="Fibre" required maxLength={40} value={r.fibre} onChange={(e) => setRecipe((rs) => rs.map((x, j) => (j === i ? { ...x, fibre: e.target.value } : x)))} />
             <Input aria-label={`Count ${i + 1}`} placeholder="Ne 30/1" required maxLength={20} value={r.count} onChange={(e) => setRecipe((rs) => rs.map((x, j) => (j === i ? { ...x, count: e.target.value } : x)))} />
             <Input aria-label={`Share ${i + 1} (%)`} type="number" min={0.01} max={100} step="0.01" required value={r.share_pct} onChange={(e) => setRecipe((rs) => rs.map((x, j) => (j === i ? { ...x, share_pct: e.target.value } : x)))} />
@@ -104,7 +106,7 @@ export function FabricTypeForm({ row, onDone }: { row: FabricRow | null; onDone:
           </div>
         ))}
         <div className="flex items-center justify-between gap-2">
-          <Button type="button" variant="outline" size="sm" onClick={() => setRecipe((rs) => [...rs, { fibre: "Cotton", count: "", share_pct: "" }])}>
+          <Button type="button" variant="outline" size="sm" disabled={recipe.length >= 10} onClick={() => setRecipe((rs) => [...rs, { fibre: "Cotton", count: "", share_pct: "" }])}>
             <Plus /> Add yarn
           </Button>
           <span className={cn("text-sm tabular", shareTotal === 100 ? "text-success" : "text-warning")}>Total {shareTotal}% of 100%</span>

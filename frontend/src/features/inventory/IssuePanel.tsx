@@ -161,7 +161,7 @@ function IssueForm({ line, workOrderId, onDone }: { line: PlanLine; workOrderId:
   function submit(e: FormEvent) {
     e.preventDefault();
     const errs: Record<string, string> = {};
-    if (!KG_RE.test(amount) || Number(amount) <= 0) errs.kg = "Kilos above 0, up to 3 decimals";
+    if (!KG_RE.test(amount) || Number(amount) <= 0 || Number(amount) > Number(line.store_kg)) errs.kg = `Enter kilos above 0, up to ${kg(line.store_kg)}, with up to 3 decimals`;
     if (over && !reason.trim()) errs.reason = `More than the ${kg(line.reserved_for_order_kg)} reserved: say why`;
     setErrors(errs);
     if (!Object.keys(errs).length) issue.mutate();
@@ -187,6 +187,7 @@ function ReturnList({ plan, onDone }: { plan: IssuePlan; onDone: (msg: string) =
   const qc = useQueryClient();
   const [open, setOpen] = useState<number | null>(null);
   const [amount, setAmount] = useState("");
+  const [error, setError] = useState<string>();
   const [key, setKey] = useState(newIdemKey);
   const back = useMutation({
     mutationFn: (batchId: number) => api("/inventory/returns", { method: "POST", json: { work_order_id: plan.work_order.id, yarn_batch_id: batchId, kg: amount, idempotency_key: key } }),
@@ -209,10 +210,18 @@ function ReturnList({ plan, onDone }: { plan: IssuePlan; onDone: (msg: string) =
           {open === f.yarn_batch_id && (
             <form
               noValidate
-              onSubmit={(e) => { e.preventDefault(); if (KG_RE.test(amount) && Number(amount) > 0) back.mutate(f.yarn_batch_id); }}
+              onSubmit={(e) => {
+                e.preventDefault();
+                if (!KG_RE.test(amount) || Number(amount) <= 0 || Number(amount) > Number(f.kg)) {
+                  setError(`Enter kilos above 0, up to ${kg(f.kg)}, with up to 3 decimals`);
+                  return;
+                }
+                setError(undefined);
+                back.mutate(f.yarn_batch_id);
+              }}
               className="flex flex-wrap items-end gap-2"
             >
-              <FormField name={`ret-${f.yarn_batch_id}`} label="Kilos back to store">
+              <FormField name={`ret-${f.yarn_batch_id}`} label="Kilos back to store" error={error}>
                 <Input id={`ret-${f.yarn_batch_id}`} inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} className="h-11 w-32" />
               </FormField>
               <Button type="submit" className="h-11" disabled={back.isPending}>Return</Button>

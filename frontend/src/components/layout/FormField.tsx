@@ -21,7 +21,7 @@ export function FormField({
   children: ReactNode;
 }) {
   return (
-    <div className="grid gap-2">
+    <div className="grid min-w-0 gap-2">
       <Label htmlFor={name}>
         {label}
         {required && <span className="text-danger" aria-hidden>*</span>}

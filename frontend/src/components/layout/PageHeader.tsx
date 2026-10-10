@@ -30,10 +30,10 @@ export function PageHeader({ title, description, actions }: { title: string; des
       <span className="reg -top-[6px] -left-[6px]" aria-hidden />
       <span className="reg -top-[6px] -right-[6px]" aria-hidden />
       {/* the print fades out to the left and, under the buttons, to the bottom: actions sit on clean paper */}
-      <div aria-hidden className="pointer-events-none absolute top-0 right-0 h-20 w-[46%] sm:bottom-0 sm:h-auto" style={actions ? FADE_BOTH : FADE_LEFT}>
+      <div aria-hidden className="pointer-events-none absolute top-0 right-0 h-12 w-[46%] lg:bottom-0 lg:h-auto" style={actions ? FADE_BOTH : FADE_LEFT}>
         <DitherPlate motif={motif} seed={pathname} />
       </div>
-      <div className="relative flex flex-col gap-5 py-7 sm:flex-row sm:items-end sm:justify-between">
+      <div className="relative flex flex-col gap-5 py-7 lg:flex-row lg:flex-wrap lg:items-end lg:justify-between">
         <div className="min-w-0">
           <div className="eyebrow">
             <span className="num text-foreground">{index}</span>
@@ -53,10 +53,10 @@ export function PageHeader({ title, description, actions }: { title: string; des
               <span>{group}</span>
             )}
           </div>
-          <h1 className="mt-3 truncate text-[2.25rem] sm:text-[2.7rem]">{title}</h1>
+          <h1 className="mt-3 text-[2.25rem] [overflow-wrap:anywhere] sm:text-[2.7rem]">{title}</h1>
           {description && <p className="mt-2 max-w-xl text-[0.97rem] text-body">{description}</p>}
         </div>
-        {actions && <div className="relative flex shrink-0 flex-wrap items-center gap-2">{actions}</div>}
+        {actions && <div className="relative flex min-w-0 max-w-full flex-wrap items-center gap-2">{actions}</div>}
       </div>
       <div className="h-px bg-border" aria-hidden />
     </header>

@@ -83,7 +83,7 @@ export function DeliveryBoard() {
     );
 
   return (
-    <div className="border border-border bg-card">
+    <div className="min-w-0 border border-border bg-card">
       <Table containerClassName="scroll-panel max-h-[34rem]">
         <TableHeader className="sticky top-0 z-10 bg-card">
           <TableRow>

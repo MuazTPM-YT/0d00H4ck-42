@@ -24,7 +24,7 @@ export function useMasterForm<T>(path: string, id: number | null, onDone: () => 
       const el = e.target as HTMLInputElement;
       // browsers say "match the requested format"; our title says which format
       const message = el.validity.patternMismatch && el.title ? el.title : el.validationMessage;
-      setErrors((prev) => ({ ...prev, [el.name]: message }));
+      setErrors((prev) => ({ ...prev, [el.name || el.id || "form"]: message }));
     },
   };
 
@@ -32,6 +32,12 @@ export function useMasterForm<T>(path: string, id: number | null, onDone: () => 
   function submit(e: SubmitEvent<HTMLFormElement>, body: () => T) {
     e.preventDefault();
     setErrors({});
+    const blank = Array.from(e.currentTarget.elements).find((el) => el instanceof HTMLInputElement && el.required && el.value.length > 0 && !el.value.trim()) as HTMLInputElement | undefined;
+    if (blank) {
+      setErrors({ [blank.name || blank.id || "form"]: "Enter a value, not just spaces" });
+      blank.focus();
+      return false;
+    }
     if (!e.currentTarget.checkValidity()) return;
     save.mutate(body());
   }
