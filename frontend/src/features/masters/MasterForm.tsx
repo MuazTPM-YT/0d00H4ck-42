@@ -1,5 +1,7 @@
 "use client";
 
+import { Select } from "@/components/ui/select";
+
 import { useState } from "react";
 
 import { FormField } from "@/components/layout/FormField";
@@ -45,11 +47,22 @@ function toBody(master: Master, values: Values) {
 
 export function MasterForm({ master, row, onDone }: { master: Master; row: Row | null; onDone: () => void }) {
   const [values, setValues] = useState<Values>(() => initial(master.fields, row));
-  const { errors, save, formProps, submit } = useMasterForm(master.path, row?.id ?? null, onDone);
+  const { errors, setErrors, save, formProps, submit } = useMasterForm(master.path, row?.id ?? null, onDone);
   const set = (name: string, v: string | boolean) => setValues((prev) => ({ ...prev, [name]: v }));
 
   return (
-    <form {...formProps} onSubmit={(e) => submit(e, () => toBody(master, values))} className="grid gap-4">
+    <form {...formProps} onSubmit={(e) => {
+      const invalid: Record<string, string> = {};
+      for (const f of master.fields) {
+        if (f.kind !== "money" || (f.showWhen && !f.showWhen(values))) continue;
+        const paise = rupeesToPaise(String(values[f.name]));
+        if (paise === null || paise < (f.min ?? 0) * 100 || paise > (f.max ?? 10 ** 12) * 100) {
+          invalid[f.name] = `Enter rupees from ${f.min ?? 0} to ${f.max ?? 10 ** 12}, up to 2 decimals`;
+        }
+      }
+      if (Object.keys(invalid).length) { e.preventDefault(); setErrors(invalid); return; }
+      submit(e, () => toBody(master, values));
+    }} className="grid gap-4">
       {master.fields
         .filter((f) => !f.showWhen || f.showWhen(values))
         .map((f) => {
@@ -66,13 +79,13 @@ export function MasterForm({ master, row, onDone }: { master: Master; row: Row |
           return (
             <FormField key={f.name} name={f.name} label={f.label} error={err} hint={f.hint} required={f.required}>
               {f.kind === "select" ? (
-                <select id={f.name} name={f.name} required={f.required} value={values[f.name] as string} onChange={(e) => set(f.name, e.target.value)} className={selectClass} {...a11y}>
+                <Select id={f.name} name={f.name} required={f.required} value={values[f.name] as string} onChange={(e) => set(f.name, e.target.value)} className={selectClass} {...a11y}>
                   {f.options!.map((o) => (
                     <option key={o.value} value={o.value}>
                       {o.label}
                     </option>
                   ))}
-                </select>
+                </Select>
               ) : (
                 <Input
                   id={f.name}

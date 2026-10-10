@@ -83,7 +83,7 @@ export function DataTable<T extends { id: number }>({
           </TableBody>
         </Table>
       </div>
-      <div className="flex items-center justify-between gap-2 border-t border-border/70 px-4 py-2.5 text-[0.88rem] text-muted-foreground">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border/70 px-4 py-2.5 text-[0.88rem] text-muted-foreground">
         <span className="tabular">
           {total === 0 ? "…" : `${offset + 1}–${Math.min(offset + limit, total)} of ${total}`}
         </span>

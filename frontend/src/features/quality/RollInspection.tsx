@@ -1,5 +1,7 @@
 "use client";
 
+import { Select } from "@/components/ui/select";
+
 import { AlertTriangle, Check, CircleAlert, Minus, Plus, RotateCcw, X } from "lucide-react";
 import Link from "next/link";
 import { type FormEvent, type ReactNode, useState } from "react";
@@ -12,6 +14,7 @@ import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { dateTime, humanize, kg, metres } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import { validQuantity } from "@/lib/validation";
 
 import { type Decision, DEFECTS, type DefectType, defectLabel, defectPoints, type RollDetail, SHADE_BANDS, type ShadeBand, SIZES, scorePer100, type Stage, useDecide, useQueue, useRoll, useTrace } from "./api";
 
@@ -254,7 +257,8 @@ function DecisionForm({ roll, onDone }: { roll: RollDetail; onDone: (message: st
   const [gsm, setGsm] = useState("");
   const [width, setWidth] = useState("");
   const [note, setNote] = useState("");
-  const errors = decide.errors;
+  const [localErrors, setLocalErrors] = useState<Record<string, string>>({});
+  const errors = { ...decide.errors, ...localErrors };
   const picked = DEFECTS.filter((d) => defects[d.type]).map((d) => ({ type: d.type, count: defects[d.type]!, points: d.type === "hole" ? 4 : (sizes[d.type] ?? 1) }));
   const points = defectPoints(picked);
   const score = scorePer100(points, Number(roll.length_m), Number(width) > 0 ? Number(width) : Number(roll.fabric_width_cm));
@@ -276,6 +280,13 @@ function DecisionForm({ roll, onDone }: { roll: RollDetail; onDone: (message: st
   const submit = (e: FormEvent) => {
     e.preventDefault();
     if (!decision) return;
+    const invalid: Record<string, string> = {};
+    if (gsm && !validQuantity(gsm, 99999.99, 2, 0.01)) invalid.gsm = "Enter GSM above 0, up to 99,999.99 with at most 2 decimals";
+    if (width && !validQuantity(width, 99999.99, 2, 0.01)) invalid.width_cm = "Enter width above 0, up to 99,999.99 with at most 2 decimals";
+    if (decision === "pass" && !shade) invalid.shade_band = "Pick a shade band to pass the roll";
+    if (decision !== "pass" && !picked.length) invalid.defects = "Mark at least one defect";
+    setLocalErrors(invalid);
+    if (Object.keys(invalid).length) return;
     decide.mutate(
       {
         decision,
@@ -342,13 +353,13 @@ function DecisionForm({ roll, onDone }: { roll: RollDetail; onDone: (message: st
                   </Button>
                 </span>
                 {n > 0 && type !== "hole" && (
-                  <select aria-label={`${label} length`} value={sizes[type] ?? 1} onChange={(e) => setSizes((v) => ({ ...v, [type]: Number(e.target.value) }))} className="col-span-2 h-10 border border-input px-3 text-sm">
+                  <Select aria-label={`${label} length`} value={sizes[type] ?? 1} onChange={(e) => setSizes((v) => ({ ...v, [type]: Number(e.target.value) }))} className="col-span-2 h-10 border border-input px-3 text-sm">
                     {SIZES.map((sz) => (
                       <option key={sz.points} value={sz.points}>
                         {sz.label} · {sz.points} {sz.points === 1 ? "point" : "points"} each
                       </option>
                     ))}
-                  </select>
+                  </Select>
                 )}
               </li>
             );
@@ -403,13 +414,13 @@ function DecisionForm({ roll, onDone }: { roll: RollDetail; onDone: (message: st
 
       {decision === "rework" && stages.length > 1 && (
         <FormField name="rework_stage" label="Redo at" error={errors.rework_stage} hint="The rework job lands on the supervisor's work orders. The roll comes back here after it.">
-          <select id="rework_stage" value={reworkStage ?? ""} onChange={(e) => setStage(e.target.value as Stage)} className="h-11 w-full border border-input px-3">
+          <Select id="rework_stage" value={reworkStage ?? ""} onChange={(e) => setStage(e.target.value as Stage)} className="h-11 w-full border border-input px-3">
             {stages.map((st) => (
               <option key={st} value={st}>
                 {humanize(st)}
               </option>
             ))}
-          </select>
+          </Select>
         </FormField>
       )}
 

@@ -2,7 +2,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Annotated
 
-from pydantic import BaseModel, ConfigDict, EmailStr, StringConstraints
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, StringConstraints
 
 from app.core.types import Name, Note
 from app.modules.dispatch.models import DispatchStatus
@@ -52,7 +52,7 @@ class DispatchRow(DispatchOut):
 
 
 class DispatchCreate(BaseModel):
-    order_id: int
+    order_id: int = Field(gt=0)
     vehicle_no: VehicleNo | None = None
     driver: Name | None = None
     driver_email: EmailStr | None = None

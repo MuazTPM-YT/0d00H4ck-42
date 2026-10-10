@@ -1,5 +1,7 @@
 "use client";
 
+import { Select } from "@/components/ui/select";
+
 import { UserMinus, Users } from "lucide-react";
 import { useState } from "react";
 
@@ -196,7 +198,7 @@ function Row({
             submit();
           }}
         >
-          <select
+          <Select
             id={`assign-${worker.id}`}
             aria-label={crew ? `Move ${worker.name} to` : `Put ${worker.name} on`}
             value={machineId}
@@ -213,7 +215,7 @@ function Row({
           >
             <option value="">{crew ? "Move to…" : "Machine…"}</option>
             <MachineOptions machines={machines} except={crew?.machine_id} />
-          </select>
+          </Select>
           <Button type="submit" size="sm" variant="outline" disabled={!machineId || assign.isPending}>
             {crew ? "Move" : "Assign"}
           </Button>

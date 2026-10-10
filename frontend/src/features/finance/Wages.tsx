@@ -98,6 +98,7 @@ function NewRunForm({ onDone }: { onDone: (id: number) => void }) {
     const start = String(f.get("period_start"));
     const end = String(f.get("period_end"));
     if (end < start) return setErrors({ period_end: "End date must be on or after start date" });
+    if ((Date.parse(end) - Date.parse(start)) / 86_400_000 > 62) return setErrors({ period_end: "A wage run covers at most 62 days" });
     create.mutate({ period_start: start, period_end: end });
   }
   return (

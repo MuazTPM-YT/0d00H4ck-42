@@ -1,5 +1,7 @@
 "use client";
 
+import { Select } from "@/components/ui/select";
+
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { type SubmitEvent, useState } from "react";
 
@@ -33,7 +35,7 @@ export function PaymentForm({ invoiceId, outstanding, onDone }: { invoiceId: num
     if (!form.checkValidity()) return;
     const f = new FormData(form);
     const paise = rupeesToPaise(String(f.get("amount")));
-    if (paise === null || paise <= 0) return setErrors({ amount_paise: "Enter rupees, e.g. 25000 or 25000.50" });
+    if (paise === null || paise <= 0 || paise > 10 ** 12) return setErrors({ amount_paise: "Enter rupees above 0, up to 10,000,000,000 with at most 2 decimals" });
     if (paise > outstanding) return setErrors({ amount_paise: `Only ${inr(outstanding)} is outstanding` });
     save.mutate({
       invoice_id: invoiceId,
@@ -56,9 +58,9 @@ export function PaymentForm({ invoiceId, outstanding, onDone }: { invoiceId: num
         <Input id="received_on" name="received_on" type="date" required max={today()} defaultValue={today()} aria-invalid={!!errors.received_on} />
       </FormField>
       <FormField name="mode" label="Mode" required error={errors.mode}>
-        <select id="mode" name="mode" required className={SELECT} defaultValue="bank_transfer">
+        <Select id="mode" name="mode" required className={SELECT} defaultValue="bank_transfer">
           {PAYMENT_MODES.map((m) => <option key={m} value={m}>{humanize(m)}</option>)}
-        </select>
+        </Select>
       </FormField>
       <FormField name="ref" label="Reference" error={errors.ref} hint="UTR, cheque no.">
         <Input id="ref" name="ref" maxLength={60} />

@@ -4,6 +4,7 @@ from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
+from app.core.dates import mill_today
 from app.core.errors import FieldError
 from app.core.types import Note
 from app.modules.finance.models import ExpenseCategory, InvoiceStatus, PaymentMode, WageRunStatus
@@ -70,7 +71,7 @@ class InvoiceDetail(InvoiceRow):
 
 
 class PaymentIn(BaseModel):
-    invoice_id: int
+    invoice_id: int = Field(gt=0)
     amount_paise: Amount
     received_on: date
     mode: PaymentMode
@@ -78,7 +79,7 @@ class PaymentIn(BaseModel):
 
     @model_validator(mode="after")
     def not_in_future(self):
-        if self.received_on > date.today():
+        if self.received_on > mill_today():
             raise FieldError("received_on", "Payment date cannot be in the future")
         return self
 
@@ -98,7 +99,7 @@ class WageRunIn(BaseModel):
             raise FieldError("period_end", "End date must be on or after start date")
         if (self.period_end - self.period_start).days > 62:
             raise FieldError("period_end", "A wage run covers at most 62 days")
-        if self.period_end > date.today():
+        if self.period_end > mill_today():
             raise FieldError("period_end", "Cannot pay wages for days that have not happened")
         return self
 
@@ -136,7 +137,7 @@ class ExpenseIn(BaseModel):
 
     @model_validator(mode="after")
     def not_in_future(self):
-        if self.date > date.today():
+        if self.date > mill_today():
             raise FieldError("date", "Expense date cannot be in the future")
         return self
 

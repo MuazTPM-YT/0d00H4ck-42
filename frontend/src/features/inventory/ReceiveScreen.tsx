@@ -1,5 +1,7 @@
 "use client";
 
+import { Select } from "@/components/ui/select";
+
 import { type UseQueryResult, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CheckCircle2, Plus, Printer, XCircle } from "lucide-react";
 import Link from "next/link";
@@ -15,13 +17,13 @@ import { api, ApiError, type Paged } from "@/lib/api";
 import { date, humanize, inr, kg, paiseToRupees, rupeesToPaise } from "@/lib/format";
 import { useSSE } from "@/lib/useSSE";
 import { cn } from "@/lib/utils";
+import { validQuantity } from "@/lib/validation";
 
 import { BatchSheet } from "./BatchSheet";
 import { DeliveryForm } from "./DeliveryForm";
 import { type Batch, type Delivery, itemLabel, type LabelCheck, type Receipt, type SampleLabel } from "./types";
 import { ErrorText, ScanField, selectClass } from "./ui";
 
-const KG_RE = /^\d+(\.\d{1,3})?$/;
 const FIELD_NAME: Record<string, string> = {
   fibre: "Fibre",
   count: "Count",
@@ -140,7 +142,7 @@ export function ReceiveScreen() {
 
   function addScanned(e: FormEvent) {
     e.preventDefault();
-    if (!KG_RE.test(weighed) || Number(weighed) <= 0) return setError("Weighed kilos must be above 0, up to 3 decimals");
+    if (!validQuantity(weighed, 100_000)) return setError("Enter 0.001 to 100,000 kg, up to 3 decimals");
     addLine.mutate({ payload: check!.payload, received_kg: weighed });
   }
 
@@ -179,12 +181,12 @@ export function ReceiveScreen() {
           {!r && (
             <div className="grid gap-4 sm:grid-cols-2">
               <FormField name="delivery" label="Expected delivery" hint="Picked for you when a label matches.">
-                <select id="delivery" value={deliveryId} onChange={(e) => setDeliveryId(e.target.value)} className={`${selectClass} h-11`}>
+                <Select id="delivery" value={deliveryId} onChange={(e) => setDeliveryId(e.target.value)} className={`${selectClass} h-11`}>
                   <option value="">Match from the label</option>
                   {deliveries.data?.items.map((d) => (
                     <option key={d.id} value={d.id}>{`${d.supplier_code} · ${d.label} · ${kg(d.expected_kg)}`}</option>
                   ))}
-                </select>
+                </Select>
               </FormField>
               <FormField name="vehicle" label="Vehicle number" hint="e.g. KA-05-MN-4521">
                 <Input id="vehicle" value={vehicle} maxLength={20} onChange={(e) => setVehicle(e.target.value)} className="h-11" />
@@ -364,13 +366,13 @@ function ManualLine({ busy, onAdd }: { busy: boolean; onAdd: (body: object) => v
     e.preventDefault();
     const errs: Record<string, string> = {};
     for (const k of ["supplier_lot", "fibre", "count", "colour"] as const) if (!v[k].trim()) errs[k] = "Required";
-    for (const k of ["label_kg", "received_kg"] as const) if (!KG_RE.test(v[k]) || Number(v[k]) <= 0) errs[k] = "Kilos above 0";
+    for (const k of ["label_kg", "received_kg"] as const) if (!validQuantity(v[k], 100_000)) errs[k] = "Enter 0.001 to 100,000 kg, up to 3 decimals";
     setErrors(errs);
     if (!Object.keys(errs).length) onAdd({ ...v, supplier_lot: v.supplier_lot.trim(), fibre: v.fibre.trim(), count: v.count.trim(), colour: v.colour.trim() });
   }
   const field = (k: keyof typeof v, label: string, decimal = false) => (
     <FormField name={k} label={label} error={errors[k]} required>
-      <Input id={k} value={v[k]} maxLength={60} inputMode={decimal ? "decimal" : undefined} onChange={(e) => set(k, e.target.value)} aria-invalid={!!errors[k]} className="h-11" />
+      <Input id={k} value={v[k]} maxLength={k === "supplier_lot" ? 60 : 40} inputMode={decimal ? "decimal" : undefined} onChange={(e) => set(k, e.target.value)} aria-invalid={!!errors[k]} className="h-11" />
     </FormField>
   );
   return (
@@ -391,7 +393,7 @@ function MissingLine({ busy, onAdd }: { busy: boolean; onAdd: (body: object) => 
   const [error, setError] = useState<string>();
   function submit(e: FormEvent) {
     e.preventDefault();
-    if (!KG_RE.test(weight) || Number(weight) <= 0) return setError("Kilos above 0, up to 3 decimals");
+    if (!validQuantity(weight, 100_000)) return setError("Enter 0.001 to 100,000 kg, up to 3 decimals");
     onAdd({ label_missing: true, received_kg: weight });
   }
   return (

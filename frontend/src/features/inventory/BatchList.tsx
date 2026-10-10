@@ -1,5 +1,7 @@
 "use client";
 
+import { Select } from "@/components/ui/select";
+
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { Search } from "lucide-react";
 import Link from "next/link";
@@ -79,12 +81,12 @@ export function BatchList() {
           <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
           <Input aria-label="Search batch code or lot" placeholder="Batch code or lot" maxLength={60} value={q} onChange={(e) => { setQ(e.target.value); setOffset(0); }} className="pl-9" />
         </div>
-        <select aria-label="Filter by status" value={status} onChange={(e) => { setStatus(e.target.value); setOffset(0); }} className={`${selectClass} sm:w-56`}>
+        <Select aria-label="Filter by status" value={status} onChange={(e) => { setStatus(e.target.value); setOffset(0); }} className={`${selectClass} sm:w-56`}>
           <option value="">All statuses</option>
           {STATUSES.map((s) => (
             <option key={s} value={s}>{humanize(s)}</option>
           ))}
-        </select>
+        </Select>
       </div>
       <DataTable
         columns={columns}
