@@ -100,13 +100,13 @@ export function SignInPage({
         <section className="relative hidden flex-1 flex-col border-l border-foreground p-8 md:flex">
           <span className="reg -top-[6px] -left-[6px]" aria-hidden />
           <div className="animate-slide-right animate-delay-300 relative min-h-0 flex-1 border border-border">
+            {/* Everest sits low and faint behind every print: the mill's name, in dots */}
+            <DitherPlate motif="everest" seed="everest" className="pointer-events-none absolute inset-x-0 bottom-0 !h-[30%] opacity-45" label="Mount Everest" />
             {heroArt ? (
-              <DitherPlate key={heroArt.key} motif={heroArt.motif} seed={heroArt.key} className="plate-in absolute inset-x-0 top-0 !h-[72%]" label={heroArt.caption} />
+              <DitherPlate key={heroArt.key} motif={heroArt.motif} seed={heroArt.key} className="plate-in absolute inset-x-0 top-0 !h-[78%]" label={heroArt.caption} />
             ) : (
-              <DitherImage src={heroImageSrc} className="absolute inset-0" label="Cloth on the loom, printed in dots" />
+              <DitherImage src={heroImageSrc} className="absolute inset-x-0 top-0 !h-[78%] [mask-image:linear-gradient(to_bottom,#000_75%,transparent)]" label="Cloth on the loom, printed in dots" />
             )}
-            {/* Everest stands over every print: the mill's name, in dots */}
-            <DitherPlate motif="everest" seed="everest" className="pointer-events-none absolute inset-x-0 bottom-0 !h-[46%]" label="Mount Everest" />
             <p className="label absolute top-3 left-3 bg-background px-2 py-1">{heroArt ? heroArt.caption : "Plate 01 · warp and weft"}</p>
             <p className="label absolute right-3 bottom-3 bg-background px-2 py-1">8,849 m · 27.98° N 86.92° E</p>
           </div>

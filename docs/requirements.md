@@ -30,10 +30,10 @@ UI/API/logic done, `done` = UI + API + DB + validation + test.
 
 | # | Label | Requirement | Owner | Screen | Tables | Status |
 |---|---|---|---|---|---|---|
-| R10 | Core | Each roll has a unique ID linked to order, machine, shift | Razan | `/qc/rolls/[id]` | `rolls` | schema |
-| R11 | Core | QC per roll: pass, rework, reject, with defect type | Razan | `/qc/rolls/[id]` | `qc_checks` | schema |
-| R12 | Core | Queue of rolls waiting for QC; pass/fail summary | Razan | `/qc` | `rolls`, `qc_checks` | partial: `GET /api/quality/rolls?status=awaiting_qc` |
-| R13 | Expected | Defect analysis by machine and by order | Razan | `/qc`, `/insights` | `qc_checks`, `rolls` | todo |
+| R10 | Core | Each roll has a unique ID linked to order, machine, shift | Razan | `/qc/rolls/[id]` | `rolls` | done: `GET /api/quality/rolls/{id}` (order, loom, shift, weaver, QC attempts) |
+| R11 | Core | QC per roll: pass, rework, reject, with defect type | Razan | `/qc/rolls/[id]` | `qc_checks` | done: `quality.decide`, `POST /api/quality/rolls/{id}/checks` |
+| R12 | Core | Queue of rolls waiting for QC; pass/fail summary | Razan | `/qc` | `rolls`, `qc_checks` | done: `GET /api/quality/queue`, `/summary` |
+| R13 | Expected | Defect analysis by machine and by order | Razan | `/qc`, `/insights` | `qc_checks`, `rolls` | done on `/qc`: `GET /api/quality/summary` by loom and order |
 
 ## Scene 4: a buyer asks about their order
 

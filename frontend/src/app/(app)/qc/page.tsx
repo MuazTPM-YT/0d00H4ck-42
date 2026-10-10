@@ -1,5 +1,5 @@
-import { Placeholder } from "@/components/layout/Placeholder";
+import { QcPage } from "@/features/quality/QcPage";
 
 export default function Page() {
-  return <Placeholder />;
+  return <QcPage />;
 }
