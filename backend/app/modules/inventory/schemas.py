@@ -102,8 +102,8 @@ class ExpectedDeliveryIn(BaseModel):
     @classmethod
     def date_in_range(cls, v: date) -> date:
         today = date.today()
-        if v < today - timedelta(days=7):
-            raise FieldError("expected_date", "Date is more than a week in the past")
+        if v < today:
+            raise FieldError("expected_date", "Date cannot be before today")
         if v > today + timedelta(days=365):
             raise FieldError("expected_date", "Date is more than a year away")
         return v

@@ -332,6 +332,26 @@ def add(api, rid, **body):
     return api(Role.store, "POST", f"/api/inventory/receipts/{rid}/lines", json=body)
 
 
+# supplier truck can be due today at the earliest, never on a day already gone
+@pytest.mark.parametrize(("days", "status"), [(-1, 422), (0, 201), (365, 201), (366, 422)])
+def test_expected_date_today_or_later(api, setup, days, status):
+    res = api(
+        Role.store,
+        "POST",
+        "/api/inventory/expected-deliveries",
+        json={
+            "supplier_id": setup["sup"].id,
+            "yarn_item_id": setup["navy40"].id,
+            "expected_kg": "500",
+            "rate_paise_per_kg": 31000,
+            "expected_date": str(date.today() + timedelta(days=days)),
+        },
+    )
+    assert res.status_code == status, res.text
+    if status == 422:
+        assert res.json()["error"]["field"] == "expected_date"
+
+
 def test_check_label_shows_expected_vs_actual(api, delivery):
     res = api(Role.store, "POST", "/api/inventory/labels/check", json={"payload": label("A1")})
     assert res.status_code == 200, res.text

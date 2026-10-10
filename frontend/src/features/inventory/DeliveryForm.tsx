@@ -21,7 +21,8 @@ export type DeliveryPrefill = {
   order_code?: string;
 };
 
-const inDays = (n: number) => new Date(Date.now() + n * 86_400_000).toISOString().slice(0, 10);
+// IST calendar day n days out; UTC would give yesterday before 5:30 am
+const inDays = (n: number) => new Date(Date.now() + n * 86_400_000).toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
 
 // what a supplier is sending; used by store on receive and by sales from the to-buy list
 export function DeliveryForm({ prefill = {}, onDone }: { prefill?: DeliveryPrefill; onDone: () => void }) {
@@ -64,6 +65,7 @@ export function DeliveryForm({ prefill = {}, onDone }: { prefill?: DeliveryPrefi
     const paise = rupeesToPaise(v.rate);
     if (!paise) errs.rate = "Rupees per kg above 0, e.g. 285 or 285.50";
     if (!v.expected_date) errs.expected_date = "Pick a date";
+    else if (v.expected_date < inDays(0)) errs.expected_date = "Date cannot be before today";
     setErrors(errs);
     if (Object.keys(errs).length) return;
     save.mutate({
@@ -116,7 +118,7 @@ export function DeliveryForm({ prefill = {}, onDone }: { prefill?: DeliveryPrefi
         </FormField>
       )}
       <FormField name="expected_date" label="Expected on" error={errors.expected_date} required>
-        <Input id="expected_date" type="date" value={v.expected_date} onChange={(e) => set("expected_date", e.target.value)} {...a11y("expected_date")} />
+        <Input id="expected_date" type="date" min={inDays(0)} value={v.expected_date} onChange={(e) => set("expected_date", e.target.value)} {...a11y("expected_date")} />
       </FormField>
       {errors.form && <p role="alert" className="text-sm text-danger">{errors.form}</p>}
       <DialogFooter>
