@@ -30,10 +30,10 @@ UI/API/logic done, `done` = UI + API + DB + validation + test.
 
 | # | Label | Requirement | Owner | Screen | Tables | Status |
 |---|---|---|---|---|---|---|
-| R10 | Core | Each roll has a unique ID linked to order, machine, shift | Razan | `/qc/rolls/[id]` | `rolls` | schema |
-| R11 | Core | QC per roll: pass, rework, reject, with defect type | Razan | `/qc/rolls/[id]` | `qc_checks` | schema |
-| R12 | Core | Queue of rolls waiting for QC; pass/fail summary | Razan | `/qc` | `rolls`, `qc_checks` | partial: `GET /api/quality/rolls?status=awaiting_qc` |
-| R13 | Expected | Defect analysis by machine and by order | Razan | `/qc`, `/insights` | `qc_checks`, `rolls` | todo |
+| R10 | Core | Each roll has a unique ID linked to order, machine, shift | Razan | `/qc/rolls/[id]` | `rolls` | done: roll page with order, loom, shift, weaver, yarn lots, history |
+| R11 | Core | QC per roll: pass, rework, reject, with defect type | Razan | `/qc/rolls/[id]` | `qc_checks` | done: `POST /api/quality/rolls/{id}/inspect`, 4-point score, ledger move, rework job, tests |
+| R12 | Core | Queue of rolls waiting for QC; pass/fail summary | Razan | `/qc` | `rolls`, `qc_checks` | done: queue oldest first, scan box, checks list, summary |
+| R13 | Expected | Defect analysis by machine and by order | Razan | `/qc`, `/insights` | `qc_checks`, `rolls` | done: `/qc` defect analysis by type, loom, order |
 
 ## Scene 4: a buyer asks about their order
 
@@ -76,8 +76,8 @@ Start only after the Core items above work. Detail in `.claude/skills/odoo-hacka
 
 | # | Feature | Owner | Status |
 |---|---|---|---|
-| D1 | Lot continuity and shade-safe dispatch (one shade band per dispatch) | Razan (shade at QC), Ashil (dispatch rule) | dispatch rule done (scan + confirm + override); shade entry at QC is Razan |
+| D1 | Lot continuity and shade-safe dispatch (one shade band per dispatch) | Razan (shade at QC), Ashil (dispatch rule) | done: shade band set at QC pass, dispatch rule (scan + confirm + override) |
 | D2 | Delivery risk early warning (on track / at risk / late) | Muaz | done: `analytics.delivery_estimate`, `/owner` forecast table with basis, `DeliveryEstimateCard` drop-in for `/orders/[id]` |
-| D3 | Roll genealogy and root cause (machine, shift, supplier) | Razan | schema: `roll_batches`; stub: `quality.roll_trace` |
+| D3 | Roll genealogy and root cause (machine, shift, supplier) | Razan | done: `quality.roll_trace`, `/qc/rolls/[id]` |
 | D4 | True cost per order (FIFO yarn, labour, machine, rework) | Ashil | done: `finance.order_cost` |
 | D5 | AI layer: detectors + insights + briefings (local, no model yet) | Muaz | done: `docs/ai.md`, evaluated in `docs/ai-evaluation.md` |

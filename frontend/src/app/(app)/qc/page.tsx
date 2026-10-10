@@ -1,5 +1,11 @@
-import { Placeholder } from "@/components/layout/Placeholder";
+import { Suspense } from "react";
+
+import { QcHome } from "@/features/quality/QcHome";
 
 export default function Page() {
-  return <Placeholder />;
+  return (
+    <Suspense>
+      <QcHome />
+    </Suspense>
+  );
 }

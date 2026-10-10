@@ -50,8 +50,8 @@ export const ROUTES: AppRoute[] = [
   { path: "/floor/work-orders", title: "Work orders", roles: ["supervisor"], module: "production", owner: "Muaz", nav: { group: "Production", icon: ClipboardList } },
   { path: "/floor/crew", title: "Crew and attendance", roles: ["supervisor"], module: "workforce", owner: "Muaz", nav: { group: "Production", icon: Users } },
 
-  { path: "/qc", title: "QC queue", roles: ["qc"], module: "quality", owner: "Razan", nav: { group: "Quality", icon: ClipboardCheck } },
-  { path: "/qc/rolls/[id]", title: "Roll", roles: ["qc"], module: "quality", owner: "Razan" },
+  { path: "/qc", title: "Quality check", roles: ["qc"], module: "quality", owner: "Razan", nav: { group: "Quality", icon: ClipboardCheck } },
+  { path: "/qc/rolls/[id]", title: "Roll", roles: ["qc", "supervisor", "dispatch", "accounts"], module: "quality", owner: "Razan" },
 
   { path: "/dispatch", title: "Dispatches", roles: ["dispatch"], module: "dispatch", owner: "Ashil", nav: { group: "Dispatch", icon: Truck } },
   { path: "/dispatch/[id]", title: "Dispatch", roles: ["dispatch"], module: "dispatch", owner: "Ashil" },

@@ -113,7 +113,7 @@ caller. Status: **done** = implemented and tested, **stub** = raises `NotImpleme
 | `production.machine_status(db, machine_id)` | Muaz | done | `MachineStatus`, latest event or `off` |
 | `production.order_progress(db, order_id)` | Muaz | done | `{stage: {planned, produced, unit}}` |
 | `production.create_rework_work_order(db, roll_id, stage, user_id)` | Muaz | done | `WorkOrder` with `roll_id` set; roll must be `rework`; second call returns the open one. Processing the roll on that job sends it back to `awaiting_qc` |
-| `quality.roll_trace(db, roll_id)` | Razan | stub | order, loom, shift, weaver, yarn batches + suppliers, QC attempts, events |
+| `quality.roll_trace(db, roll_id)` | Razan | done | order, loom, shift, weaver, yarn batches + suppliers, QC attempts, events |
 | `tracking.order_stage(db, order_id)` | Ashil | done | derived buyer stage + metres per bucket |
 | `dispatch.finished_stock(db, order_id=None, shade_band=None)` | Ashil | done | `list[Roll]` passed and not dispatched |
 | `dispatch.corner_check(db, days=7)` | Ashil | done | rolls too long on shelf, order not open, or leftover of a shipped order |
@@ -159,7 +159,8 @@ Pure helpers in `app.core.units`: `qty`, `rupees_to_paise`, `line_amount_paise`,
 | `GET /api/production/work-orders`, `/work-orders/open`, `/board`, `/machines/{id}/timeline` | any logged in |
 | `POST /api/production/work-orders/{id}/{queue,unqueue,start,move,finish}`, `PUT /api/production/machines/{id}/queue` | supervisor |
 | `POST /api/production/machine-events`, `/output`, `/rolls`, `/rolls/{id}/process` | supervisor (machine feeds log in as one) |
-| `GET /api/quality/rolls` | any logged in |
+| `GET /api/quality/rolls`, `/rolls/{id}` (trace), `/queue`, `/checks`, `/summary` | any logged in |
+| `POST /api/quality/rolls/{id}/inspect` | qc |
 | `GET /api/workforce/attendance`, `/crew`, `/current-shift` | supervisor, accounts |
 | `PUT /api/workforce/attendance`, `POST /api/workforce/crew`, `POST /api/workforce/crew/{id}/end` | supervisor |
 | `GET /api/dispatch/dispatches[/{id}]`, `/finished-stock`, `/corner-check` | dispatch, accounts, supervisor |
