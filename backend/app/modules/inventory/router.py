@@ -134,6 +134,19 @@ def add_line(
     return receiving.add_line(db, user, receipt_id, data)
 
 
+# take a lot back off a draft truck (scanned twice, wrong pallet)
+@router.delete("/receipts/{receipt_id}/lines/{batch_id}", response_model=s.ReceiptOut)
+def remove_line(receipt_id: int, batch_id: int, db: Session = Depends(get_db), user: User = Store):
+    return receiving.remove_line(db, user, receipt_id, batch_id)
+
+
+# drop a draft truck that has no lots
+@router.delete("/receipts/{receipt_id}", status_code=204)
+def discard_receipt(receipt_id: int, db: Session = Depends(get_db), user: User = Store):
+    receiving.discard_receipt(db, user, receipt_id)
+    return Response(status_code=204)
+
+
 @router.post("/receipts/{receipt_id}/confirm", response_model=s.ReceiptOut)
 def confirm_receipt(receipt_id: int, db: Session = Depends(get_db), user: User = Store):
     return receiving.confirm_receipt(db, user, receipt_id)
@@ -149,6 +162,16 @@ def issue_plan(
     work_order: Annotated[str, Query(min_length=1, max_length=20)], db: Session = Depends(get_db)
 ):
     return service.issue_plan(db, work_order)
+
+
+# first-stage jobs still waiting for yarn
+@router.get(
+    "/needs-yarn",
+    response_model=list[s.NeedsYarnRow],
+    dependencies=[Depends(require_roles(Role.store, Role.supervisor))],
+)
+def needs_yarn(db: Session = Depends(get_db)):
+    return service.needs_yarn(db)
 
 
 @router.post("/issues", response_model=s.StockMoveOut, status_code=201)

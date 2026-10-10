@@ -19,6 +19,8 @@ from app.modules.inventory.models import (
     MoveReason,
     Receipt,
     ReceiptStatus,
+    Reservation,
+    StockMove,
     YarnBatch,
 )
 from app.modules.inventory.service import (
@@ -362,6 +364,7 @@ def add_line(db: Session, user: User, receipt_id: int, data) -> dict:
     rate = delivery.rate_paise_per_kg if delivery else data.rate_paise_per_kg
     if rate is None:
         raise Unprocessable("No expected delivery on this receipt: give the rate", field="rate")
+    order_id = _line_order(db, data.order_id) or (delivery.order_id if delivery else None)
 
     if data.label_missing:
         batch = YarnBatch(
@@ -371,7 +374,7 @@ def add_line(db: Session, user: User, receipt_id: int, data) -> dict:
             received_kg=qty(data.received_kg),
             unit_cost_paise_per_kg=rate,
             status=BatchStatus.pending_identification,
-            order_id=delivery.order_id if delivery else None,
+            order_id=order_id,
             mismatch_notes="Label missing or unreadable",
         )
         db.add(batch)
@@ -427,7 +430,7 @@ def add_line(db: Session, user: User, receipt_id: int, data) -> dict:
         received_kg=qty(data.received_kg),
         unit_cost_paise_per_kg=rate,
         status=BatchStatus.quarantined if quarantine else BatchStatus.inspection,
-        order_id=delivery.order_id if delivery else None,
+        order_id=order_id,
         mismatch_notes="; ".join(notes) or None,
     )
     db.add(batch)
@@ -449,12 +452,66 @@ def add_line(db: Session, user: User, receipt_id: int, data) -> dict:
     return {"batch": batch, "created": True, "comparison": comparison}
 
 
-# truck done: every lot moves supplier -> inspection (or quarantine), bill stored, all or nothing
+# walk-in yarn bought for one order: the order must still be live
+def _line_order(db: Session, order_id: int | None) -> int | None:
+    if not order_id:
+        return None
+    order = db.get(Order, order_id)
+    if not order:
+        raise NotFound("Order not found", field="order_id")
+    if order.status not in (OrderStatus.draft, OrderStatus.confirmed):
+        raise Conflict(f"Order {order.code} is {order.status}", field="order_id")
+    return order.id
+
+
+def _draft_line(db: Session, r: Receipt, batch_id: int) -> YarnBatch:
+    batch = db.get(YarnBatch, batch_id)
+    if not batch or batch.receipt_id != r.id:
+        raise NotFound(f"Lot {batch_id} is not on receipt {r.code}")
+    return batch
+
+
+# a lot off a draft truck. Draft lots have no stock moves yet; refuse if one somehow does
+def remove_line(db: Session, user: User, receipt_id: int, batch_id: int) -> dict:
+    r = _draft_receipt(db, receipt_id)
+    batch = _draft_line(db, r, batch_id)
+    moved = db.scalar(select(StockMove.id).where(StockMove.yarn_batch_id == batch.id).limit(1))
+    held = db.scalar(select(Reservation.id).where(Reservation.yarn_batch_id == batch.id).limit(1))
+    if moved or held:
+        raise Conflict(f"{batch.code} already has stock history; it cannot be removed")
+    audit.record(
+        db,
+        user.id,
+        "remove_line",
+        "receipts",
+        r.id,
+        data={"batch": batch.code, "kg": str(batch.received_kg), "lot": batch.supplier_lot},
+    )
+    db.delete(batch)
+    db.commit()
+    events.publish("stock", {"type": "receive_line", "id": r.id})
+    return receipt_row(db, r)
+
+
+# drop an empty draft truck (opened by mistake)
+def discard_receipt(db: Session, user: User, receipt_id: int) -> None:
+    r = _draft_receipt(db, receipt_id)
+    if db.scalar(select(YarnBatch.id).where(YarnBatch.receipt_id == r.id).limit(1)):
+        raise Conflict(f"Remove the lots on {r.code} first", field="batches")
+    audit.record(db, user.id, "discard", "receipts", r.id, data={"code": r.code})
+    db.delete(r)
+    db.commit()
+    events.publish("stock", {"type": "receipt_discarded", "id": receipt_id})
+
+
+# truck done: every lot moves supplier -> inspection (or quarantine), bill stored, all or nothing.
+# Lots already rejected at the gate never enter the mill and are not billed.
 def confirm_receipt(db: Session, user: User, receipt_id: int) -> dict:
     r = _draft_receipt(db, receipt_id)
-    batches = db.scalars(select(YarnBatch).where(YarnBatch.receipt_id == r.id)).all()
-    if not batches:
+    every = db.scalars(select(YarnBatch).where(YarnBatch.receipt_id == r.id)).all()
+    if not every:
         raise Conflict("Add at least one lot before confirming", field="batches")
+    batches = [b for b in every if b.status != BatchStatus.rejected]
     check_transition(RECEIPT_TRANSITIONS, r.status, ReceiptStatus.confirmed)
     for b in batches:
         to = (
@@ -496,7 +553,11 @@ def confirm_receipt(db: Session, user: User, receipt_id: int) -> dict:
         "confirm",
         "receipts",
         r.id,
-        data={"lots": len(batches), "bill_amount_paise": r.bill_amount_paise},
+        data={
+            "lots": len(batches),
+            "rejected_lots": len(every) - len(batches),
+            "bill_amount_paise": r.bill_amount_paise,
+        },
     )
     db.commit()
     events.publish("stock", {"type": "receipt_confirmed", "id": r.id})

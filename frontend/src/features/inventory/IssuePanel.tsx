@@ -1,6 +1,7 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import Link from "next/link";
 import { type FormEvent, useState } from "react";
 
 import { FormField } from "@/components/layout/FormField";
@@ -17,9 +18,10 @@ import { ErrorText, ScanField } from "./ui";
 const KG_RE = /^\d+(\.\d{1,3})?$/;
 
 // store floor screen: scan work order, scan batch, confirm kilos. Oldest reserved batch first (FIFO).
-export function IssuePanel() {
+// initialWo: opened from the "Needs yarn" list, so the work order is already scanned
+export function IssuePanel({ initialWo = null }: { initialWo?: string | null }) {
   const qc = useQueryClient();
-  const [woCode, setWoCode] = useState<string | null>(null);
+  const [woCode, setWoCode] = useState<string | null>(initialWo);
   const [picked, setPicked] = useState<PlanLine | null>(null);
   const [scanError, setScanError] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
@@ -41,7 +43,7 @@ export function IssuePanel() {
   }
 
   return (
-    <section className="grid content-start gap-4 rounded-lg border bg-card p-4">
+    <section id="issue-panel" className="grid content-start gap-4 rounded-lg border bg-card p-4">
       <h2 className="font-semibold">Issue yarn to production</h2>
       <ScanField
         id="wo-scan"
@@ -62,7 +64,10 @@ export function IssuePanel() {
             <StatusBadge status={plan.data.work_order.status} />
           </p>
           {lines.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No approved yarn for this order. Check the to-buy list.</p>
+            <p className="text-sm text-muted-foreground">
+              No approved yarn for this order. Check{" "}
+              <Link href="/store/stock" className="font-medium text-info hover:underline">yarn stock</Link> for lots still in inspection or on order.
+            </p>
           ) : (
             <>
               <ScanField id="batch-scan" label="2. Batch (or tap one below)" placeholder="YB-000001" onScan={scanBatch} />
