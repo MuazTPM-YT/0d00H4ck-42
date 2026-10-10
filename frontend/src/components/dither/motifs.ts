@@ -406,9 +406,9 @@ const everest = (w: number, h: number, rnd: Rnd): Field => {
     for (let y = Math.max(0, Math.round(top)); y < h; y++) {
       const i = y * w + x;
       const depth = (y - top) / h;
-      const strata = 0.12 * Math.sin(y * 0.7 + u * 60 + Math.sin(u * 13) * 4);
+      const strata = 0.05 * Math.sin(y * 0.6 + Math.sin(u * 13) * 4);
       const snow = depth < 0.05 + 0.04 * Math.sin(u * 23) ? 0.4 : 1;
-      f.val[i] = Math.max(0, (lit ? 0.08 : 0.5) * snow + strata * (lit ? 0.4 : 1) + depth * 0.5);
+      f.val[i] = Math.max(0, (lit ? 0.04 : 0.26) * snow + strata * (lit ? 0.4 : 1) + depth * 0.22);
       f.cov[i] = 1;
     }
     put(f, x, top, 1); // the skyline itself, in ink
