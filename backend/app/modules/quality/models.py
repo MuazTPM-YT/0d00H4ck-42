@@ -35,10 +35,15 @@ class QcDecision(StrEnum):
     reject = "reject"
 
 
+# weaving and dyeing faults an inspector marks on the table; stored in qc_checks.defects
 class DefectType(StrEnum):
     hole = "hole"
     colour_mismatch = "colour_mismatch"
     uneven_weave = "uneven_weave"
+    broken_end = "broken_end"
+    broken_pick = "broken_pick"
+    stain = "stain"
+    selvedge = "selvedge"
     other = "other"
 
 
