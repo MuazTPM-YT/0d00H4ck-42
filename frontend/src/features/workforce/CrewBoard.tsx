@@ -1,122 +1,286 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
-import { AlertTriangle, UserMinus, Users } from "lucide-react";
-import { useState } from "react";
+import { AlertTriangle, Cog, Search, UserMinus, X } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { EmptyState } from "@/components/layout/EmptyState";
 import { FormField } from "@/components/layout/FormField";
 import { PageHeader } from "@/components/layout/PageHeader";
-import { StatusBadge } from "@/components/layout/StatusBadge";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
-import { api, type Paged } from "@/lib/api";
 import { humanize } from "@/lib/format";
+import { cn } from "@/lib/utils";
 import { useSSE } from "@/lib/useSSE";
-import { todayIST, useFloorAction, useMachines } from "@/features/production/api";
+import { type Machine, todayIST, useFloorAction, useMachines } from "@/features/production/api";
 import { selectClass } from "@/features/production/FloorForms";
 
-type Shift = { id: number; code: string; name: string; start_time: string; end_time: string };
-type Worker = { id: number; code: string; name: string };
-type Crew = { id: number; worker_id: number; worker_name: string; machine_id: number; machine_code: string; from_at: string; to_at: string | null };
-type Attendance = { id: number; worker_id: number; status: "present" | "absent" | "half_day"; source: "crew" | "manual" };
+import { type AttendanceStatus, clock, type Crew, matches, rosterOf, type RosterRow, useAttendance, useCrew, useCurrentShift, useShifts, useWorkers, type Worker } from "./api";
+import { AttendanceDialog, AttendancePanel, compactSelect, type Filter } from "./AttendancePanel";
 
-const STATUSES = ["present", "half_day", "absent"] as const;
-const time = (iso: string) => new Date(iso).toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata", hour: "2-digit", minute: "2-digit" });
+const STAGE_ORDER = ["spinning", "weaving", "dyeing"];
 
-function AttendanceDialog({ worker, day, shiftId, current, onClose }: { worker: Worker | null; day: string; shiftId: number; current?: string; onClose: () => void }) {
-  const [status, setStatus] = useState(current ?? "present");
-  const [reason, setReason] = useState("");
-  const save = useFloorAction<object>(() => "/workforce/attendance", "PUT");
+// typing in a field or a dialog is open: leave "/" and Esc alone
+const busyTarget = (el: EventTarget | null) =>
+  el instanceof HTMLElement && (el.isContentEditable || ["INPUT", "SELECT", "TEXTAREA"].includes(el.tagName) || !!el.closest("[role=dialog]"));
+
+// one machine: who is on it now, who was earlier, and how to put someone on
+function MachineCard({
+  machine,
+  crew,
+  roster,
+  day,
+  shiftId,
+  picked,
+  query,
+  onAssigned,
+}: {
+  machine: Machine;
+  crew: Crew[];
+  roster: RosterRow[];
+  day: string;
+  shiftId: number;
+  picked: RosterRow | null;
+  query: string;
+  onAssigned: () => void;
+}) {
+  const [workerId, setWorkerId] = useState("");
+  const assign = useFloorAction<object>(() => "/workforce/crew");
+  const end = useFloorAction<{ id: number }>((b) => `/workforce/crew/${b.id}/end`);
+  const now = crew.filter((c) => !c.to_at);
+  const earlier = crew.filter((c) => c.to_at);
+  const error = assign.errors.machine_id ?? assign.errors.worker_id ?? assign.errors.form ?? assign.errors.date ?? assign.errors.shift_id ?? end.errors.form;
+  const pickedHere = picked?.crew?.machine_id === machine.id;
+
+  function put(id: number) {
+    assign.mutate({ date: day, shift_id: shiftId, worker_id: id, machine_id: machine.id }, { onSuccess: () => { setWorkerId(""); onAssigned(); } });
+  }
+
+  // free people first, then the unmarked, then those you'd pull off another machine
+  const candidates = roster.filter((r) => r.crew?.machine_id !== machine.id);
+  const groups: [string, RosterRow[]][] = [
+    ["Free", candidates.filter((r) => r.status === "free")],
+    ["Not marked", candidates.filter((r) => r.status === "unmarked")],
+    ["On another machine (moves them)", candidates.filter((r) => r.status === "on_machine")],
+    ["Marked absent", candidates.filter((r) => r.status === "absent")],
+  ];
+
   return (
-    <Dialog open={worker !== null} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle>Attendance · {worker?.name}</DialogTitle>
-          <DialogDescription>Manual entry for staff off the machines, or a correction. The reason is kept in the activity log.</DialogDescription>
-        </DialogHeader>
-        <form
-          className="grid gap-4"
-          onSubmit={(e) => {
-            e.preventDefault();
-            if (!worker || !reason.trim()) return;
-            save.mutate({ date: day, shift_id: shiftId, worker_id: worker.id, status, reason: reason.trim() }, { onSuccess: onClose });
-          }}
-        >
-          <div className="grid grid-cols-3 gap-2" role="radiogroup" aria-label="Status">
-            {STATUSES.map((s) => (
-              <Button key={s} type="button" role="radio" aria-checked={status === s} variant={status === s ? "default" : "outline"} className="h-12" onClick={() => setStatus(s)}>
-                {humanize(s)}
-              </Button>
-            ))}
-          </div>
-          <FormField name="reason" label="Reason" required error={save.errors.reason} hint="e.g. office staff, called in sick">
-            <Input id="reason" required maxLength={2000} value={reason} onChange={(e) => setReason(e.target.value)} className="h-12" />
-          </FormField>
-          {(save.errors.form ?? save.errors.date) && <p role="alert" className="text-sm text-danger">{save.errors.form ?? save.errors.date}</p>}
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={onClose}>
-              Cancel
+    <section className={cn("min-w-0 border border-border bg-card", picked && !pickedHere && "border-ember/60")} aria-label={`${machine.code} crew`}>
+      <header className="flex min-w-0 items-baseline justify-between gap-2 border-b border-border px-3 py-2">
+        <span className="flex min-w-0 items-baseline gap-2">
+          <span className="num shrink-0 font-semibold">{machine.code}</span>
+          <span className="label truncate normal-case tracking-[0.04em]">{machine.name}</span>
+        </span>
+        <span className={cn("label shrink-0", now.length ? "text-foreground" : "")}>
+          <span className="num">{now.length}</span> on
+        </span>
+      </header>
+
+      {now.length > 0 ? (
+        <ul className="divide-y divide-border">
+          {now.map((c) => {
+            const hit = query && matches({ id: c.worker_id, code: c.worker_code, name: c.worker_name }, query);
+            return (
+              <li key={c.id} className="flex min-w-0 items-center gap-2 py-1 pr-1 pl-3">
+                <span className={cn("min-w-0 flex-1 truncate", hit && "text-ember")}>
+                  {c.worker_name} <span className="num text-xs text-muted-foreground">{c.worker_code}</span>
+                </span>
+                <span className="num shrink-0 text-xs text-muted-foreground">since {clock(c.from_at)}</span>
+                <Button size="icon-sm" variant="ghost" aria-label={`Take ${c.worker_name} off ${machine.code}`} title="Release" disabled={end.isPending} onClick={() => end.mutate({ id: c.id })}>
+                  <UserMinus />
+                </Button>
+              </li>
+            );
+          })}
+        </ul>
+      ) : (
+        <p className="px-3 py-2.5 text-sm text-muted-foreground">Nobody on this machine.</p>
+      )}
+
+      {earlier.length > 0 && (
+        <p className="truncate border-t border-dashed border-border px-3 py-1.5 text-xs text-muted-foreground" title={earlier.map((c) => `${c.worker_name} ${clock(c.from_at)}–${clock(c.to_at!)}`).join(", ")}>
+          <span className="label mr-1.5">Earlier</span>
+          {earlier.map((c) => `${c.worker_name} ${clock(c.from_at)}–${clock(c.to_at!)}`).join(" · ")}
+        </p>
+      )}
+
+      <div className="border-t border-border p-2">
+        {picked && !pickedHere ? (
+          <Button className="w-full" size="sm" disabled={assign.isPending} onClick={() => put(picked.worker.id)}>
+            <span className="min-w-0 truncate">
+              {picked.crew ? "Move" : "Put"} {picked.worker.name} here
+            </span>
+          </Button>
+        ) : (
+          <form
+            className="flex gap-1.5"
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (workerId) put(Number(workerId));
+            }}
+          >
+            <select aria-label={`Worker for ${machine.code}`} value={workerId} onChange={(e) => setWorkerId(e.target.value)} className={cn(compactSelect, "flex-1")}>
+              <option value="">Add a worker…</option>
+              {groups.map(([label, rows]) =>
+                rows.length ? (
+                  <optgroup key={label} label={label}>
+                    {rows.map((r) => (
+                      <option key={r.worker.id} value={r.worker.id}>
+                        {r.worker.name} · {r.worker.code}
+                        {r.crew ? ` · on ${r.crew.machine_code}` : ""}
+                      </option>
+                    ))}
+                  </optgroup>
+                ) : null,
+              )}
+            </select>
+            <Button type="submit" size="sm" variant="outline" disabled={!workerId || assign.isPending}>
+              {roster.find((r) => r.worker.id === Number(workerId))?.crew ? "Move" : "Assign"}
             </Button>
-            <Button type="submit" disabled={!reason.trim() || save.isPending}>
-              {save.isPending ? "Saving…" : "Save"}
-            </Button>
-          </DialogFooter>
-        </form>
-      </DialogContent>
-    </Dialog>
+          </form>
+        )}
+        {error && (
+          <p role="alert" className="mt-1.5 text-sm text-danger">
+            {error}
+          </p>
+        )}
+      </div>
+    </section>
   );
 }
 
 // R9 + R20: who runs which machine this shift; attendance follows from it
 export function CrewBoard() {
   useSSE(["machines"]);
-  const current = useQuery({ queryKey: ["machines", "current-shift"], queryFn: () => api<{ date: string; shift_id: number }>("/workforce/current-shift") });
-  const shifts = useQuery({ queryKey: ["masters", "shifts", "all"], queryFn: () => api<Paged<Shift>>("/masters/shifts?limit=50") });
-  const workers = useQuery({ queryKey: ["masters", "workers", "active"], queryFn: () => api<Paged<Worker>>("/masters/workers?active=true&limit=200") });
+  const current = useCurrentShift();
+  const shifts = useShifts();
+  const workers = useWorkers();
   const machines = useMachines();
 
   const [picked, setPicked] = useState<{ date: string; shift: number } | null>(null);
   const day = picked?.date ?? current.data?.date ?? todayIST();
   const shiftId = picked?.shift ?? current.data?.shift_id ?? 0;
+  const crew = useCrew(day, shiftId);
+  const attendance = useAttendance(day, shiftId);
 
-  const crew = useQuery({
-    queryKey: ["machines", "crew", day, shiftId],
-    queryFn: () => api<Crew[]>(`/workforce/crew?date=${day}&shift_id=${shiftId}`),
-    enabled: shiftId > 0,
-  });
-  const attendance = useQuery({
-    queryKey: ["machines", "attendance", day, shiftId],
-    queryFn: () => api<Paged<Attendance>>(`/workforce/attendance?date=${day}&shift_id=${shiftId}&limit=200`),
-    enabled: shiftId > 0,
-  });
+  const [query, setQuery] = useState("");
+  const [filter, setFilter] = useState<Filter>("all");
+  const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [marking, setMarking] = useState<{ worker: Worker; status: AttendanceStatus } | null>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
 
-  const [workerId, setWorkerId] = useState("");
-  const [machineId, setMachineId] = useState("");
-  const [marking, setMarking] = useState<Worker | null>(null);
-  const assign = useFloorAction<object>(() => "/workforce/crew");
-  const end = useFloorAction<{ id: number }>((b) => `/workforce/crew/${b.id}/end`);
+  const roster = useMemo(() => rosterOf(workers.data?.items ?? [], crew.data ?? [], attendance.data?.items ?? []), [workers.data, crew.data, attendance.data]);
+  const found = query.trim() ? roster.filter((r) => matches(r.worker, query)) : roster;
+  const selected = roster.find((r) => r.worker.id === selectedId) ?? null;
+  const machineList = machines.data?.items ?? [];
+  const stages = [...new Set(machineList.map((m) => m.type))].sort((a, b) => STAGE_ORDER.indexOf(a) - STAGE_ORDER.indexOf(b));
+  const truncated = (workers.data?.total ?? 0) > (workers.data?.items.length ?? 0);
+
+  // "/" jumps to search from anywhere; Esc drops the picked worker
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey) return;
+      if (e.key === "/" && !busyTarget(e.target)) {
+        e.preventDefault();
+        searchRef.current?.focus();
+        searchRef.current?.select();
+      } else if (e.key === "Escape" && !busyTarget(e.target)) {
+        setSelectedId(null);
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  // pick one worker, show their row and put the cursor on its machine picker
+  function open(id: number) {
+    setSelectedId(id);
+    if (filter !== "all" && found.find((r) => r.worker.id === id)?.status !== filter) setFilter("all");
+    requestAnimationFrame(() => {
+      document.getElementById(`worker-${id}`)?.scrollIntoView({ block: "nearest" });
+      document.getElementById(`assign-${id}`)?.focus();
+    });
+  }
+
+  // after a placement, clear the slate for the next worker
+  function assigned() {
+    setSelectedId(null);
+    if (query) {
+      setQuery("");
+      searchRef.current?.focus();
+    }
+  }
 
   const queries = [current, shifts, workers, machines, crew, attendance];
-  const failed = queries.find((q) => q.isError);
+  // no shift on right now is fine once one is picked by hand
+  const failed = queries.find((q) => q.isError && !(q === current && picked));
   const loading = queries.some((q) => q.isPending && q.fetchStatus !== "idle");
-  const open = (crew.data ?? []).filter((c) => !c.to_at);
-  const onMachine = new Map(open.map((c) => [c.worker_id, c]));
-  const status = new Map((attendance.data?.items ?? []).map((a) => [a.worker_id, a]));
-  const moving = onMachine.get(Number(workerId));
+  const visible = filter === "all" ? found : found.filter((r) => r.status === filter);
 
   return (
     <>
       <PageHeader title="Crew and attendance" description="Put workers on machines at shift start. Attendance fills itself from this." />
 
-      <div className="mb-6 flex flex-wrap gap-3">
+      <div className="mb-6 grid items-end gap-4 border border-border bg-card p-4 lg:grid-cols-[minmax(0,1fr)_auto_auto]">
+        <div className="grid gap-2">
+          <label htmlFor="crew-search" className="label">
+            Find a worker
+          </label>
+          <div className="relative">
+            <Search className="pointer-events-none absolute top-1/2 left-3.5 size-5 -translate-y-1/2 text-muted-foreground" aria-hidden />
+            <Input
+              ref={searchRef}
+              id="crew-search"
+              type="text"
+              autoComplete="off"
+              placeholder="Name or worker code"
+              value={query}
+              onChange={(e) => {
+                setQuery(e.target.value);
+                setSelectedId(null);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  if (visible.length === 1) open(visible[0].worker.id);
+                  else if (found.length === 1) open(found[0].worker.id);
+                } else if (e.key === "Escape") {
+                  e.preventDefault();
+                  if (query) setQuery("");
+                  else e.currentTarget.blur();
+                }
+              }}
+              aria-describedby="crew-search-hint"
+              className="h-14 pr-24 pl-11 text-lg"
+            />
+            <span className="pointer-events-none absolute top-1/2 right-3 flex -translate-y-1/2 items-center gap-2">
+              {query && (
+                <button type="button" aria-label="Clear search" onClick={() => setQuery("")} className="pointer-events-auto text-muted-foreground hover:text-ember">
+                  <X className="size-4" />
+                </button>
+              )}
+              <kbd className="num border border-border px-1.5 py-0.5 text-xs text-muted-foreground">/</kbd>
+            </span>
+          </div>
+          <p id="crew-search-hint" className="label normal-case tracking-[0.04em]">
+            {query.trim()
+              ? found.length === 1
+                ? "1 match · Enter to pick, then choose a machine"
+                : `${found.length} matches${found.length ? " · keep typing to narrow" : ""}`
+              : `${roster.length} workers · press / to search`}
+          </p>
+        </div>
         <FormField name="day" label="Date">
-          <Input id="day" type="date" max={todayIST()} value={day} onChange={(e) => e.target.value && setPicked({ date: e.target.value, shift: shiftId })} className="h-12 w-44" />
+          <Input id="day" type="date" max={todayIST()} value={day} onChange={(e) => e.target.value && setPicked({ date: e.target.value, shift: shiftId })} className="h-14 w-44" />
         </FormField>
         <FormField name="shift" label="Shift">
-          <select id="shift" value={shiftId} onChange={(e) => setPicked({ date: day, shift: Number(e.target.value) })} className={`${selectClass} w-48`}>
+          <select id="shift" value={shiftId} onChange={(e) => setPicked({ date: day, shift: Number(e.target.value) })} className={cn(selectClass, "h-14 w-52")}>
+            {shiftId === 0 && (
+              <option value={0} disabled>
+                Pick a shift
+              </option>
+            )}
             {(shifts.data?.items ?? []).map((s) => (
               <option key={s.id} value={s.id}>
                 {s.name} ({s.start_time.slice(0, 5)}–{s.end_time.slice(0, 5)})
@@ -131,98 +295,86 @@ export function CrewBoard() {
           {failed.error?.message}
         </EmptyState>
       ) : loading ? (
-        <Skeleton className="h-64 w-full" />
+        <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)]">
+          <Skeleton className="h-96" />
+          <Skeleton className="h-96" />
+        </div>
       ) : (
-        <div className="grid items-start gap-6 lg:grid-cols-2">
-          <section className="grid gap-4 rounded-lg border bg-card p-4" aria-label="Assign">
-            <h2 className="font-semibold">{moving ? "Move worker" : "Put a worker on a machine"}</h2>
-            <form
-              className="grid gap-3 sm:grid-cols-[1fr_1fr_auto] sm:items-end"
-              onSubmit={(e) => {
-                e.preventDefault();
-                if (!workerId || !machineId) return;
-                assign.mutate(
-                  { date: day, shift_id: shiftId, worker_id: Number(workerId), machine_id: Number(machineId) },
-                  { onSuccess: () => { setWorkerId(""); setMachineId(""); } },
-                );
-              }}
-            >
-              <FormField name="worker_id" label="Worker" required error={assign.errors.worker_id}>
-                <select id="worker_id" required value={workerId} onChange={(e) => setWorkerId(e.target.value)} className={selectClass}>
-                  <option value="">Pick a worker</option>
-                  {(workers.data?.items ?? []).map((w) => (
-                    <option key={w.id} value={w.id}>
-                      {w.name} {onMachine.has(w.id) ? `· on ${onMachine.get(w.id)!.machine_code}` : ""}
-                    </option>
-                  ))}
-                </select>
-              </FormField>
-              <FormField name="machine_id" label="Machine" required error={assign.errors.machine_id}>
-                <select id="machine_id" required value={machineId} onChange={(e) => setMachineId(e.target.value)} className={selectClass}>
-                  <option value="">Pick a machine</option>
-                  {(machines.data?.items ?? []).map((m) => (
-                    <option key={m.id} value={m.id}>
-                      {m.code} · {m.name}
-                    </option>
-                  ))}
-                </select>
-              </FormField>
-              <Button type="submit" className="h-12" disabled={!workerId || !machineId || assign.isPending}>
-                {moving ? "Move" : "Assign"}
-              </Button>
-            </form>
-            {(assign.errors.form ?? assign.errors.date ?? assign.errors.shift_id) && (
-              <p role="alert" className="text-sm text-danger">
-                {assign.errors.form ?? assign.errors.date ?? assign.errors.shift_id}
-              </p>
+        <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)]">
+          <div className="grid min-w-0 gap-5" aria-label="Machines">
+            {selected && (
+              <div className="flex items-center gap-3 border border-ember bg-card px-3 py-2" role="status">
+                <span className="min-w-0 flex-1 truncate text-sm">
+                  <span className="label mr-2 text-ember">Placing</span>
+                  {selected.worker.name} <span className="num text-xs text-muted-foreground">{selected.worker.code}</span>
+                  {selected.crew && <span className="text-muted-foreground"> · now on {selected.crew.machine_code}</span>}
+                </span>
+                <span className="label hidden xl:inline">Esc to cancel</span>
+                <Button size="icon-sm" variant="ghost" aria-label="Cancel placing" onClick={() => setSelectedId(null)}>
+                  <X />
+                </Button>
+              </div>
             )}
-
-            {(crew.data ?? []).length === 0 ? (
-              <EmptyState icon={Users} title="Nobody assigned yet">
-                Pick a worker and a machine above.
+            {machineList.length === 0 ? (
+              <EmptyState icon={Cog} title="No machines">
+                Add machines under Masters before planning crew.
               </EmptyState>
             ) : (
-              <ul className="divide-y rounded-md border">
-                {(crew.data ?? []).map((c) => (
-                  <li key={c.id} className={`flex items-center gap-3 px-3 py-2 ${c.to_at ? "text-muted-foreground" : ""}`}>
-                    <span className="w-16 shrink-0 font-medium">{c.machine_code}</span>
-                    <span className="min-w-0 flex-1 truncate">{c.worker_name}</span>
-                    <span className="text-xs tabular">
-                      {time(c.from_at)}–{c.to_at ? time(c.to_at) : "now"}
-                    </span>
-                    {!c.to_at && (
-                      <Button size="icon-lg" variant="ghost" aria-label={`Take ${c.worker_name} off ${c.machine_code}`} disabled={end.isPending} onClick={() => end.mutate({ id: c.id })}>
-                        <UserMinus />
-                      </Button>
-                    )}
-                  </li>
-                ))}
-              </ul>
+              stages.map((stage) => (
+                <section key={stage} aria-label={humanize(stage)} className="grid gap-2">
+                  <h2 className="eyebrow">
+                    {humanize(stage)}
+                    <span className="num">{machineList.filter((m) => m.type === stage).length}</span>
+                  </h2>
+                  <div className="grid gap-2 2xl:grid-cols-2">
+                    {machineList
+                      .filter((m) => m.type === stage)
+                      .map((m) => (
+                        <MachineCard
+                          key={m.id}
+                          machine={m}
+                          crew={(crew.data ?? []).filter((c) => c.machine_id === m.id)}
+                          roster={roster}
+                          day={day}
+                          shiftId={shiftId}
+                          picked={selected}
+                          query={query.trim()}
+                          onAssigned={assigned}
+                        />
+                      ))}
+                  </div>
+                </section>
+              ))
             )}
-            {end.errors.form && <p role="alert" className="text-sm text-danger">{end.errors.form}</p>}
-          </section>
+          </div>
 
-          <section className="rounded-lg border bg-card" aria-label="Attendance">
-            <h2 className="border-b px-4 py-3 font-semibold">Attendance</h2>
-            <ul className="divide-y">
-              {(workers.data?.items ?? []).map((w) => {
-                const row = status.get(w.id);
-                return (
-                  <li key={w.id}>
-                    <button type="button" onClick={() => setMarking(w)} className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-accent focus-visible:bg-accent focus-visible:outline-none">
-                      <span className="w-14 shrink-0 text-xs text-muted-foreground">{w.code}</span>
-                      <span className="min-w-0 flex-1 truncate">{w.name}</span>
-                      {row ? <StatusBadge status={row.status} /> : <span className="text-xs text-muted-foreground">Not marked</span>}
-                      {row && <span className="w-12 text-xs text-muted-foreground">{row.source}</span>}
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
-          </section>
+          <div className="grid min-w-0 gap-2">
+            <AttendancePanel
+              rows={found}
+              filter={filter}
+              onFilter={setFilter}
+              searching={!!query.trim()}
+              day={day}
+              shiftId={shiftId}
+              machines={machineList}
+              selectedId={selectedId}
+              onSelect={setSelectedId}
+              onMark={(worker, status) => setMarking({ worker, status })}
+              onAssigned={assigned}
+            />
+            {truncated && <p className="label normal-case tracking-[0.04em]">Showing the first {workers.data?.items.length} of {workers.data?.total} active workers.</p>}
+          </div>
         </div>
       )}
-      <AttendanceDialog key={marking?.id} worker={marking} day={day} shiftId={shiftId} current={marking ? status.get(marking.id)?.status : undefined} onClose={() => setMarking(null)} />
+      <AttendanceDialog
+        key={marking ? `${marking.worker.id}-${marking.status}` : "none"}
+        worker={marking?.worker ?? null}
+        day={day}
+        shiftId={shiftId}
+        initial={marking?.status}
+        current={marking ? roster.find((r) => r.worker.id === marking.worker.id)?.attendance?.status : undefined}
+        onClose={() => setMarking(null)}
+      />
     </>
   );
 }

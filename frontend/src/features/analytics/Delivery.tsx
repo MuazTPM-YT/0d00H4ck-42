@@ -24,7 +24,7 @@ const RISK_STYLE: Record<Risk, string> = {
 export function RiskBadge({ risk }: { risk: Risk }) {
   return (
     <span className={cn("inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium whitespace-nowrap", RISK_STYLE[risk])}>
-      <span className="size-1.5 rounded-full bg-current" aria-hidden />
+      <span className="dot size-1.5 bg-current" aria-hidden />
       {humanize(risk)}
     </span>
   );

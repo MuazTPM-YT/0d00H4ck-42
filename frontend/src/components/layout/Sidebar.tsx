@@ -1,9 +1,11 @@
 "use client";
 
-import { LogOut } from "lucide-react";
+import { LogOut, Moon, Sun } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useEffect, useState } from "react";
 
+import { SECTION } from "@/components/dither/motifs";
 import { BrandMark } from "@/components/layout/BrandMark";
 import { ROLE_LABEL, type User, useLogout } from "@/lib/auth";
 import { cn } from "@/lib/utils";
@@ -23,25 +25,45 @@ const initials = (name: string) =>
     .map((p) => p[0]?.toUpperCase())
     .join("");
 
-// sidebar: big tap targets, one filled pill marks where you are
+// paper by default; ink on request, remembered per browser (layout.tsx applies it before paint)
+function useTheme() {
+  const [ink, setInk] = useState(false);
+  useEffect(() => setInk(document.documentElement.dataset.theme === "dark"), []);
+  const toggle = () => {
+    const next = !ink;
+    setInk(next);
+    if (next) document.documentElement.dataset.theme = "dark";
+    else delete document.documentElement.dataset.theme;
+    try {
+      localStorage.setItem("theme", next ? "dark" : "light");
+    } catch {}
+  };
+  return { ink, toggle };
+}
+
+// sidebar: big tap targets, mono section labels with their ledger index, ink bar marks where you are
 export function Sidebar({ user, onNavigate }: { user: User; onNavigate?: () => void }) {
   const pathname = usePathname();
   const logout = useLogout();
+  const theme = useTheme();
 
   return (
     <div className="flex h-full bg-sidebar flex-col border-r border-border/70 text-sidebar-foreground">
       <div className="flex items-center gap-3 px-5 pt-6 pb-5">
         <BrandMark />
         <div className="min-w-0 leading-tight">
-          <p className="truncate text-[1.05rem] font-semibold tracking-tight">Everest</p>
-          <p className="truncate text-[0.8rem] text-sidebar-muted">Textile Mills</p>
+          <p className="truncate font-display text-[1.45rem] leading-none font-medium">Everest</p>
+          <p className="label mt-1 truncate">Textile Mills</p>
         </div>
       </div>
 
       <nav aria-label="Main" className="flex-1 overflow-y-auto px-3 pb-4">
         {navFor(user.role).map(({ group, items }) => (
           <div key={group} className="mt-5 first:mt-0">
-            <p className="px-3 pb-1.5 text-[0.75rem] font-semibold text-sidebar-muted">{group}</p>
+            <p className="label flex items-center gap-2 border-b border-border px-3 pb-1.5 mb-1.5">
+              <span className="text-sidebar-accent">{SECTION[group]?.index ?? "00"}</span>
+              {group}
+            </p>
             <ul className="grid gap-1">
               {items.map((item) => {
                 const active = isActive(pathname, item.path);
@@ -53,9 +75,9 @@ export function Sidebar({ user, onNavigate }: { user: User; onNavigate?: () => v
                       onClick={onNavigate}
                       aria-current={active ? "page" : undefined}
                       className={cn(
-                        "pressable flex h-11 items-center gap-3 rounded-xl px-3 text-[0.94rem] font-medium",
+                        "pressable relative flex h-11 items-center gap-3 px-3 text-[0.94rem] font-medium",
                         active
-                          ? "bg-sidebar-active text-sidebar-active-foreground shadow-sm"
+                          ? "bg-sidebar-active text-sidebar-active-foreground before:absolute before:inset-y-0 before:left-0 before:w-1 before:bg-sidebar-accent"
                           : "text-sidebar-foreground/85 hover:bg-sidebar-hover hover:text-sidebar-foreground",
                       )}
                     >
@@ -70,20 +92,29 @@ export function Sidebar({ user, onNavigate }: { user: User; onNavigate?: () => v
         ))}
       </nav>
 
-      <div className="m-3 flex items-center gap-3 rounded-2xl bg-card/70 p-3 shadow-card">
-        <span className="grid size-10 shrink-0 place-items-center rounded-full bg-secondary text-sm font-semibold text-secondary-foreground" aria-hidden>
+      <div className="m-3 flex items-center gap-2 border-t border-foreground pt-3">
+        <span className="grid size-10 shrink-0 place-items-center border border-foreground font-mono text-sm font-medium" aria-hidden>
           {initials(user.name)}
         </span>
         <div className="min-w-0 flex-1 leading-tight">
           <p className="truncate text-[0.9rem] font-semibold">{user.name}</p>
-          <p className="truncate text-[0.78rem] text-sidebar-muted">{ROLE_LABEL[user.role]}</p>
+          <p className="label truncate">{ROLE_LABEL[user.role]}</p>
         </div>
+        <button
+          type="button"
+          onClick={theme.toggle}
+          aria-label={theme.ink ? "Switch to paper" : "Switch to ink"}
+          title={theme.ink ? "Paper" : "Ink"}
+          className="pressable grid size-10 shrink-0 place-items-center text-sidebar-muted hover:bg-sidebar-hover hover:text-sidebar-foreground"
+        >
+          {theme.ink ? <Sun className="size-[1.1rem]" aria-hidden /> : <Moon className="size-[1.1rem]" aria-hidden />}
+        </button>
         <button
           type="button"
           onClick={() => logout.mutate()}
           aria-label="Log out"
           title="Log out"
-          className="pressable grid size-10 shrink-0 place-items-center rounded-full text-sidebar-muted hover:bg-sidebar-hover hover:text-sidebar-foreground"
+          className="pressable grid size-10 shrink-0 place-items-center text-sidebar-muted hover:bg-sidebar-hover hover:text-sidebar-foreground"
         >
           <LogOut className="size-[1.15rem]" aria-hidden />
         </button>

@@ -17,6 +17,7 @@ import {
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, type SubmitEvent, useState } from "react";
 
+import type { MotifName } from "@/components/dither/motifs";
 import { BrandMark } from "@/components/layout/BrandMark";
 import { GlassInput, GlassInputWrapper, type Highlight, PasswordInput, SignInPage } from "@/components/ui/sign-in";
 import { ApiError } from "@/lib/api";
@@ -33,6 +34,17 @@ const ROLE_ICON: Record<Role, LucideIcon> = {
   dispatch: Truck,
   accounts: IndianRupee,
   sales: ShoppingCart,
+};
+
+// tap a role and the print shows that person's part of the mill
+const ROLE_ART: Record<Role, { motif: MotifName; caption: string }> = {
+  owner: { motif: "mill", caption: "Plate 02 · the whole mill" },
+  store: { motif: "cones", caption: "Plate 03 · yarn store" },
+  supervisor: { motif: "loom", caption: "Plate 04 · the loom floor" },
+  qc: { motif: "loupe", caption: "Plate 05 · quality check" },
+  dispatch: { motif: "truck", caption: "Plate 06 · dispatch" },
+  accounts: { motif: "bars", caption: "Plate 07 · the books" },
+  sales: { motif: "orders", caption: "Plate 08 · order book" },
 };
 
 // what the mill gets, said plainly, on the photo
@@ -52,7 +64,7 @@ function FieldError({ id, children }: { id: string; children?: string }) {
   );
 }
 
-function LoginForm() {
+function LoginForm({ onRole }: { onRole: (role: Role | null) => void }) {
   const router = useRouter();
   const next = useSearchParams().get("next");
   const login = useLogin();
@@ -95,7 +107,10 @@ function LoginForm() {
               placeholder="you@everest.local"
               required
               value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              onChange={(e) => {
+                setEmail(e.target.value);
+                onRole(ROLES.find((r) => e.target.value === `${r}@everest.local`) ?? null);
+              }}
               aria-invalid={!!errors.email}
               aria-describedby={errors.email ? "email-error" : undefined}
             />
@@ -122,21 +137,21 @@ function LoginForm() {
         </div>
 
         {errors.form && (
-          <p role="alert" className="rounded-2xl bg-danger-soft px-4 py-3 text-sm font-medium text-danger">{errors.form}</p>
+          <p role="alert" className="border border-danger/40 bg-danger-soft px-4 py-3 text-sm font-medium text-danger">{errors.form}</p>
         )}
 
         <button
           type="submit"
           disabled={login.isPending}
-          className="animate-element animate-delay-500 pressable w-full rounded-2xl bg-primary py-4 font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+          className="animate-element animate-delay-500 pressable w-full bg-primary py-4 font-mono text-[0.84rem] font-medium tracking-[0.14em] uppercase text-primary-foreground hover:bg-ember disabled:opacity-50"
         >
           {login.isPending ? "Signing in…" : "Sign in"}
         </button>
       </form>
 
       <div className="animate-element animate-delay-600 relative flex items-center justify-center">
-        <span className="w-full border-t border-border" />
-        <span className="absolute bg-background px-4 text-sm text-muted-foreground">Demo: tap who you are</span>
+        <span className="w-full border-t border-foreground" />
+        <span className="label absolute bg-background px-4">Demo · tap who you are</span>
       </div>
 
       <div className="animate-element animate-delay-700 flex flex-wrap gap-2">
@@ -149,13 +164,14 @@ function LoginForm() {
               type="button"
               aria-pressed={picked}
               onClick={() => {
+                onRole(role);
                 setEmail(`${role}@everest.local`);
                 setPassword(DEMO_PASSWORD);
                 setErrors({});
               }}
               className={cn(
-                "pressable inline-flex h-11 items-center gap-2 rounded-full border px-4 text-sm font-medium",
-                picked ? "border-primary bg-primary text-primary-foreground" : "border-border bg-card hover:bg-secondary",
+                "pressable inline-flex h-11 items-center gap-2 border px-4 text-sm font-medium",
+                picked ? "border-primary bg-primary text-primary-foreground" : "border-input bg-card hover:border-ember hover:text-ember",
               )}
             >
               <Icon className="size-4" aria-hidden />
@@ -166,31 +182,33 @@ function LoginForm() {
       </div>
 
       <p className="animate-element animate-delay-800 text-center text-sm text-muted-foreground">
-        Every demo account uses the password <span className="font-medium text-foreground">{DEMO_PASSWORD}</span>.
+        Every demo account uses the password <span className="num font-medium text-foreground">{DEMO_PASSWORD}</span>.
       </p>
     </>
   );
 }
 
 export default function LoginPage() {
+  const [role, setRole] = useState<Role | null>(null);
   return (
     <SignInPage
+      heroArt={role ? { ...ROLE_ART[role], key: role } : undefined}
       brand={
         <div className="flex items-center gap-3">
-          <BrandMark className="size-10 rounded-xl" />
+          <BrandMark className="size-10" />
           <span className="leading-tight">
-            <span className="block font-semibold tracking-tight">Everest</span>
-            <span className="block text-sm text-muted-foreground">Textile Mills</span>
+            <span className="block font-display text-2xl leading-none font-medium">Everest</span>
+            <span className="label mt-1 block">Textile Mills</span>
           </span>
         </div>
       }
-      title={<span className="font-light tracking-tighter text-foreground">Welcome back</span>}
+      title={<span className="font-light text-foreground">Welcome <em className="text-ember">back</em></span>}
       description="Sign in to run the mill: yarn, floor, quality, dispatch and books in one place."
       heroImageSrc="/login-fabric.jpg"
       highlights={HIGHLIGHTS}
     >
       <Suspense>
-        <LoginForm />
+        <LoginForm onRole={setRole} />
       </Suspense>
     </SignInPage>
   );

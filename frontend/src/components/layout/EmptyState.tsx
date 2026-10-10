@@ -2,9 +2,10 @@ import type { LucideIcon } from "lucide-react";
 import { Inbox } from "lucide-react";
 import type { ReactNode } from "react";
 
+import { DitherPlate } from "@/components/dither/DitherPlate";
 import { cn } from "@/lib/utils";
 
-// nothing here yet: a big calm icon, one sentence on why, and the action that fixes it
+// nothing here yet: a dithered spool with its thread loose, one sentence on why, and the fix
 export function EmptyState({
   icon: Icon = Inbox,
   title,
@@ -19,12 +20,13 @@ export function EmptyState({
   className?: string;
 }) {
   return (
-    <div className={cn("flex flex-col items-center gap-3 rounded-3xl bg-card px-6 py-14 text-center shadow-card", className)}>
-      <span className="mb-1 grid size-16 place-items-center rounded-2xl bg-muted text-muted-foreground" aria-hidden>
-        <Icon className="size-8" strokeWidth={1.7} />
-      </span>
-      <h2 className="text-lg font-semibold">{title}</h2>
-      {children && <div className="max-w-md text-[0.94rem] text-muted-foreground">{children}</div>}
+    <div className={cn("flex flex-col items-center gap-3 border border-border bg-card px-6 py-12 text-center", className)}>
+      <div className="relative mb-1 h-24 w-40" aria-hidden>
+        <DitherPlate motif="spool" seed={title} />
+        <Icon className="absolute right-1 bottom-1 size-5 text-ember" strokeWidth={1.8} />
+      </div>
+      <h2 className="text-[1.6rem] font-normal">{title}</h2>
+      {children && <div className="max-w-md text-[0.94rem] text-body">{children}</div>}
       {action && <div className="mt-2">{action}</div>}
     </div>
   );
