@@ -26,7 +26,7 @@ from app.modules.masters.models import (
     Worker,
     YarnItem,
 )
-from app.modules.orders.models import Order
+from app.modules.orders.models import Order, OrderStatus
 from app.modules.production.models import WorkOrder
 from app.modules.quality.models import (
     DefectType,
@@ -56,6 +56,8 @@ DECISION_MOVE = {
     QcDecision.pass_: (LocationKind.finished, MoveReason.qc_pass),
     QcDecision.reject: (LocationKind.rejected, MoveReason.qc_reject),
 }
+# third look settles it: after this many checks a roll passes or is rejected
+MAX_REWORK_CHECKS = 2
 SUMMARY_KEY = {
     QcDecision.pass_: "passed",
     QcDecision.rework: "rework",
@@ -132,6 +134,23 @@ def decide(
     return result
 
 
+# rework only for an order still being made, and not round and round
+def _can_rework(db: Session, roll: Roll, previous_checks: int) -> None:
+    order = db.get(Order, roll.order_id)
+    if order.status != OrderStatus.confirmed:
+        raise Conflict(
+            f"Order {order.code} is {order.status}: nothing to rework for, reject the roll instead",
+            field="decision",
+            code="order_not_open",
+        )
+    if previous_checks >= MAX_REWORK_CHECKS:
+        raise Conflict(
+            f"Third check: pass or reject. {roll.code} has been checked {previous_checks} times",
+            field="decision",
+            code="rework_limit",
+        )
+
+
 def _decide(db: Session, roll_id: int, body: QcCheckIn, user_id: int, at: datetime | None) -> dict:
     # production imports this module for ROLL_TRANSITIONS, so import it late
     from app.modules.production.service import create_rework_work_order
@@ -145,6 +164,8 @@ def _decide(db: Session, roll_id: int, body: QcCheckIn, user_id: int, at: dateti
     check_transition(ROLL_TRANSITIONS, roll.status, new)
     when = at or datetime.now(UTC)
     attempt = db.scalar(select(func.count()).where(QcCheck.roll_id == roll.id)) + 1
+    if body.decision == QcDecision.rework:
+        _can_rework(db, roll, attempt - 1)
     passed = body.decision == QcDecision.pass_
     check = QcCheck(
         roll_id=roll.id,
@@ -233,6 +254,7 @@ def _roll_rows() -> Select:
             Roll.shade_band,
             Roll.order_id,
             Order.code.label("order_code"),
+            Order.status.label("order_status"),
             Buyer.name.label("buyer_name"),
             FabricType.name.label("fabric_name"),
             FabricType.gsm.label("fabric_gsm"),

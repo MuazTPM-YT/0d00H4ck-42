@@ -49,6 +49,7 @@ export type RollRow = {
   shade_band: string | null;
   order_id: number;
   order_code: string;
+  order_status: string;
   buyer_name: string;
   fabric_name: string;
   fabric_gsm: string;

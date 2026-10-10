@@ -9,7 +9,7 @@ from app.modules.inventory.models import MoveReason, StockMove
 from app.modules.masters.models import Location, LocationKind
 from app.modules.production import service as production
 from app.modules.production.models import WorkOrder
-from app.modules.production.schemas import RollIn, RollProcessIn
+from app.modules.production.schemas import OutputIn, RollIn, RollProcessIn
 from app.modules.quality import service
 from app.modules.quality.models import QcCheck, Roll, RollEvent, RollStatus
 from app.modules.quality.schemas import QcCheckIn
@@ -24,13 +24,15 @@ def floor(db, buyer, dyed_fabric):
         db.add(f.loc[kind])
     db.commit()
     production.queue_work_order(db, f.shirt_weave.id, f.loom1.id, f.supervisor.id)
+    f.issue(f.shirt_weave, f.batches[0], 100)  # store issues yarn before the loom starts
     production.start_work_order(db, f.shirt_weave.id, f.supervisor.id)
-    f.issue(f.shirt_weave, f.batches[0], 100)
     return f
 
 
 # shirting is weaving only, so a fresh cut lands straight in the QC queue
 def roll_waiting(db, floor, length=50) -> Roll:
+    out = OutputIn(machine_id=floor.loom1.id, qty=Decimal(length))
+    production.log_output(db, out, floor.supervisor.id)  # loom weaves it before it is cut
     body = RollIn(work_order_id=floor.shirt_weave.id, length_m=Decimal(length))
     return db.get(Roll, production.cut_roll(db, body, None)["id"])
 
@@ -244,3 +246,40 @@ def test_find_roll_by_scanned_code(db, floor, client_as):
     roll = roll_waiting(db, floor)
     res = client_as(Role.qc).get(f"/api/quality/rolls?code={roll.code.lower()}")
     assert [r["id"] for r in res.json()["items"]] == [roll.id]
+
+
+# rework only helps an order still being made; a cancelled or closed order gets a reject
+def test_rework_refused_when_order_not_confirmed(db, floor, make_user):
+    from app.modules.orders.models import Order, OrderStatus
+
+    roll = roll_waiting(db, floor)
+    db.get(Order, roll.order_id).status = OrderStatus.cancelled
+    db.commit()
+    with pytest.raises(Conflict) as e:
+        decide(
+            db, roll, make_user(Role.qc), decision="rework", defects=[{"type": "hole", "count": 1}]
+        )
+    assert "reject" in e.value.message.lower()
+    db.refresh(roll)
+    assert roll.status == RollStatus.awaiting_qc
+
+
+# two checks already: third look must settle it
+def test_third_check_cannot_rework_again(db, floor, client_as):
+    roll = roll_waiting(db, floor)
+    qc = client_as(Role.qc)
+    url = f"/api/quality/rolls/{roll.id}/checks"
+    body = {"decision": "rework", "defects": [{"type": "stain", "count": 1}]}
+    for _ in range(2):
+        assert qc.post(url, json=body).status_code == 201
+        roll.status = RollStatus.awaiting_qc  # rework job done (covered in test_production)
+        db.commit()
+    res = qc.post(url, json=body)
+    assert res.status_code == 409 and "Third check" in res.json()["error"]["message"]
+    assert qc.post(url, json={**body, "decision": "reject"}).status_code == 201
+
+
+def test_roll_detail_carries_order_status(db, floor, client_as):
+    roll = roll_waiting(db, floor)
+    body = client_as(Role.qc).get(f"/api/quality/rolls/{roll.id}").json()
+    assert body["order_status"] == "confirmed"
