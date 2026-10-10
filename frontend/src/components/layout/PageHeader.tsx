@@ -8,8 +8,9 @@ import { DitherPlate } from "@/components/dither/DitherPlate";
 import { SECTION } from "@/components/dither/motifs";
 import { breadcrumbs, findRoute } from "@/nav";
 
-// every page opens on a ledger header: "04 — PRODUCTION" eyebrow, serif title, a dithered picture
-// of that part of the mill on the right, and the primary action top right
+// every page opens on a ledger header: "04 · PRODUCTION" eyebrow, serif title, the page's actions
+// under the description, and a dithered picture of that part of the mill in its own column, so
+// buttons never sit on the artwork
 export function PageHeader({ title, description, actions }: { title: string; description?: ReactNode; actions?: ReactNode }) {
   const pathname = usePathname();
   const crumbs = breadcrumbs(pathname);
@@ -22,13 +23,8 @@ export function PageHeader({ title, description, actions }: { title: string; des
     <header className="relative mb-8 border-t border-foreground">
       <span className="reg -top-[6px] -left-[6px]" aria-hidden />
       <span className="reg -top-[6px] -right-[6px]" aria-hidden />
-      <DitherPlate
-        motif={motif}
-        seed={pathname}
-        className="pointer-events-none absolute inset-y-0 right-0 !w-[48%] [mask-image:linear-gradient(to_right,transparent,#000_40%)]"
-      />
-      <div className="relative flex flex-col gap-5 py-7 sm:flex-row sm:items-end sm:justify-between">
-        <div className="min-w-0">
+      <div className="grid gap-6 py-7 sm:grid-cols-[minmax(0,1fr)_minmax(0,42%)]">
+        <div className="flex min-w-0 flex-col">
           <p className="eyebrow">
             <span className="num text-foreground">{index}</span>
             <span aria-hidden>·</span>
@@ -49,8 +45,13 @@ export function PageHeader({ title, description, actions }: { title: string; des
           </p>
           <h1 className="mt-3 truncate text-[2.5rem] font-normal sm:text-[3rem]">{title}</h1>
           {description && <p className="mt-2 max-w-xl text-[0.97rem] text-body">{description}</p>}
+          {actions && <div className="mt-5 flex flex-wrap items-center gap-2">{actions}</div>}
         </div>
-        {actions && <div className="relative flex shrink-0 flex-wrap gap-2 bg-background/80 p-1">{actions}</div>}
+        <DitherPlate
+          motif={motif}
+          seed={pathname}
+          className="pointer-events-none hidden min-h-36 sm:block [mask-image:linear-gradient(to_right,transparent,#000_30%)]"
+        />
       </div>
       <div className="h-px bg-border" aria-hidden />
     </header>
