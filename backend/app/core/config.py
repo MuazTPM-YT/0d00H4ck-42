@@ -21,6 +21,15 @@ class Settings(BaseSettings):
     jwt_expire_minutes: int = 720
     cookie_secure: bool = False
 
+    # buyer emails: blank SMTP_HOST turns mail off; once it is set the rest are required
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_user: str = ""
+    smtp_password: str = ""
+    mail_from: str = ""
+    # where a buyer opens their link, e.g. http://192.168.1.20:3000 (not localhost)
+    web_url: str = ""
+
     def db_url(self, db: str | None = None) -> str:
         return (
             f"postgresql+psycopg://{self.postgres_user}:{self.postgres_password}"
@@ -37,6 +46,9 @@ def get_settings() -> Settings:
         missing = ", ".join(str(err["loc"][0]).upper() for err in e.errors())
         raise SystemExit(f"Config error, check .env: {missing}") from None
     blank = [k.upper() for k in ("postgres_password", "jwt_secret") if not getattr(settings, k)]
+    if settings.smtp_host:
+        mail_keys = ("smtp_user", "smtp_password", "mail_from", "web_url")
+        blank += [k.upper() for k in mail_keys if not getattr(settings, k)]
     if blank:
         raise SystemExit(f"Config error, empty in .env: {', '.join(blank)}")
     return settings

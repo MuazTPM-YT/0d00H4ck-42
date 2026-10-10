@@ -9,6 +9,7 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 
 from alembic import command
+from app.core import mail
 from app.core.config import get_settings
 from app.core.db import Base, get_db
 from app.core.enums import Stage
@@ -56,6 +57,16 @@ def db(engine: Engine) -> Iterator[Session]:
     session.close()
     outer.rollback()
     conn.close()
+
+
+# tests never send real mail, even when .env has SMTP set; mail tests switch it back on
+@pytest.fixture(autouse=True)
+def no_real_mail(monkeypatch: pytest.MonkeyPatch) -> None:
+    def refuse(*_):
+        raise AssertionError("a test tried to send real mail")
+
+    monkeypatch.setattr(mail, "enabled", lambda: False)
+    monkeypatch.setattr(mail, "send", refuse)
 
 
 @pytest.fixture

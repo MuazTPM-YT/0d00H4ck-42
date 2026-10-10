@@ -99,6 +99,14 @@ class InvoiceRef(BaseModel):
     due_date: date
 
 
+# last try at emailing the buyer their link: sent, failed (with why) or skipped (no address)
+class LinkEmail(BaseModel):
+    status: str
+    at: datetime
+    to: str | None
+    error: str | None
+
+
 # office view of one order: the buyer card plus the records behind it
 class OrderView(TrackOut):
     metres: Metres
@@ -109,6 +117,8 @@ class OrderView(TrackOut):
     buyer_phone: str | None
     buyer_email: str | None
     tracking_token: str
+    mail_on: bool
+    link_email: LinkEmail | None
     rolls: list[RollRow]
     dispatches: list[DispatchRef]
     invoices: list[InvoiceRef]
