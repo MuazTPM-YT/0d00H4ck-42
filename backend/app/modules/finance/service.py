@@ -43,7 +43,13 @@ from app.modules.masters.models import (
     Worker,
 )
 from app.modules.orders.models import Order
-from app.modules.production.models import MachineEvent, MachineStatus, ProductionLog, WorkOrder
+from app.modules.production.models import (
+    MachineEvent,
+    MachineStatus,
+    ProductionLog,
+    WorkOrder,
+    WorkOrderStatus,
+)
 from app.modules.quality.models import Roll, RollStatus
 from app.modules.workforce.models import Attendance, AttendanceStatus, CrewAssignment
 
@@ -66,13 +72,16 @@ COST_RULES = [
     "Yarn: every kg issued to this order's work orders, priced at the GRN cost of the batch it "
     "came from (batches are the cost layers, issued oldest first), minus kg returned.",
     "Machine: hours each machine ran this order's work orders (from the machine event log) "
-    "x the machine's hourly cost.",
+    "x the machine's hourly cost. A finished job stops at its finish time (or its last "
+    "production log); a job still running counts up to now, so the total is cost to date.",
     "Labour: piece-rated weavers get metres they wove for this order x their piece rate. "
     "Daily-rated crew get their day rate split by the hours their machine ran this order "
-    "in their shift.",
+    "in their shift (an open crew assignment ends at its shift end). Rework passes are not "
+    "paid as piece work.",
     "Rework and rejected rolls used real yarn, machine and labour, so they stay in the cost. "
-    "Cost per metre = total cost / metres that passed QC.",
-    "Margin = invoiced value before GST - total cost.",
+    "Cost per metre = total cost / metres that passed QC; provisional until every roll is "
+    "decided and the work is done.",
+    "Margin = invoiced value before GST - cost per metre x invoiced metres.",
 ]
 
 
@@ -335,6 +344,7 @@ def _wage_facts(db: Session, start: date, end: date) -> tuple[dict, dict]:
             .join(WorkOrder, WorkOrder.id == ProductionLog.work_order_id)
             .where(
                 WorkOrder.stage == Stage.weaving,
+                WorkOrder.roll_id.is_(None),
                 ProductionLog.unit == Unit.m,
                 ProductionLog.worker_id.is_not(None),
                 ProductionLog.at >= a,
@@ -441,6 +451,22 @@ def recompute_wage_run(db: Session, user: User, run_id: int) -> dict:
     return wage_run_detail(db, run.id)
 
 
+# a draft made by mistake can go; final and paid runs are the record
+def delete_wage_run(db: Session, user: User, run_id: int) -> None:
+    run = get_wage_run(db, run_id, lock=True)
+    if run.status != WageRunStatus.draft:
+        raise Conflict(
+            f"Run is {run.status}; only a draft can be deleted", code="illegal_transition"
+        )
+    data = {"from": str(run.period_start), "to": str(run.period_end)}
+    for line in db.scalars(select(WageLine).where(WageLine.wage_run_id == run.id)):
+        db.delete(line)
+    db.flush()
+    db.delete(run)
+    audit.record(db, user.id, "delete", "wage_runs", run_id, data=data)
+    db.commit()
+
+
 def set_wage_run_status(db: Session, user: User, run_id: int, new: WageRunStatus) -> dict:
     run = get_wage_run(db, run_id, lock=True)
     check_transition(WAGE_RUN_TRANSITIONS, run.status, new)
@@ -471,6 +497,19 @@ def list_expenses(db: Session, page: Page, month: str | None = None) -> dict:
 
 
 # --- shared services (contract: docs/contracts.md). Never commit; caller owns the transaction.
+
+
+# a final or paid wage run covers this day: attendance for it is paid out, keep it fixed
+def period_locked(db: Session, day: date) -> bool:
+    return bool(
+        db.scalar(
+            select(func.count()).where(
+                WageRun.status.in_([WageRunStatus.final, WageRunStatus.paid]),
+                WageRun.period_start <= day,
+                WageRun.period_end >= day,
+            )
+        )
+    )
 
 
 # invoice for one confirmed dispatch: one line per loaded roll at the order rate, GST on top
@@ -547,6 +586,25 @@ def _shift_hours(shift: Shift) -> Decimal:
     return Decimal(minutes % 1440) / 60
 
 
+# night shift ends the next morning; shift times are mill (IST) clock times
+def _shift_end(day: date, shift: Shift) -> datetime:
+    end = datetime.combine(day, shift.end_time, IST)
+    return end + timedelta(days=1) if shift.end_time <= shift.start_time else end
+
+
+# done jobs stop at their finish time, else their last log; never "now"
+def _job_stops(db: Session, jobs: list[WorkOrder], beginning: datetime) -> dict[int, datetime]:
+    done = [w for w in jobs if w.status == WorkOrderStatus.done]
+    last_log = dict(
+        db.execute(
+            select(ProductionLog.work_order_id, func.max(ProductionLog.at))
+            .where(ProductionLog.work_order_id.in_([w.id for w in done] or [0]))
+            .group_by(ProductionLog.work_order_id)
+        ).all()
+    )
+    return {w.id: w.finished_at or last_log.get(w.id) or beginning for w in done}
+
+
 def _overlap(a1: datetime, b1: datetime, a2: datetime, b2: datetime) -> Decimal:
     a, b = max(a1, a2), min(b1, b2)
     return _hours(a, b) if b > a else ZERO
@@ -557,7 +615,8 @@ def order_cost(db: Session, order_id: int) -> dict:
     order = db.get(Order, order_id)
     if not order:
         raise NotFound(f"Order {order_id} not found")
-    wo_ids = list(db.scalars(select(WorkOrder.id).where(WorkOrder.order_id == order.id)))
+    jobs = list(db.scalars(select(WorkOrder).where(WorkOrder.order_id == order.id)))
+    wo_ids = [w.id for w in jobs]
 
     yarn = _yarn_cost(db, wo_ids)
 
@@ -569,11 +628,14 @@ def order_cost(db: Session, order_id: int) -> dict:
         )
     )
     beginning = datetime(2000, 1, 1, tzinfo=UTC)
-    running = [
-        s
-        for s in machine_spans(db, machine_ids, beginning, datetime.now(UTC))
-        if s.status == MachineStatus.running and s.work_order_id in wo_ids
-    ]
+    stops = _job_stops(db, jobs, beginning)
+    running = []
+    for s in machine_spans(db, machine_ids, beginning, datetime.now(UTC)):
+        if s.status != MachineStatus.running or s.work_order_id not in wo_ids:
+            continue
+        end = min(s.end, stops.get(s.work_order_id, s.end))
+        if end > s.start:
+            running.append(Span(s.machine_id, s.status, s.work_order_id, s.start, end))
     machines = {
         m.id: m for m in db.scalars(select(Machine).where(Machine.id.in_(machine_ids or [0])))
     }
@@ -597,6 +659,7 @@ def order_cost(db: Session, order_id: int) -> dict:
         .where(
             ProductionLog.work_order_id.in_(wo_ids or [0]),
             WorkOrder.stage == Stage.weaving,
+            WorkOrder.roll_id.is_(None),
             Worker.wage_type == WageType.piece,
         )
         .group_by(Worker.id)
@@ -619,7 +682,7 @@ def order_cost(db: Session, order_id: int) -> dict:
     ).all()
     daily: dict[int, list] = {}
     for c, w, shift in crew:
-        end = c.to_at or datetime.now(UTC)
+        end = c.to_at or _shift_end(c.date, shift)
         h = sum(
             (
                 _overlap(c.from_at, end, s.start, s.end)
@@ -671,6 +734,21 @@ def order_cost(db: Session, order_id: int) -> dict:
             Invoice.order_id == order.id
         )
     )
+    invoiced_m = qty(
+        db.scalar(
+            select(func.coalesce(func.sum(InvoiceLine.metres), 0))
+            .join(Invoice, Invoice.id == InvoiceLine.invoice_id)
+            .where(Invoice.order_id == order.id)
+        )
+    )
+    cost_to_date = any(w.status != WorkOrderStatus.done for w in jobs)
+    undecided = sum(
+        (
+            by_status.get(st, ZERO)
+            for st in (RollStatus.in_process, RollStatus.awaiting_qc, RollStatus.rework)
+        ),
+        ZERO,
+    )
 
     def per(amount: int, base: Decimal | int) -> int | None:
         return (
@@ -696,8 +774,12 @@ def order_cost(db: Session, order_id: int) -> dict:
         "reject_share_paise": per(total * rejected, produced) or 0,
         "cost_per_m_paise": per(total, passed),
         "cost_per_roll_paise": per(total, passed_rolls),
+        "cost_provisional": cost_to_date or undecided > 0,
+        "cost_to_date": cost_to_date,
         "invoiced_paise": invoiced,
-        "margin_paise": invoiced - total if invoiced else None,
+        "invoiced_m": invoiced_m,
+        # billed metres carry their share of cost; the rest is still on the shelf or the loom
+        "margin_paise": invoiced - per(total * invoiced_m, passed) if invoiced and passed else None,
         "rules": COST_RULES,
     }
 
@@ -734,6 +816,7 @@ def order_costs(db: Session, month: str) -> list[dict]:
                 **{k: c[k] for k in ("yarn_paise", "labour_paise", "machine_paise")},
                 **{k: c[k] for k in ("total_paise", "invoiced_paise", "margin_paise")},
                 "cost_per_m_paise": c["cost_per_m_paise"],
+                "cost_provisional": c["cost_provisional"],
             }
         )
     return rows
@@ -898,13 +981,16 @@ def month_records(db: Session, month: str, kind: str) -> list[dict]:
             }
             for r, n in rows
         ]
-    if kind == "wages":
+    if kind in ("wages", "wages_paid"):
+        statuses = [WageRunStatus.paid]
+        if kind == "wages":
+            statuses.append(WageRunStatus.final)
         runs = db.scalars(
             select(WageRun)
             .where(
                 WageRun.period_end >= first,
                 WageRun.period_end <= last,
-                WageRun.status != WageRunStatus.draft,
+                WageRun.status.in_(statuses),
             )
             .order_by(WageRun.period_end)
         ).all()

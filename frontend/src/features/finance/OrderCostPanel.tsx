@@ -25,11 +25,11 @@ export function OrderCostPanel({ orderId }: { orderId: string }) {
         </span>
       </div>
       <dl className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
-        <Fig label="Total cost" value={inr(c.total_paise)} />
-        <Fig label="Per metre passed" value={c.cost_per_m_paise === null ? "—" : inr(c.cost_per_m_paise)} />
+        <Fig label={c.cost_to_date ? "Cost to date" : "Total cost"} value={inr(c.total_paise)} />
+        <Fig label={c.cost_provisional ? "Per metre passed (provisional)" : "Per metre passed"} value={c.cost_per_m_paise === null ? "—" : inr(c.cost_per_m_paise)} />
         <Fig label="Per roll passed" value={c.cost_per_roll_paise === null ? "—" : inr(c.cost_per_roll_paise)} />
         <Fig
-          label="Margin on invoiced"
+          label={c.margin_paise === null ? "Margin on invoiced" : `Margin on ${metres(c.invoiced_m)} invoiced`}
           value={c.margin_paise === null ? "Not invoiced yet" : inr(c.margin_paise)}
           tone={c.margin_paise === null ? undefined : c.margin_paise >= 0 ? "text-success" : "text-danger"}
         />

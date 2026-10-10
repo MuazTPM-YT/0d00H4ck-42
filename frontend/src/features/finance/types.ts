@@ -59,7 +59,10 @@ export type OrderCost = {
   reject_share_paise: number;
   cost_per_m_paise: number | null;
   cost_per_roll_paise: number | null;
+  cost_provisional: boolean; // QC or work not finished: per-metre cost can still move
+  cost_to_date: boolean; // a job is still running
   invoiced_paise: number;
+  invoiced_m: string;
   margin_paise: number | null;
   rules: string[];
 };
@@ -78,7 +81,7 @@ export type MonthView = {
   notes: string[];
 };
 
-export type MonthKind = "invoiced" | "received" | "yarn_bills" | "wages" | "expenses";
+export type MonthKind = "invoiced" | "received" | "yarn_bills" | "wages" | "wages_paid" | "expenses";
 export type MonthRecord = { on: string; ref: string; party: string; amount_paise: number; link: string | null };
 
 export type MachineProduction = {

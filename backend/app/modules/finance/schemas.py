@@ -1,4 +1,4 @@
-from datetime import date, datetime
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Annotated
 
@@ -11,6 +11,7 @@ from app.modules.finance.models import ExpenseCategory, InvoiceStatus, PaymentMo
 Amount = Annotated[int, Field(gt=0, le=10**12)]
 Ref = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=60)]
 Month = Annotated[str, StringConstraints(pattern=r"^\d{4}-(0[1-9]|1[0-2])$")]
+IST = timezone(timedelta(hours=5, minutes=30))
 
 
 class InvoiceOut(BaseModel):
@@ -98,8 +99,9 @@ class WageRunIn(BaseModel):
             raise FieldError("period_end", "End date must be on or after start date")
         if (self.period_end - self.period_start).days > 62:
             raise FieldError("period_end", "A wage run covers at most 62 days")
-        if self.period_end > date.today():
-            raise FieldError("period_end", "Cannot pay wages for days that have not happened")
+        # today is not over yet: attendance and loom logs can still change
+        if self.period_end >= datetime.now(IST).date():
+            raise FieldError("period_end", "A wage run must end yesterday or earlier")
         return self
 
 
@@ -174,7 +176,10 @@ class OrderCost(BaseModel):
     reject_share_paise: int
     cost_per_m_paise: int | None
     cost_per_roll_paise: int | None
+    cost_provisional: bool
+    cost_to_date: bool
     invoiced_paise: int
+    invoiced_m: Decimal
     margin_paise: int | None
     rules: list[str]
 
@@ -199,6 +204,7 @@ class OrderCostRow(BaseModel):
     invoiced_paise: int
     margin_paise: int | None
     cost_per_m_paise: int | None
+    cost_provisional: bool
 
 
 class MachineProduction(BaseModel):

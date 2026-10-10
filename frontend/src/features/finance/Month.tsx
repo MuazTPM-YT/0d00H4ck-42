@@ -25,7 +25,8 @@ const LABEL: Record<MonthKind, string> = {
   invoiced: "Invoices raised",
   received: "Payments received",
   yarn_bills: "Yarn bills",
-  wages: "Wage runs",
+  wages: "Wage runs (final + paid)",
+  wages_paid: "Wage runs paid",
   expenses: "Other expenses",
 };
 
@@ -111,7 +112,7 @@ function MonthCards({ v, onDrill }: { v: MonthView; onDrill: (k: MonthKind) => v
           <p className="mb-3 text-xs text-muted-foreground">Money that actually came in and went out</p>
           <Row label="Received from buyers" paise={v.received_paise} kind="received" />
           <Row label="Yarn bills" paise={v.yarn_bills_paise} kind="yarn_bills" sign="-" />
-          <Row label="Wages paid out" paise={v.wages_paid_paise} kind="wages" sign="-" />
+          <Row label="Wages paid out" paise={v.wages_paid_paise} kind="wages_paid" sign="-" />
           <Row label="Other expenses" paise={v.expenses_paise} kind="expenses" sign="-" />
           <Result label="Result" paise={v.result_cash_paise} />
         </section>
@@ -201,6 +202,7 @@ type OrderCostRow = {
   invoiced_paise: number;
   margin_paise: number | null;
   cost_per_m_paise: number | null;
+  cost_provisional: boolean;
 };
 
 // scene 7: what each order worked or billed this month actually cost, against what it earned
@@ -211,7 +213,7 @@ function OrderCosts({ month }: { month: string }) {
     <section className="mt-8 border border-border bg-card">
       <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-border px-4 py-3">
         <h2 className="text-base">Cost per order</h2>
-        <p className="text-[0.85rem] text-muted-foreground">Orders worked or billed this month. Cost and invoiced are to date: yarn at GRN cost, labour, machine hours.</p>
+        <p className="text-[0.85rem] text-muted-foreground">Lifetime cost of orders worked this month — not part of this month&apos;s result. Yarn at GRN cost, labour, machine hours; margin is on invoiced metres.</p>
       </div>
       {rows.isPending ? (
         <Skeleton className="m-4 h-32" />
@@ -251,7 +253,10 @@ function OrderCosts({ month }: { month: string }) {
                 <TableCell className="tabular text-right">{inr0(r.labour_paise)}</TableCell>
                 <TableCell className="tabular text-right">{inr0(r.machine_paise)}</TableCell>
                 <TableCell className="tabular text-right font-semibold">{inr0(r.total_paise)}</TableCell>
-                <TableCell className="tabular text-right">{inr0(r.cost_per_m_paise)}</TableCell>
+                <TableCell className="tabular text-right">
+                  {inr0(r.cost_per_m_paise)}
+                  {r.cost_provisional && r.cost_per_m_paise !== null && <span className="block text-[0.78rem] text-muted-foreground">provisional</span>}
+                </TableCell>
                 <TableCell className="tabular text-right">{r.invoiced_paise ? inr0(r.invoiced_paise) : "—"}</TableCell>
                 <TableCell className={cn("num text-right font-semibold", r.margin_paise !== null && (r.margin_paise >= 0 ? "text-success" : "text-danger"))}>{inr0(r.margin_paise)}</TableCell>
               </TableRow>
