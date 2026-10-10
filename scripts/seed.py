@@ -58,7 +58,7 @@ from app.modules.masters.models import (
     Worker,
     YarnItem,
 )
-from app.modules.masters.schemas import BuyerIn, MachineIn, SupplierIn, WorkerIn, YarnItemIn
+from app.modules.masters.schemas import BuyerIn, SupplierIn, WorkerIn, YarnItemIn
 from app.modules.orders.models import Order, OrderStatus
 from app.modules.production.models import (
     MachineEvent,
@@ -350,9 +350,10 @@ def _pan(n: int, kind: str) -> str:
 def seed_bulk_masters(db: Session, rng: random.Random) -> None:
     for i in range(1, 41):
         town = TOWNS[i % len(TOWNS)]
+        kind = ("Spinners", "Yarns", "Mills", "Yarn Co")[i % 4]
         row = SupplierIn(
             code=f"SUP{i:03d}",
-            name=f"{LAST[i % len(LAST)]} {('Spinners', 'Yarns', 'Mills', 'Textiles')[i % 4]}",
+            name=f"{LAST[i % len(LAST)]} {kind}, {town}",
             gstin=f"33{_pan(i, 'C')}1Z{i % 10}",
             phone=f"+91 9{rng.randint(100000000, 999999999)}",
             city=town,
@@ -364,7 +365,7 @@ def seed_bulk_masters(db: Session, rng: random.Random) -> None:
         kind = ["Garments", "Apparels", "Exports", "Fashions", "Uniforms", "Textiles"][i % 6]
         row = BuyerIn(
             code=f"BUY{i:03d}",
-            name=f"{last} {kind} {i}",
+            name=f"{last} {kind}, {CITIES[c]}",
             gstin=f"{STATES[c]}{_pan(i, 'F')}1Z{i % 10}",
             contact_name=f"{first} {last}",
             phone=f"+91 9{rng.randint(100000000, 999999999)}",
@@ -379,32 +380,9 @@ def seed_bulk_masters(db: Session, rng: random.Random) -> None:
     ]:
         for count in counts:
             for colour in ["Raw White", "Navy", "Black", "Maroon", "Bottle Green", "Grey"]:
-                row = YarnItemIn(
-                    fibre=fibre,
-                    count=count,
-                    colour=colour,
-                    reorder_level_kg=Decimal(rng.choice([0, 100, 250, 500])),
-                )
-                key = {"fibre": fibre, "count": count, "colour": colour}
-                get_or_create(db, YarnItem, key, reorder_level_kg=row.reorder_level_kg)
-    extra = (
-        [(f"SPN-0{i}", f"Ring frame {i}", Stage.spinning, 45000, 25, Unit.kg) for i in (3, 4)]
-        + [
-            (f"LM-{i:02d}", f"Air-jet loom {i}", Stage.weaving, 30000, 18, Unit.m)
-            for i in range(7, 21)
-        ]
-        + [(f"DYE-0{i}", f"Jigger dyeing {i}", Stage.dyeing, 90000, 120, Unit.m) for i in (3, 4)]
-    )
-    for code, name, stage, cost, rated, unit in extra:
-        row = MachineIn(
-            code=code,
-            name=name,
-            type=stage,
-            hourly_cost_paise=cost,
-            rated_output_per_hour=Decimal(rated),
-            output_unit=unit,
-        )
-        get_or_create(db, Machine, {"code": code}, **row.model_dump(exclude={"code"}))
+                # catalogue yarn: no reorder level, so no stock alarm until the mill uses it
+                YarnItemIn(fibre=fibre, count=count, colour=colour)
+                get_or_create(db, YarnItem, {"fibre": fibre, "count": count, "colour": colour})
     for i in range(25, 225):
         piece = i % 3 == 0  # about a third are weavers paid per metre
         row = WorkerIn(

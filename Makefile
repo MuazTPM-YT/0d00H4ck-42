@@ -26,7 +26,7 @@ seed: .env
 	cd backend && PYTHONPATH=. uv run python ../scripts/seed.py
 
 # DESTRUCTIVE: wipes the dev DB. Masters at mill scale, then 60 simulated days through the real
-# services: hundreds of buyers and workers, ~90 orders, ~2000 rolls and QC checks (~3 min)
+# services on the same 10 machines: 155 buyers, 224 workers, ~2000 rolls and QC checks (~2 min)
 seed-big: .env
 	$(MAKE) db-reset migrate
 	cd backend && PYTHONPATH=. uv run python ../scripts/seed.py --bulk
