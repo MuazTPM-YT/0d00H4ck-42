@@ -3,10 +3,9 @@ from decimal import Decimal
 from types import SimpleNamespace
 
 import pytest
-from sqlalchemy import select, text
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.core.db import Base
 from app.core.errors import Conflict
 from app.modules.auth.models import Role, User
 from app.modules.dispatch import service
@@ -256,15 +255,7 @@ def test_accounts_reads_register_but_cannot_load(client_as, mill, dispatch_for):
     assert scan(acc, d, roll).status_code == 403
 
 
-# --- concurrency: real commits on two connections, cleaned up after
-
-
-@pytest.fixture
-def committed(engine):
-    yield engine
-    tables = ", ".join(f'"{t.name}"' for t in Base.metadata.sorted_tables)
-    with engine.begin() as conn:
-        conn.execute(text(f"TRUNCATE {tables} RESTART IDENTITY CASCADE"))
+# --- concurrency: real commits on two connections (committed fixture in conftest)
 
 
 def test_two_scanners_cannot_load_one_roll_twice(committed, password_hash):

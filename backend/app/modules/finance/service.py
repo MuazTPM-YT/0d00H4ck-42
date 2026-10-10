@@ -26,6 +26,7 @@ from app.modules.finance.models import (
     WageRunStatus,
 )
 from app.modules.inventory.models import (
+    BatchStatus,
     ItemKind,
     MoveReason,
     Receipt,
@@ -59,6 +60,8 @@ WAGE_RUN_TRANSITIONS = {
 # GST on cotton fabric (HSN 5208); moves to Settings when core takes the schema request
 GST_PCT = Decimal(5)
 DUE_DAYS = 30
+# transaction lock key: wage runs are created one at a time, so two overlapping runs cannot land
+WAGE_RUN_LOCK = 4207
 IST = timezone(timedelta(hours=5, minutes=30))
 ZERO = Decimal(0)
 DAY_FACTOR = {AttendanceStatus.present: Decimal(1), AttendanceStatus.half_day: Decimal("0.5")}
@@ -406,6 +409,7 @@ def wage_run_detail(db: Session, run_id: int) -> dict:
 
 
 def create_wage_run(db: Session, user: User, start: date, end: date) -> dict:
+    db.execute(select(func.pg_advisory_xact_lock(WAGE_RUN_LOCK)))
     clash = db.scalar(
         select(WageRun).where(WageRun.period_start <= end, WageRun.period_end >= start)
     )
@@ -775,6 +779,29 @@ def machine_production(db: Session, month: str) -> list[dict]:
     ]
 
 
+# receipts confirmed in the window with their bill net of yarn rejected back to the supplier
+def _yarn_bills(db: Session, a: datetime, b: datetime) -> list[tuple[Receipt, str, int]]:
+    rows = db.execute(
+        select(Receipt, Supplier.name)
+        .join(Supplier, Supplier.id == Receipt.supplier_id)
+        .where(
+            Receipt.status == ReceiptStatus.confirmed,
+            Receipt.confirmed_at >= a,
+            Receipt.confirmed_at < b,
+        )
+        .order_by(Receipt.confirmed_at)
+    ).all()
+    sent_back: dict[int, int] = defaultdict(int)
+    for receipt_id, rate, kg in db.execute(
+        select(YarnBatch.receipt_id, YarnBatch.unit_cost_paise_per_kg, YarnBatch.received_kg).where(
+            YarnBatch.receipt_id.in_([r.id for r, _ in rows] or [0]),
+            YarnBatch.status == BatchStatus.rejected,
+        )
+    ):
+        sent_back[receipt_id] += line_amount_paise(rate, kg)
+    return [(r, name, (r.bill_amount_paise or 0) - sent_back[r.id]) for r, name in rows]
+
+
 def month_view(db: Session, month: str) -> dict:
     first, last = _month_dates(month)
     a, b = _ist_bounds(first, last)
@@ -789,13 +816,7 @@ def month_view(db: Session, month: str) -> dict:
             Payment.received_at >= a, Payment.received_at < b
         )
     )
-    bills = db.scalar(
-        select(func.coalesce(func.sum(Receipt.bill_amount_paise), 0)).where(
-            Receipt.status == ReceiptStatus.confirmed,
-            Receipt.confirmed_at >= a,
-            Receipt.confirmed_at < b,
-        )
-    )
+    bills = sum(net for _, _, net in _yarn_bills(db, a, b))
 
     def wages(statuses: list[WageRunStatus]) -> int:
         return db.scalar(
@@ -831,8 +852,8 @@ def month_view(db: Session, month: str) -> dict:
             "runs ending this month (final or paid) and expenses.",
             "Cash basis: money received this month (includes GST collected), minus yarn bills, "
             "wage runs marked paid and expenses.",
-            "Yarn bills count when the receipt is confirmed; supplier payments are not "
-            "tracked yet.",
+            "Yarn bills count when the receipt is confirmed, less yarn rejected back to the "
+            "supplier; supplier payments are not tracked yet.",
             "Wage runs are dated by their period end.",
         ],
     }
@@ -878,25 +899,16 @@ def month_records(db: Session, month: str, kind: str) -> list[dict]:
             for p, i, n in rows
         ]
     if kind == "yarn_bills":
-        rows = db.execute(
-            select(Receipt, Supplier.name)
-            .join(Supplier, Supplier.id == Receipt.supplier_id)
-            .where(
-                Receipt.status == ReceiptStatus.confirmed,
-                Receipt.confirmed_at >= a,
-                Receipt.confirmed_at < b,
-            )
-            .order_by(Receipt.confirmed_at)
-        ).all()
         return [
             {
                 "on": _ist_date(r.confirmed_at),
-                "ref": f"{r.code} bill {r.bill_no or '-'}",
+                "ref": f"{r.code} bill {r.bill_no or '-'}"
+                + ("" if net == r.bill_amount_paise else " (less yarn sent back)"),
                 "party": n,
-                "amount_paise": r.bill_amount_paise,
+                "amount_paise": net,
                 "link": None,
             }
-            for r, n in rows
+            for r, n, net in _yarn_bills(db, a, b)
         ]
     if kind == "wages":
         runs = db.scalars(
