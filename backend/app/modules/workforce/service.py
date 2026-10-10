@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from app.core import audit, events
 from app.core.errors import Conflict, NotFound
 from app.core.pagination import Page, paginate
+from app.modules.finance import closing
 from app.modules.finance.models import WageRun, WageRunStatus
 from app.modules.masters.models import Machine, Shift, Worker
 from app.modules.workforce.models import (
@@ -97,6 +98,7 @@ def list_crew(db: Session, on: date, shift_id: int) -> list[dict]:
 
 # wages for this day are final or paid: changing who worked would no longer match the payout
 def _payroll_open(db: Session, day: date) -> None:
+    closing.ensure_open(db, day)
     run = db.scalar(
         select(WageRun).where(
             WageRun.period_start <= day,

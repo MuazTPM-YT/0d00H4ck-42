@@ -232,3 +232,11 @@ class MonthRecord(BaseModel):
     party: str
     amount_paise: int
     link: str | None
+
+
+class MonthCloseIn(BaseModel):
+    month: Month
+
+
+class ReopenIn(BaseModel):
+    reason: Note
