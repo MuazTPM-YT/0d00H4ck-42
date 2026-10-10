@@ -22,12 +22,16 @@ class Risk(StrEnum):
     late = "late"
 
 
-class Metres(BaseModel):
+# buyer link: good fabric only, rejects stay inside the mill
+class BuyerMetres(BaseModel):
     produced: Decimal
     in_qc: Decimal
     passed: Decimal
-    rejected: Decimal
     shipped: Decimal
+
+
+class Metres(BuyerMetres):
+    rejected: Decimal
 
 
 class TimelineEvent(BaseModel):
@@ -45,7 +49,7 @@ class TrackOut(BaseModel):
     stage: BuyerStage
     production_stage: str | None
     progress_pct: int | None
-    metres: Metres
+    metres: BuyerMetres
     projected_finish: date | None
     risk: Risk | None
     timeline: list[TimelineEvent]
@@ -81,6 +85,7 @@ class InvoiceRef(BaseModel):
 
 # office view of one order: the buyer card plus the records behind it
 class OrderView(TrackOut):
+    metres: Metres
     order_id: int
     order_status: str
     buyer_name: str

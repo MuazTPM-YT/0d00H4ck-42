@@ -23,7 +23,8 @@ export type Track = {
   stage: Stage;
   production_stage: string | null;
   progress_pct: number | null;
-  metres: { produced: string; in_qc: string; passed: string; rejected: string; shipped: string };
+  // rejected comes only on the staff view; buyer link never gets it
+  metres: { produced: string; in_qc: string; passed: string; rejected?: string; shipped: string };
   projected_finish: string | null;
   risk: "on_track" | "at_risk" | "late" | null;
   timeline: { at: string; title: string }[];
@@ -96,13 +97,17 @@ export function StageCard({ t }: { t: Track }) {
         </ol>
       )}
 
-      <dl className="mt-6 grid grid-cols-2 gap-3 text-sm sm:grid-cols-5">
-        {(["produced", "in_qc", "passed", "rejected", "shipped"] as const).map((k) => (
-          <div key={k} className="rounded-md bg-muted px-3 py-2">
-            <dt className="text-xs text-muted-foreground">{k === "in_qc" ? "In QC" : k === "passed" ? "Passed, on shelf" : humanize(k)}</dt>
-            <dd className="font-semibold tabular">{metres(t.metres[k])}</dd>
-          </div>
-        ))}
+      <dl className={cn("mt-6 grid grid-cols-2 gap-3 text-sm", t.metres.rejected === undefined ? "sm:grid-cols-4" : "sm:grid-cols-5")}>
+        {(["produced", "in_qc", "passed", "rejected", "shipped"] as const).map((k) => {
+          const value = t.metres[k];
+          if (value === undefined) return null;
+          return (
+            <div key={k} className="rounded-md bg-muted px-3 py-2">
+              <dt className="text-xs text-muted-foreground">{k === "in_qc" ? "In QC" : k === "passed" ? "Passed, on shelf" : humanize(k)}</dt>
+              <dd className="font-semibold tabular">{metres(value)}</dd>
+            </div>
+          );
+        })}
       </dl>
     </section>
   );

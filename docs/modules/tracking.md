@@ -16,7 +16,8 @@ Owner: Ashil. Code: `backend/app/modules/tracking/`, `frontend/src/features/trac
 - **`/orders/[id]`:** the stage card, timeline, rolls, dispatches and invoices. The owner also
   sees the cost and margin panel (finance).
 - **`/track/[token]`:** a public, read-only page. It shows the same card and a reduced timeline,
-  and refreshes every minute.
+  and refreshes every minute. The buyer does not see rejected metres. Produced counts good
+  fabric only, so the gap between the numbers does not reveal the rejects either.
 
 ## Data flow
 
@@ -35,6 +36,7 @@ Nothing is stored. Every request recomputes the stage from the rows.
 |---|---|
 | The stage is derived, never typed | There is no stage column. `derive_stage()` is a pure function of order status, work orders and roll metres. |
 | The buyer never sees money or internal IDs | The public route uses `response_model=TrackOut`, which has no rate, cost, buyer or ID fields. FastAPI drops anything else. Test: `test_public_page_shows_stage_and_never_money`. |
+| The buyer never sees rejects | `TrackOut.metres` is `BuyerMetres`, which has no `rejected` field. `public_view` reports produced minus rejected. Only `OrderView` (staff) carries `rejected`. Test: `test_rejected_metres_only_for_staff`. |
 | The token is unguessable | `secrets.token_urlsafe(24)`: 192 random bits. |
 | The token is revocable | `POST /api/track/orders/{id}/rotate-token` (sales; owner passes) replaces it. The old link returns 404 at once. The change is audited. |
 | Only the office sees order internals | `/api/track/orders/{id}` requires sales, accounts or dispatch (owner passes). |
