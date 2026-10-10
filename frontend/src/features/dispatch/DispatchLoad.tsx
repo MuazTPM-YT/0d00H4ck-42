@@ -3,6 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, Check, CheckCircle2, Printer, ScanLine, Truck, X } from "lucide-react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { type ReactNode, type SubmitEvent, useRef, useState } from "react";
 
 import { EmptyState } from "@/components/layout/EmptyState";
@@ -71,6 +72,7 @@ export function DispatchLoad({ id }: { id: string }) {
             {clerk && <VehicleForm d={d} id={id} onSaved={refresh} />}
             <ShadePanel d={d} id={id} canOverride={role === "owner" || role === "supervisor"} onSaved={refresh} />
             {clerk && <ConfirmButton d={d} id={id} onDone={refresh} />}
+            {clerk && <CancelTruck d={d} id={id} />}
           </div>
         </div>
       ) : (
@@ -296,6 +298,42 @@ function ConfirmButton({ d, id, onDone }: { d: DispatchDetail; id: string; onDon
           <div className="flex justify-end gap-2">
             <Button variant="outline" size="lg" onClick={() => setOpen(false)}>Back</Button>
             <Button size="lg" onClick={() => confirm.mutate()} disabled={confirm.isPending}>{confirm.isPending ? "Confirming…" : "Confirm dispatch"}</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+}
+
+// truck not going after all: rolls go back on the shelf, the draft disappears
+function CancelTruck({ d, id }: { d: DispatchDetail; id: string }) {
+  const qc = useQueryClient();
+  const router = useRouter();
+  const [open, setOpen] = useState(false);
+  const cancel = useMutation({
+    mutationFn: () => api(`/dispatch/dispatches/${id}`, { method: "DELETE" }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["dispatch"] });
+      router.push("/dispatch");
+    },
+  });
+  return (
+    <>
+      <Button variant="outline" size="lg" className="text-danger" onClick={() => { cancel.reset(); setOpen(true); }}>
+        <X /> Cancel truck
+      </Button>
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Cancel {d.code}?</DialogTitle>
+            <DialogDescription>
+              {d.loaded.length ? `${d.loaded.length} rolls (${metres(d.loaded_m)}) go back on the shelf.` : "Nothing is loaded."} The dispatch is removed; no invoice is made.
+            </DialogDescription>
+          </DialogHeader>
+          {cancel.isError && <p role="alert" className="text-sm text-danger">{cancel.error.message}</p>}
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" size="lg" onClick={() => setOpen(false)}>Keep truck</Button>
+            <Button variant="destructive" size="lg" onClick={() => cancel.mutate()} disabled={cancel.isPending}>{cancel.isPending ? "Cancelling…" : "Cancel truck"}</Button>
           </div>
         </DialogContent>
       </Dialog>
