@@ -61,7 +61,8 @@ def test_buyer_without_email_is_skipped_and_said_so(client_as, client, db, draft
     ("error", "says"),
     [
         (smtplib.SMTPAuthenticationError(535, b"Username and Password not accepted"), "app pass"),
-        (TimeoutError("timed out"), "internet"),
+        (TimeoutError("timed out"), "did not answer in time"),
+        (ConnectionRefusedError("refused"), "Cannot reach"),
     ],
 )
 def test_mail_failure_never_undoes_the_confirm(
