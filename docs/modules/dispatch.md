@@ -19,7 +19,12 @@ screens `/stock/finished`, `/dispatch`, `/dispatch/[id]`. Requirements R16 to R1
 - **Confirm.** In one transaction:
   - every roll goes `passed` → `dispatched`;
   - a stock move FG → DISP is written for each roll;
-  - the invoice is created from exactly the loaded rolls.
+  - the invoice is created from exactly the loaded rolls;
+  - the order row is locked, and if shipped metres now reach the ordered metres the order
+    moves `confirmed → closed`.
+
+  A cancelled or closed order cannot load or confirm a truck, even one drafted earlier
+  (409 `order_not_open`).
 
   The screen then shows a printable delivery challan.
 - **Gone-out register.** Every dispatch, filterable by status, vehicle and date.

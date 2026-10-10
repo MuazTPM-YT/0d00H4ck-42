@@ -112,6 +112,7 @@ caller. Status: **done** = implemented and tested, **stub** = raises `NotImpleme
 | `production.create_work_orders(db, order_id, user_id)` | Muaz | done | `list[WorkOrder]`, one `waiting` per route stage; second call returns the same set |
 | `production.machine_status(db, machine_id)` | Muaz | done | `MachineStatus`, latest event or `off` |
 | `production.order_progress(db, order_id)` | Muaz | done | `{stage: {planned, produced, unit}}` |
+| `production.unqueue_order(db, order_id, user_id)` | Muaz | done | `int` queued jobs of a cancelled order sent back to `waiting`; caller has checked nothing runs |
 | `production.create_rework_work_order(db, roll_id, stage, user_id)` | Muaz | done | `WorkOrder` with `roll_id` set; roll must be `rework`; second call returns the open one. Processing the roll on that job sends it back to `awaiting_qc` |
 | `quality.roll_trace(db, roll_id)` | Razan | done | order, loom, shift, weaver, yarn batches + suppliers, QC attempts, events |
 | `tracking.order_stage(db, order_id)` | Ashil | done | derived buyer stage + metres per bucket |
@@ -142,9 +143,9 @@ Pure helpers in `app.core.units`: `qty`, `rupees_to_paise`, `line_amount_paise`,
 | `POST /api/auth/login`, `POST /api/auth/logout` | public |
 | `GET /api/auth/me` | any logged in |
 | `GET /api/health` | public |
-| `GET /api/stream?topics=...` | any logged in |
+| `GET /api/stream?topics=...` | any logged in (login checked on a session that closes before streaming, so an open tab holds no DB connection) |
 | `GET /api/masters/{suppliers,buyers,yarn-items,fabric-types,machines,workers,shifts}[/{id}]` | any logged in |
-| `POST`, `PUT` on the same paths | owner |
+| `POST`, `PUT` on the same paths | owner (409 `in_use`: a machine with open jobs keeps its type and stays active; a fabric with confirmed orders keeps route, recipe and spec) |
 | `GET /api/masters/locations` | any logged in |
 | `GET /api/inventory/{stock,stock/warnings,batches,batches/{id},expected-deliveries,receipts,receipts/{id},qr.svg}` | any logged in |
 | `POST /api/inventory/batches/{id}/{approve,quarantine,reject,identify}` | store |

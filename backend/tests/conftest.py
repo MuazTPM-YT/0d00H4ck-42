@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 
 from alembic import command
 from app.core.config import get_settings
-from app.core.db import get_db
+from app.core.db import Base, get_db
 from app.core.enums import Stage
 from app.core.security import create_token, hash_password
 from app.main import app
@@ -131,3 +131,12 @@ def dyed_fabric(db: Session) -> FabricType:
     db.add(row)
     db.commit()
     return row
+
+
+# concurrency tests: real commits on separate connections, every table emptied after
+@pytest.fixture
+def committed(engine: Engine) -> Iterator[Engine]:
+    yield engine
+    tables = ", ".join(f'"{t.name}"' for t in Base.metadata.sorted_tables)
+    with engine.begin() as conn:
+        conn.execute(text(f"TRUNCATE {tables} RESTART IDENTITY CASCADE"))

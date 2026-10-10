@@ -3,10 +3,9 @@ from decimal import Decimal
 from types import SimpleNamespace
 
 import pytest
-from sqlalchemy import select, text
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.core.db import Base
 from app.core.errors import Conflict
 from app.modules.auth.models import Role, User
 from app.modules.dispatch import service
@@ -256,15 +255,7 @@ def test_accounts_reads_register_but_cannot_load(client_as, mill, dispatch_for):
     assert scan(acc, d, roll).status_code == 403
 
 
-# --- concurrency: real commits on two connections, cleaned up after
-
-
-@pytest.fixture
-def committed(engine):
-    yield engine
-    tables = ", ".join(f'"{t.name}"' for t in Base.metadata.sorted_tables)
-    with engine.begin() as conn:
-        conn.execute(text(f"TRUNCATE {tables} RESTART IDENTITY CASCADE"))
+# --- concurrency: real commits on two connections (committed fixture in conftest)
 
 
 def test_two_scanners_cannot_load_one_roll_twice(committed, password_hash):
@@ -304,3 +295,38 @@ def test_two_scanners_cannot_load_one_roll_twice(committed, password_hash):
     with Session(committed) as s:
         rid = s.scalar(select(Roll.id).where(Roll.code == code))
         assert len(s.scalars(select(DispatchRoll).where(DispatchRoll.roll_id == rid)).all()) == 1
+
+
+# the truck that completes the order closes it, so a shipped order stops showing as open or late
+def test_confirm_that_ships_the_whole_order_closes_it(client_as, db, mill, dispatch_for):
+    o = mill.order(150)
+    wo = mill.work_order(o)
+    first, second = mill.roll(wo, 100), mill.roll(wo, 60)
+    clerk = client_as(Role.dispatch)
+    d1 = dispatch_for(o)
+    scan(clerk, d1, first)
+    assert clerk.post(f"/api/dispatch/dispatches/{d1.id}/confirm").status_code == 200
+    db.refresh(o)
+    assert o.status == OrderStatus.confirmed
+    d2 = dispatch_for(o)
+    scan(clerk, d2, second)
+    assert clerk.post(f"/api/dispatch/dispatches/{d2.id}/confirm").status_code == 200
+    db.refresh(o)
+    assert o.status == OrderStatus.closed
+
+
+# a truck drafted before the order was cancelled can neither load nor leave with an invoice
+def test_cancelled_order_cannot_load_or_ship(client_as, db, mill, dispatch_for):
+    o = mill.order(200)
+    wo = mill.work_order(o)
+    loaded, spare = mill.roll(wo, 100), mill.roll(wo, 100)
+    d = dispatch_for(o)
+    clerk = client_as(Role.dispatch)
+    scan(clerk, d, loaded)
+    o.status = OrderStatus.cancelled
+    db.commit()
+    res = scan(clerk, d, spare)
+    assert res.status_code == 409 and res.json()["error"]["code"] == "order_not_open"
+    res = clerk.post(f"/api/dispatch/dispatches/{d.id}/confirm")
+    assert res.status_code == 409 and res.json()["error"]["code"] == "order_not_open"
+    assert db.scalar(select(Invoice).where(Invoice.dispatch_id == d.id)) is None

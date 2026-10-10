@@ -18,7 +18,9 @@ can embed `OrderYarnPanel`. Covers R4: "is there enough yarn to start this order
 4. **To-buy list.** For each confirmed order line: short, free stock that can cover it now, yarn
    already on order, and what is left to buy. "Order from supplier" opens a prefilled expected
    delivery tagged to the order. When that yarn is approved, it is reserved for the order.
-5. **Cancel** releases the order's reservations (with a reason).
+5. **Cancel** releases the order's reservations (with a reason). It is refused while one of
+   the order's jobs is running or paused: finish it on the floor first. Queued jobs go back
+   to waiting.
 
 ## Requirement formula
 
@@ -36,6 +38,8 @@ is applied at dyeing. Worked example: 1000 m × 1.5 m × 120 g/m² / 1000 = 180 
 | Valid input | Pydantic: metres > 0 with at most 3 dp, rate > 0, deadline after today and within 2 years, colour not blank. Active buyer and fabric checked in the service. DB CHECKs as the last guard |
 | Buyer-facing stage is not stored | `orders.status` is commercial only; the stage comes from tracking |
 | Mixed lots recorded | Derived from reservations (more than one batch on a line). An audit row `mixed_lots` is written when it happens |
+| Cancel never strands a loom | order row lock; refused while a job is running or paused (409 `job_running`); queued jobs go back to waiting (`production.unqueue_order`) |
+| A fully shipped order closes itself | dispatch confirm moves `confirmed → closed` when shipped metres reach the ordered metres |
 
 ## Five questions an evaluator is likely to ask
 

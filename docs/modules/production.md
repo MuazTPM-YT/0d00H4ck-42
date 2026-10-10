@@ -77,6 +77,7 @@ Shared services (never commit): `create_work_orders`, `machine_status`, `order_p
 | Machine feed retries post once | `idempotency_key` + `run_once` |
 | Output time from a buffered counter is recent | `OutputIn.at` not in the future, not older than 24 h |
 | Quantities positive, 3 decimals | `PositiveQty`, DB CHECK `qty > 0`, `length_positive` |
+| Jobs of a cancelled or closed order stop: no start, output, roll cut or roll process | `_require_open_order`, 409 `order_not_open` |
 
 ## Roll lineage rule
 

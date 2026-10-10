@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from app.core import audit, events
 from app.core.errors import Conflict, NotFound
 from app.core.pagination import Page, paginate
+from app.modules.finance.models import WageRun, WageRunStatus
 from app.modules.masters.models import Machine, Shift, Worker
 from app.modules.workforce.models import (
     Attendance,
@@ -94,6 +95,24 @@ def list_crew(db: Session, on: date, shift_id: int) -> list[dict]:
     ]
 
 
+# wages for this day are final or paid: changing who worked would no longer match the payout
+def _payroll_open(db: Session, day: date) -> None:
+    run = db.scalar(
+        select(WageRun).where(
+            WageRun.period_start <= day,
+            WageRun.period_end >= day,
+            WageRun.status.in_([WageRunStatus.final, WageRunStatus.paid]),
+        )
+    )
+    if run:
+        raise Conflict(
+            f"Wages for {run.period_start} to {run.period_end} are {run.status}; "
+            "this day can no longer change",
+            field="date",
+            code="wages_final",
+        )
+
+
 def _active(db: Session, model, row_id: int, field: str):
     row = db.get(model, row_id)
     if not row or not getattr(row, "active", True):
@@ -106,6 +125,7 @@ def assign_crew(
     db: Session, body: CrewIn, user_id: int | None, at: datetime | None = None
 ) -> CrewAssignment:
     at = at or datetime.now(UTC)
+    _payroll_open(db, body.date)
     _active(db, Shift, body.shift_id, "shift_id")
     _active(db, Worker, body.worker_id, "worker_id")
     _active(db, Machine, body.machine_id, "machine_id")
@@ -184,6 +204,7 @@ def end_crew(
 
 # manual entry for staff off the machines, and corrections; reason goes in the audit row
 def set_attendance(db: Session, body: AttendanceIn, user_id: int) -> Attendance:
+    _payroll_open(db, body.date)
     _active(db, Shift, body.shift_id, "shift_id")
     _active(db, Worker, body.worker_id, "worker_id")
     row = db.scalar(
