@@ -7,7 +7,7 @@ import { FormField } from "@/components/layout/FormField";
 import { Button } from "@/components/ui/button";
 import { DialogFooter } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { api, ApiError, type Paged } from "@/lib/api";
+import { api, apiAll, ApiError } from "@/lib/api";
 import { paiseToRupees, rupeesToPaise } from "@/lib/format";
 
 import { selectClass, useMaster, type NamedOption, type YarnItemOption } from "./ui";
@@ -32,7 +32,7 @@ export function DeliveryForm({ prefill = {}, onDone }: { prefill?: DeliveryPrefi
   // yarn can be bought for one order: approved lots are then reserved for it
   const orders = useQuery({
     queryKey: ["orders", "options", "confirmed"],
-    queryFn: () => api<Paged<{ id: number; code: string; buyer: { name: string } | null; colour: string }>>("/orders?status=confirmed&limit=200"),
+    queryFn: () => apiAll<{ id: number; code: string; buyer: { name: string } | null; colour: string }>("/orders?status=confirmed"),
     enabled: !prefill.order_id,
   });
   const [v, setV] = useState({

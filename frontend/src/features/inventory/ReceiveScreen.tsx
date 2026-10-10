@@ -12,7 +12,7 @@ import { StatusBadge } from "@/components/layout/StatusBadge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { api, ApiError, type Paged } from "@/lib/api";
+import { api, apiAll, ApiError, type Paged } from "@/lib/api";
 import { date, humanize, inr, kg, paiseToRupees, rupeesToPaise } from "@/lib/format";
 import { useSSE } from "@/lib/useSSE";
 import { cn } from "@/lib/utils";
@@ -51,7 +51,7 @@ export function ReceiveScreen() {
 
   const deliveries = useQuery({
     queryKey: ["stock", "deliveries", "open"],
-    queryFn: () => api<Paged<Delivery>>("/inventory/expected-deliveries?open_only=true&limit=100"),
+    queryFn: () => apiAll<Delivery>("/inventory/expected-deliveries?open_only=true"),
   });
   const drafts = useQuery({
     queryKey: ["stock", "receipts", "draft"],

@@ -5,7 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { StatusBadge } from "@/components/layout/StatusBadge";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
-import { api, type Paged } from "@/lib/api";
+import { apiAll } from "@/lib/api";
 import { date, kg } from "@/lib/format";
 
 import type { Batch, StockRow } from "./types";
@@ -15,7 +15,7 @@ import { ErrorText } from "./ui";
 export function BatchesForItem({ item, onClose, onOpenBatch }: { item: StockRow | null; onClose: () => void; onOpenBatch: (id: number) => void }) {
   const batches = useQuery({
     queryKey: ["stock", "batches", { yarn_item_id: item?.yarn_item_id }],
-    queryFn: () => api<Paged<Batch>>(`/inventory/batches?yarn_item_id=${item!.yarn_item_id}&limit=100`),
+    queryFn: () => apiAll<Batch>(`/inventory/batches?yarn_item_id=${item!.yarn_item_id}`),
     enabled: item !== null,
   });
 
