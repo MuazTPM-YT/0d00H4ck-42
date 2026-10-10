@@ -1,5 +1,5 @@
-import { Placeholder } from "@/components/layout/Placeholder";
+import { StockScreen } from "@/features/inventory/StockScreen";
 
 export default function Page() {
-  return <Placeholder />;
+  return <StockScreen />;
 }

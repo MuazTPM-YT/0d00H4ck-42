@@ -1,5 +1,5 @@
-import { Placeholder } from "@/components/layout/Placeholder";
+import { ReceiveScreen } from "@/features/inventory/ReceiveScreen";
 
 export default function Page() {
-  return <Placeholder />;
+  return <ReceiveScreen />;
 }

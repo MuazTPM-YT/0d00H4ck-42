@@ -36,7 +36,7 @@ Rules every module follows. If your change breaks one, talk to the module owner 
 - **Live updates.** After commit, `events.publish(topic, {"type": ..., "id": ...})`. Topics:
   `stock`, `machines`, `orders`, `quality`, `dispatch`, `insights`. Frontend query keys start
   with the topic or module name, so `useSSE()` can invalidate them.
-- **Commits.** Odoo format, `[TAG] module: short message`, tags `[ADD] [FIX] [IMP] [REF] [REM]`.
+- **Commits.** Odoo format, `[TAG] module: short message`, tags `[ADD] [FIX] [IMP] [REF] [REM] [MRG]` (`[MRG]` = merge commit).
   Branch per feature, PR into `main`. Full rules in `CLAUDE.md`.
 
 ## Invariants
@@ -98,12 +98,17 @@ caller. Status: **done** = implemented and tested, **stub** = raises `NotImpleme
 
 | Function | Owner | Status | Returns |
 |---|---|---|---|
-| `inventory.stock_on_hand(db, yarn_item_id)` | Ammaar | stub | `Decimal` approved kg in store locations |
-| `inventory.free_stock(db, yarn_item_id)` | Ammaar | stub | `Decimal` stock on hand − active reservations |
-| `inventory.reserve(db, order_id, user_id)` | Ammaar | stub | `list[Reservation]`; locks batch rows, prefers one supplier lot per component |
-| `inventory.issue_to_work_order(db, work_order_id, yarn_batch_id, kg, user_id, source=manual, idempotency_key=None, reason=None)` | Ammaar | stub | `StockMove` store → WIP; over-issue needs `reason`. Must write `reason=issue`, `ref_type="work_order"`, `ref_id=work_order_id`: roll lineage and finish-consume read exactly that |
+| `inventory.stock_on_hand(db, yarn_item_id)` | Ammaar | done | `Decimal` approved kg in store locations |
+| `inventory.free_stock(db, yarn_item_id)` | Ammaar | done | `Decimal` stock on hand − active reservations |
+| `inventory.reserve(db, order_id, user_id)` | Ammaar | done | `list[Reservation]` (new ones); locks order + batch rows, best-fit single lot else fewest lots, tagged yarn first |
+| `inventory.issue_to_work_order(db, work_order_id, yarn_batch_id, kg, user_id, source=manual, idempotency_key=None, reason=None)` | Ammaar | done | `StockMove` store → WIP; over-issue needs `reason`. Writes `reason=issue`, `ref_type="work_order"`, `ref_id=work_order_id`: roll lineage and finish-consume read exactly that |
+| `inventory.return_to_store(db, work_order_id, yarn_batch_id, kg, user_id, idempotency_key=None)` | Ammaar | done | `StockMove` WIP → store; at most what the work order still holds |
+| `inventory.release_order(db, order_id, user_id, reason)` | Ammaar | done | `int` reservations released |
+| `inventory.stock_warnings(db)` | Ammaar | done | `list[dict]` items whose projected free kg is under reorder level (for `/owner`) |
+| `inventory.order_allocation(db, order_id)` | Ammaar | done | per line needed / reserved / issued / short, lots, `mixed_lots` |
+| `inventory.batch_kg_at(db, batch_id, location_kind)` | Ammaar | done | `Decimal` ledger balance of one batch at one location kind |
 | `orders.yarn_components(qty_m, fabric, order_colour)` | Ammaar | done | `[{fibre, count, colour, kg_needed}]`; dyed fabric uses `Raw White` yarn |
-| `orders.yarn_requirement(db, order_id)` | Ammaar | done (needs `free_stock`) | `[{fibre, count, colour, kg_needed, kg_free, kg_short}]` |
+| `orders.yarn_requirement(db, order_id)` | Ammaar | done | `[{fibre, count, colour, kg_needed, kg_free, kg_short}]` |
 | `production.create_work_orders(db, order_id, user_id)` | Muaz | done | `list[WorkOrder]`, one `waiting` per route stage; second call returns the same set |
 | `production.machine_status(db, machine_id)` | Muaz | done | `MachineStatus`, latest event or `off` |
 | `production.order_progress(db, order_id)` | Muaz | done | `{stage: {planned, produced, unit}}` |
@@ -133,7 +138,16 @@ Pure helpers in `app.core.units`: `qty`, `rupees_to_paise`, `line_amount_paise`,
 | `GET /api/masters/{suppliers,buyers,yarn-items,fabric-types,machines,workers,shifts}[/{id}]` | any logged in |
 | `POST`, `PUT` on the same paths | owner |
 | `GET /api/masters/locations` | any logged in |
-| `GET /api/inventory/batches` | any logged in |
+| `GET /api/inventory/{stock,stock/warnings,batches,batches/{id},expected-deliveries,receipts,receipts/{id},qr.svg}` | any logged in |
+| `POST /api/inventory/batches/{id}/{approve,quarantine,reject,identify}` | store |
+| `POST /api/inventory/batches/{id}/release` | owner only, reason required |
+| `POST /api/inventory/expected-deliveries`, `.../{id}/cancel` | store, sales |
+| `GET /api/inventory/sample-labels`, `POST /api/inventory/labels/check`, `POST /api/inventory/receipts[/{id}/lines,/{id}/confirm]` | store |
+| `GET /api/inventory/issue-plan?work_order=WO-…` | store, supervisor |
+| `POST /api/inventory/issues`, `POST /api/inventory/returns` | store |
+| `POST /api/orders`, `POST /api/orders/{id}/{confirm,reserve,cancel}` | sales |
+| `GET /api/orders/{id}`, `GET /api/orders/{id}/allocation`, `POST /api/orders/requirement-preview` | any logged in |
+| `GET /api/orders/to-buy` | sales, store |
 | `GET /api/orders`, `GET /api/orders/{id}/yarn-requirement` | any logged in |
 | `GET /api/production/work-orders`, `/work-orders/open`, `/board`, `/machines/{id}/timeline` | any logged in |
 | `POST /api/production/work-orders/{id}/{queue,unqueue,start,move,finish}`, `PUT /api/production/machines/{id}/queue` | supervisor |

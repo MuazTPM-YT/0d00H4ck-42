@@ -1,5 +1,5 @@
-import { Placeholder } from "@/components/layout/Placeholder";
+import { StoreHome } from "@/features/inventory/StoreHome";
 
 export default function Page() {
-  return <Placeholder />;
+  return <StoreHome />;
 }
