@@ -92,5 +92,5 @@ Do not edit `backend/alembic/versions/` yourself.
 - Requested by: Ashil, 2026-10-10
 - Change 1: add `supervisor` to the roles of `/dispatch/[id]` in `frontend/src/nav.ts`, so a supervisor can open the dispatch and post the shade override from the screen. The API already allows it; today only the owner can do it from the UI.
 - Change 2: `analytics.attention_items(db, Role.dispatch)` can call `dispatch.corner_check(db)` to list forgotten rolls as attention items.
-- Change 3: `tests/test_errors.py::test_stub_is_501_in_error_shape` used the tracking stub, which is now real, so it fails. It should point at another stub, e.g. `GET /api/orders/{id}/yarn-requirement` (calls `inventory.free_stock`).
+- Change 3: done. `tests/test_errors.py::test_stub_is_501_in_error_shape` used the tracking stub, which is now real. It now checks the 501 handler on its own small app, so it stays valid when the last stubs are built.
 - Status: requested
