@@ -1,16 +1,20 @@
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 import pytest
 from sqlalchemy import select
 
 from app.core.audit import AuditLog
+from app.core.enums import Source
 from app.core.errors import Conflict
 from app.modules.auth.models import Role
 from app.modules.orders.models import Order
 from app.modules.production import service
 from app.modules.production.models import MachineStatus, WorkOrder, WorkOrderStatus
-from app.modules.production.schemas import MachineEventIn
+from app.modules.production.schemas import MachineEventIn, OutputIn
 from app.modules.production.service import create_work_orders
+from app.modules.workforce.schemas import CrewIn
+from app.modules.workforce.service import assign_crew
 from tests.floor import build_floor
 
 
@@ -155,3 +159,68 @@ def test_only_supervisor_writes_floor_events(client_as, floor):
     bad = {"machine_id": floor.loom1.id, "status": "breakdown", "reason": "   "}
     res = sup.post("/api/production/machine-events", json=bad)
     assert res.status_code == 422 and res.json()["error"]["field"] == "reason"
+
+
+def log(db, floor, machine, qty, **kw):
+    body = OutputIn(machine_id=machine.id, qty=Decimal(qty), **kw)
+    return service.log_output(db, body, floor.supervisor.id)
+
+
+def test_output_derives_work_order_shift_and_worker(db, floor):
+    wo = run_on(db, floor, floor.shirt_weave, floor.loom1)
+    floor_crew = CrewIn(
+        date=datetime.now(UTC).date() - timedelta(days=1),  # any date; lookup is by time
+        shift_id=floor.shifts[0].id,
+        worker_id=floor.weaver.id,
+        machine_id=floor.loom1.id,
+    )
+    assign_crew(db, floor_crew, floor.supervisor.id, datetime.now(UTC) - timedelta(minutes=1))
+    row = log(db, floor, floor.loom1, "12.5", source=Source.machine)
+    assert row["work_order_id"] == wo.id and row["unit"] == "m"
+    assert row["worker_id"] == floor.weaver.id and row["shift_id"] is not None
+
+
+def test_output_rejected_during_breakdown(db, floor):
+    run_on(db, floor, floor.shirt_weave, floor.loom1)
+    report(db, floor, floor.loom1, MachineStatus.breakdown, "Shuttle jam")
+    with pytest.raises(Conflict) as e:
+        log(db, floor, floor.loom1, 5)
+    assert e.value.code == "machine_down"
+
+
+def test_output_needs_a_started_job_on_that_machine(db, floor):
+    with pytest.raises(Conflict):
+        log(db, floor, floor.loom1, 5)
+    run_on(db, floor, floor.shirt_weave, floor.loom1)
+    with pytest.raises(Conflict):
+        log(db, floor, floor.loom2, 5, work_order_id=floor.shirt_weave.id)
+
+
+def test_progress_is_logged_over_planned(db, floor):
+    run_on(db, floor, floor.dyed_weave, floor.loom1)
+    for q in ("100", "50.5"):
+        log(db, floor, floor.loom1, q)
+    progress = service.order_progress(db, floor.dyed_order.id)
+    assert progress["weaving"] == {
+        "planned": Decimal(600),
+        "produced": Decimal("150.5"),
+        "unit": "m",
+    }
+    assert progress["dyeing"]["produced"] == 0
+
+
+def test_idempotent_output_posts_once(db, floor):
+    run_on(db, floor, floor.shirt_weave, floor.loom1)
+    first = log(db, floor, floor.loom1, 7, idempotency_key="lm1-count-0042")
+    again = log(db, floor, floor.loom1, 7, idempotency_key="lm1-count-0042")
+    assert first == again
+    assert service.order_progress(db, floor.shirt_order.id)["weaving"]["produced"] == 7
+
+
+def test_output_time_must_be_recent():
+    with pytest.raises(ValueError, match="future"):
+        OutputIn(machine_id=1, qty=1, at=datetime.now(UTC) + timedelta(hours=1))
+    with pytest.raises(ValueError, match="24 hours"):
+        OutputIn(machine_id=1, qty=1, at=datetime.now(UTC) - timedelta(days=2))
+    with pytest.raises(ValueError):
+        OutputIn(machine_id=1, qty=0)

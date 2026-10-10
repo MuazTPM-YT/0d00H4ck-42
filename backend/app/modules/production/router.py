@@ -11,6 +11,8 @@ from app.modules.production.schemas import (
     MachineEventIn,
     MachineEventOut,
     MoveIn,
+    OutputIn,
+    ProductionLogOut,
     QueueIn,
     ReorderIn,
     WorkOrderOut,
@@ -71,3 +73,8 @@ def reorder(
 @router.post("/machine-events", response_model=MachineEventOut, status_code=201)
 def machine_event(body: MachineEventIn, db: Session = Depends(get_db), user: User = Supervisor):
     return service.report_machine_event(db, body, user.id)
+
+
+@router.post("/output", response_model=ProductionLogOut, status_code=201)
+def output(body: OutputIn, db: Session = Depends(get_db), user: User = Supervisor):
+    return service.log_output(db, body, user.id)

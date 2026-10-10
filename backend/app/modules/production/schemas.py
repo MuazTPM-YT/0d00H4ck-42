@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Annotated
 
@@ -6,7 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_vali
 
 from app.core.enums import Source, Stage, Unit
 from app.core.errors import FieldError
-from app.core.types import Note
+from app.core.types import Note, PositiveQty
 from app.modules.production.models import MachineStatus, WorkOrderStatus
 
 Id = Annotated[int, Field(gt=0)]
@@ -71,3 +71,41 @@ class ReorderIn(BaseModel):
 class MoveIn(BaseModel):
     machine_id: Id
     reason: Note
+
+
+class OutputIn(BaseModel):
+    machine_id: Id
+    qty: PositiveQty
+    work_order_id: Id | None = None
+    shift_id: Id | None = None
+    worker_id: Id | None = None
+    # a counter that buffered offline sends when the metres were made
+    at: datetime | None = None
+    source: Source = Source.manual
+    idempotency_key: IdempotencyKey | None = None
+
+    @model_validator(mode="after")
+    def at_is_recent(self):
+        if self.at:
+            if self.at.tzinfo is None:
+                raise FieldError("at", "Time needs a timezone")
+            now = datetime.now(UTC)
+            if self.at > now + timedelta(minutes=5):
+                raise FieldError("at", "Time cannot be in the future")
+            if self.at < now - timedelta(hours=24):
+                raise FieldError("at", "Output older than 24 hours needs a manual correction")
+        return self
+
+
+class ProductionLogOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    work_order_id: int
+    machine_id: int
+    shift_id: int
+    worker_id: int | None
+    qty: Decimal
+    unit: Unit
+    at: datetime
+    source: Source

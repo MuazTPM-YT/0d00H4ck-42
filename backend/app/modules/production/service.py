@@ -10,11 +10,23 @@ from app.core.errors import Conflict, NotFound, Unprocessable
 from app.core.idempotency import run_once
 from app.core.pagination import Page, paginate
 from app.core.states import check_transition
-from app.core.units import yarn_kg_for_fabric
+from app.core.units import qty, yarn_kg_for_fabric
 from app.modules.masters.models import FabricType, Machine
 from app.modules.orders.models import Order, OrderStatus
-from app.modules.production.models import MachineEvent, MachineStatus, WorkOrder, WorkOrderStatus
-from app.modules.production.schemas import MachineEventIn, MachineEventOut
+from app.modules.production.models import (
+    MachineEvent,
+    MachineStatus,
+    ProductionLog,
+    WorkOrder,
+    WorkOrderStatus,
+)
+from app.modules.production.schemas import (
+    MachineEventIn,
+    MachineEventOut,
+    OutputIn,
+    ProductionLogOut,
+)
+from app.modules.workforce.service import crew_on_machine, current_shift
 
 WORK_ORDER_TRANSITIONS = {
     WorkOrderStatus.waiting: {WorkOrderStatus.queued},
@@ -259,6 +271,73 @@ def finish_work_order(
     return wo
 
 
+def _add_log(
+    db: Session,
+    wo: WorkOrder,
+    machine_id: int,
+    quantity,
+    at: datetime,
+    source: Source,
+    shift_id: int | None = None,
+    worker_id: int | None = None,
+) -> ProductionLog:
+    log = ProductionLog(
+        work_order_id=wo.id,
+        machine_id=machine_id,
+        shift_id=shift_id or current_shift(db, at)[1].id,
+        worker_id=worker_id or crew_on_machine(db, machine_id, at),
+        qty=quantity,
+        unit=wo.unit,
+        at=at,
+        source=source,
+    )
+    db.add(log)
+    db.flush()
+    return log
+
+
+# one intake for tablet, scanner and machine counter; a feed sends only machine + qty
+def log_output(db: Session, body: OutputIn, user_id: int, at: datetime | None = None) -> dict:
+    def work():
+        machine = _lock_machine(db, body.machine_id)
+        status = machine_status(db, machine.id)
+        if status in DOWNTIME:
+            raise Conflict(
+                f"{machine.code} is in {status}. Output cannot be logged on a stopped machine.",
+                field="machine_id",
+                code="machine_down",
+            )
+        if body.work_order_id:
+            wo = db.get(WorkOrder, body.work_order_id)
+            if not wo or wo.machine_id != machine.id:
+                raise Conflict(f"That work order is not on {machine.code}", "work_order_id")
+        else:
+            wo = _on_machine(db, machine.id, WorkOrderStatus.running) or _on_machine(
+                db, machine.id, WorkOrderStatus.paused
+            )
+            if not wo:
+                raise Conflict(f"No work order is running on {machine.code}", "machine_id")
+        if wo.status not in (WorkOrderStatus.running, WorkOrderStatus.paused):
+            raise Conflict(f"{wo.code} is {wo.status}, output needs a started job", "work_order_id")
+        log = _add_log(
+            db,
+            wo,
+            machine.id,
+            body.qty,
+            _now(body.at or at),
+            body.source,
+            body.shift_id,
+            body.worker_id,
+        )
+        return ProductionLogOut.model_validate(log)
+
+    result = run_once(db, body.idempotency_key, "production.output", work)
+    db.commit()
+    events.publish("machines", {"type": "output", "id": body.machine_id})
+    events.publish("orders", {"type": "output", "id": result["work_order_id"]})
+    return result
+
+
 # --- shared services (contract: docs/contracts.md). Never commit; caller owns the transaction.
 
 
@@ -316,7 +395,22 @@ def machine_status(db: Session, machine_id: int) -> MachineStatus:
 
 # per stage: planned, produced so far, unit
 def order_progress(db: Session, order_id: int) -> dict[Stage, dict]:
-    raise NotImplementedError("production.order_progress")
+    rows = db.execute(
+        select(
+            WorkOrder.stage,
+            WorkOrder.planned_qty,
+            WorkOrder.unit,
+            func.coalesce(func.sum(ProductionLog.qty), 0),
+        )
+        .outerjoin(ProductionLog, ProductionLog.work_order_id == WorkOrder.id)
+        .where(WorkOrder.order_id == order_id, WorkOrder.roll_id.is_(None))
+        .group_by(WorkOrder.id)
+        .order_by(WorkOrder.seq)
+    ).all()
+    return {
+        stage: {"planned": planned, "produced": qty(produced), "unit": unit}
+        for stage, planned, unit, produced in rows
+    }
 
 
 # new work order for one roll sent back by QC; roll_id set, seq after the original stage
