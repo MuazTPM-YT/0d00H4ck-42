@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from app.core.db import get_db
 from app.core.deps import get_current_user, require_roles
 from app.core.pagination import Paged, PageDep
-from app.modules.analytics import service
+from app.modules.analytics import service, worker
 from app.modules.analytics.models import InsightStatus, Severity
 from app.modules.analytics.schemas import (
     AttentionItemOut,
@@ -16,8 +16,12 @@ from app.modules.analytics.schemas import (
 )
 from app.modules.auth.models import Role, User
 
+# lifespan: detector loop and forecast listener run while the API runs
 router = APIRouter(
-    prefix="/analytics", tags=["analytics"], dependencies=[Depends(get_current_user)]
+    prefix="/analytics",
+    tags=["analytics"],
+    dependencies=[Depends(get_current_user)],
+    lifespan=worker.lifespan,
 )
 # who promises dates to buyers, and who plans the floor that keeps them
 Planners = Depends(require_roles(Role.sales, Role.supervisor))
