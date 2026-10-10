@@ -40,7 +40,7 @@ reopens an earlier step.
 | # | Scene | Who | What you do | What the guide waits for | Problem statement |
 |---|---|---|---|---|---|
 | 1 | Opening | Owner | Read the briefing, delivery risk | (look) | dashboard |
-| 2 | 1 · Yarn at the gate | Store | `/store/receive`: tap a sample label, **Add lot**, **Confirm receipt** | a receipt confirmed after the tour started | R1, R2 |
+| 2 | 1 · Yarn at the gate | Store | `/store/receive`: **Expected delivery** (Kaveri, Ne 40/1 Raw White, 100 kg, ₹285, today), then tap its sample label, **Add lot**, **Confirm receipt** | a receipt confirmed after the tour started | R1, R2 |
 | 3 | 1 | Store | `/store/batches`: open each lot, **Approve into store** | no lot of that receipt left in inspection | R1, R3 |
 | 4 | 1 | Accounts | `/orders/new`: Gowda Uniforms · **Piece-dyed Poplin** · Navy · **110 m** · rate 185 · deadline next month · **Save and confirm** | a new confirmed order (its code is remembered) | R4, R5 |
 | 5 | 1 → 2 | Store | `/store` → **Needs yarn** → **Issue** → **Issue to floor** | the order's weaving job is no longer waiting | hand-off |
@@ -80,6 +80,7 @@ reopens an earlier step.
 
 | Problem | Fix |
 |---|---|
+| No sample label under the scan box | Labels come from open expected deliveries; each rehearsal uses one up. Add an **Expected delivery** first. |
 | Step 6 says the job is queued behind another | Every loom was busy. On `/floor/work-orders`, move it to a free loom. |
 | Floor tiles stop changing | The live feed timed out. Restart step 4 of the setup. |
 | The guide is on the wrong step | **Back** or **Skip**; to start over, close it (×) and press **Take the guided tour**. |

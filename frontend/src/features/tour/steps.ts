@@ -96,7 +96,8 @@ export const STEPS: Step[] = [
     path: () => "/store/receive",
     target: () => "[data-tour=receive-lots]",
     body: () => [
-      "Tap a sample label below the scan box (or scan a printed one with the camera). The label is checked against what was ordered: a wrong spec goes to quarantine, a weight gap over 2% is flagged.",
+      "First the yarn request: press Expected delivery, pick Kaveri Spinning Mills, Cotton Ne 40/1 Raw White, 100 kg, rate 285, today, and save.",
+      "Its supplier label now shows under the scan box: tap it (or scan the printed one with the camera). The label is checked against the request: a wrong spec goes to quarantine, a weight gap over 2% is flagged. Try the WRONG COLOUR one too.",
       "Press Add lot, then Confirm receipt.",
     ],
     check: async (s) => {

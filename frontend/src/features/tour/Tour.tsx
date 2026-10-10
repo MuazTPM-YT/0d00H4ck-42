@@ -103,12 +103,12 @@ function TourPanel({ state, update }: { state: TourState; update: (s: TourState 
   const last = index === STEPS.length - 1;
   const next = STEPS[index + 1];
 
-  // demo accounts only: sign out, sign in as the next person, open their page fresh
+  // demo accounts only: the new login replaces the session cookie (no sign-out gap for a
+  // background call to trip over), then the next person's page opens fresh
   async function signInAs(r: Role, to: string) {
     setBusy(true);
     setError(null);
     try {
-      await api("/auth/logout", { method: "POST" }).catch(() => undefined);
       await api("/auth/login", { method: "POST", json: { email: demoEmail(r), password: DEMO_PASSWORD } });
       qc.clear();
       window.location.assign(to);
