@@ -178,14 +178,11 @@ def _hours(td: timedelta) -> str:
     return f"{minutes} min" if minutes < 120 else f"{minutes // 60} h"
 
 
-# store: free yarn below the item's reorder level (waits for inventory.free_stock)
+# store: free yarn (on hand minus reservations) below the item's reorder level
 def _low_stock(db: Session, now: datetime) -> list[dict]:
     items = []
     for item in db.scalars(select(YarnItem).where(YarnItem.active, YarnItem.reorder_level_kg > 0)):
-        try:
-            free = inventory.free_stock(db, item.id)
-        except NotImplementedError:
-            return []
+        free = inventory.free_stock(db, item.id)
         if free < item.reorder_level_kg:
             name = f"{item.fibre} {item.count} {item.colour}"
             items.append(

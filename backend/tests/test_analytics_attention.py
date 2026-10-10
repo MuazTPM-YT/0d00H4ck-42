@@ -122,11 +122,14 @@ def test_sales_sees_orders_that_will_miss_the_deadline(db, floor):
     assert items[0]["href"] == f"/orders/{floor.shirt_order.id}"
 
 
-# inventory.free_stock is still a stub: the rule stays silent instead of failing the page
-def test_store_rule_waits_for_inventory_free_stock_without_failing(db, floor):
+# yarn with no free stock in the store, below its reorder level
+def test_store_sees_yarn_below_reorder_level(db, floor):
     db.get(YarnItem, floor.batches[0].yarn_item_id).reorder_level_kg = Decimal(100)
     db.commit()
-    assert service.attention_items(db, Role.store, NOW) == []
+    items = service.attention_items(db, Role.store, NOW)
+    assert titles(items) == ["Cotton Ne 40/1 Raw White below reorder level"]
+    assert items[0]["severity"] == Severity.critical
+    assert items[0]["href"] == "/store/stock"
 
 
 def test_open_insights_join_the_role_list(client_as, db):
