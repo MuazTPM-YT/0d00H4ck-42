@@ -10,12 +10,14 @@ import { type SubmitEvent, useState } from "react";
 import { EmptyState } from "@/components/layout/EmptyState";
 import { FormField } from "@/components/layout/FormField";
 import { PageHeader } from "@/components/layout/PageHeader";
+import { ReasonAction } from "@/components/layout/ReasonAction";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableFooter, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { api, ApiError, qs } from "@/lib/api";
+import { useMe } from "@/lib/auth";
 import { date, humanize, inr, inr0, kg, metres, rupeesToPaise } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
@@ -30,6 +32,38 @@ const LABEL: Record<MonthKind, string> = {
   wages: "Wage runs",
   expenses: "Other expenses",
 };
+
+// month-end close: an ended month locks its payments, expenses, wage runs and attendance;
+// only the owner reopens it, with a reason
+function CloseBar({ month }: { month: string }) {
+  const qc = useQueryClient();
+  const role = useMe().data?.role;
+  const closed = useQuery({ queryKey: ["finance", "month-closes"], queryFn: () => api<string[]>("/finance/month-closes") });
+  const close = useMutation({
+    mutationFn: () => api<string[]>("/finance/month-closes", { method: "POST", json: { month } }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["finance", "month-closes"] }),
+  });
+  if (!closed.data) return null;
+  if (closed.data.includes(month)) {
+    return (
+      <section className="mb-6 flex flex-wrap items-center gap-3 border border-success bg-success-soft p-3 text-sm text-success">
+        <span className="font-medium">{month} is closed.</span>
+        <span className="min-w-0 flex-1">Payments, expenses, wage runs and attendance dated in it can no longer change.</span>
+        {role === "owner" && (
+          <ReasonAction label="Reopen month" question={`Why does ${month} need to change?`} url={`/finance/month-closes/${month}/reopen`} onDone={() => qc.invalidateQueries({ queryKey: ["finance", "month-closes"] })} />
+        )}
+      </section>
+    );
+  }
+  if (month >= thisMonth()) return null;
+  return (
+    <section className="mb-6 flex flex-wrap items-center gap-3 border border-border bg-card p-3 text-sm">
+      <span className="min-w-0 flex-1">{month} has ended. Close it once its bills, wages and payments are in.</span>
+      <Button variant="outline" disabled={close.isPending} onClick={() => close.mutate()}>Close {month}</Button>
+      {close.isError && <p role="alert" className="w-full text-danger">{close.error.message}</p>}
+    </section>
+  );
+}
 
 // did the mill make money this month: both ways, every number opens its records (R23)
 export function Month() {
@@ -50,6 +84,7 @@ export function Month() {
           </>
         }
       />
+      <CloseBar month={month} />
       {view.isPending ? (
         <Skeleton className="h-64 w-full" />
       ) : view.isError ? (

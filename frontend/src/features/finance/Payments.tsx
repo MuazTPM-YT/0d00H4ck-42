@@ -7,7 +7,7 @@ import { useState } from "react";
 import { type Column, DataTable } from "@/components/layout/DataTable";
 import { EmptyState } from "@/components/layout/EmptyState";
 import { PageHeader } from "@/components/layout/PageHeader";
-import { api, type Paged, qs } from "@/lib/api";
+import { api, apiAll, type Paged, qs } from "@/lib/api";
 import { dateTime, humanize, inr } from "@/lib/format";
 import { useSSE } from "@/lib/useSSE";
 
@@ -41,13 +41,18 @@ export function Payments() {
     queryFn: () => api<Paged<PaymentRow>>(`/finance/payments${qs({ limit: LIMIT, offset: payOffset })}`),
     placeholderData: keepPreviousData,
   });
-  const totalDue = (due.data?.items ?? []).reduce((s, i) => s + i.outstanding_paise, 0);
+  // receivables over every outstanding invoice, not just the page on screen
+  const allDue = useQuery({
+    queryKey: ["orders", "outstanding", "all"],
+    queryFn: () => apiAll<InvoiceRow>("/finance/invoices?outstanding=true"),
+  });
+  const totalDue = (allDue.data?.items ?? []).reduce((s, i) => s + i.outstanding_paise, 0);
 
   return (
     <>
       <PageHeader title="Payments" description="Tap an outstanding invoice to record money received against it." />
       <h2 className="mb-2 font-medium">
-        Outstanding {due.data && `· ${due.data.total} invoices${due.data.total <= LIMIT ? ` · ${inr(totalDue)}` : ""}`}
+        Outstanding {due.data && `· ${due.data.total} invoices`}{allDue.data && ` · ${inr(totalDue)}`}
       </h2>
       <DataTable
         columns={invoiceColumns}

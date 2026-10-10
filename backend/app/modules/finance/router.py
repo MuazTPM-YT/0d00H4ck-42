@@ -7,7 +7,7 @@ from app.core.db import get_db
 from app.core.deps import require_roles
 from app.core.pagination import Paged, PageDep
 from app.modules.auth.models import Role, User
-from app.modules.finance import service
+from app.modules.finance import closing, service
 from app.modules.finance.models import InvoiceStatus, WageRunStatus
 from app.modules.finance.schemas import (
     ExpenseIn,
@@ -16,6 +16,7 @@ from app.modules.finance.schemas import (
     InvoiceRow,
     MachineProduction,
     Month,
+    MonthCloseIn,
     MonthRecord,
     MonthView,
     OrderCost,
@@ -23,6 +24,7 @@ from app.modules.finance.schemas import (
     PaymentIn,
     PaymentOut,
     PaymentRow,
+    ReopenIn,
     WageRunDetail,
     WageRunIn,
     WageRunOut,
@@ -128,3 +130,24 @@ def month_records(
     db: Session = Depends(get_db),
 ):
     return service.month_records(db, month, kind)
+
+
+@router.get("/month-closes", response_model=list[str])
+def month_closes(db: Session = Depends(get_db)):
+    return closing.closed_months(db)
+
+
+@router.post("/month-closes", response_model=list[str], status_code=201)
+def close_month(data: MonthCloseIn, db: Session = Depends(get_db), user: User = Accounts):
+    return closing.close_month(db, user, data.month)
+
+
+# reopening changes closed books: owner only, with a reason
+@router.post("/month-closes/{month}/reopen", response_model=list[str])
+def reopen_month(
+    month: Month,
+    data: ReopenIn,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_roles()),
+):
+    return closing.reopen_month(db, user, month, data.reason)

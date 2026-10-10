@@ -15,6 +15,7 @@ from app.core.states import check_transition
 from app.core.units import line_amount_paise, qty
 from app.modules.auth.models import User
 from app.modules.dispatch.models import Dispatch
+from app.modules.finance import closing
 from app.modules.finance.models import (
     Expense,
     Invoice,
@@ -253,6 +254,7 @@ def record_payment(db: Session, user: User, data) -> Payment:
         )
     if data.received_on < _ist_date(inv.issued_at):
         raise Unprocessable("Payment cannot be before the invoice date", field="received_on")
+    closing.ensure_open(db, data.received_on, "received_on")
     new = InvoiceStatus.paid if data.amount_paise == outstanding else InvoiceStatus.part_paid
     if new != inv.status:
         check_transition(INVOICE_TRANSITIONS, inv.status, new)
@@ -409,6 +411,7 @@ def wage_run_detail(db: Session, run_id: int) -> dict:
 
 
 def create_wage_run(db: Session, user: User, start: date, end: date) -> dict:
+    closing.ensure_range_open(db, start, end, "period_start")
     db.execute(select(func.pg_advisory_xact_lock(WAGE_RUN_LOCK)))
     clash = db.scalar(
         select(WageRun).where(WageRun.period_start <= end, WageRun.period_end >= start)
@@ -436,6 +439,7 @@ def recompute_wage_run(db: Session, user: User, run_id: int) -> dict:
         raise Conflict(
             f"Run is {run.status}; only a draft can be recomputed", code="illegal_transition"
         )
+    closing.ensure_range_open(db, run.period_start, run.period_end, "period_start")
     for line in db.scalars(select(WageLine).where(WageLine.wage_run_id == run.id)):
         db.delete(line)
     db.flush()
@@ -448,6 +452,8 @@ def recompute_wage_run(db: Session, user: User, run_id: int) -> dict:
 def set_wage_run_status(db: Session, user: User, run_id: int, new: WageRunStatus) -> dict:
     run = get_wage_run(db, run_id, lock=True)
     check_transition(WAGE_RUN_TRANSITIONS, run.status, new)
+    if new != WageRunStatus.paid:  # wages of a closed month are still paid out after the close
+        closing.ensure_range_open(db, run.period_start, run.period_end, "period_start")
     run.status = new
     audit.record(db, user.id, f"wage_run_{new}", "wage_runs", run.id)
     db.commit()
@@ -458,6 +464,7 @@ def set_wage_run_status(db: Session, user: User, run_id: int, new: WageRunStatus
 
 
 def create_expense(db: Session, user: User, data) -> Expense:
+    closing.ensure_open(db, data.date)
     row = Expense(**data.model_dump())
     db.add(row)
     db.flush()

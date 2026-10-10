@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { dateTime, humanize, kg, metres } from "@/lib/format";
+import { useMe } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 import { validQuantity } from "@/lib/validation";
 
@@ -52,6 +53,9 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
 export function RollInspection({ id, compact = false }: { id: number; compact?: boolean }) {
   const roll = useRoll(id);
   const [done, setDone] = useState<string | null>(null);
+  // supervisor, dispatch and accounts read the roll; only QC decides (server says the same)
+  const role = useMe().data?.role;
+  const inspector = role === "qc" || role === "owner";
 
   if (roll.isPending) return <Skeleton className="h-64 w-full" />;
   if (roll.isError) {
@@ -109,7 +113,7 @@ export function RollInspection({ id, compact = false }: { id: number; compact?: 
         </div>
       )}
 
-      {r.status === "awaiting_qc" && <DecisionForm key={`${r.id}-${r.checks.length}`} roll={r} onDone={setDone} />}
+      {r.status === "awaiting_qc" && inspector && <DecisionForm key={`${r.id}-${r.checks.length}`} roll={r} onDone={setDone} />}
 
       {r.checks.length > 0 && (
         <Section title="QC history">

@@ -2,6 +2,7 @@ from collections.abc import Callable
 
 from fastapi import Depends, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.core.db import get_db
@@ -45,3 +46,15 @@ def require_roles(*roles: Role) -> Callable[..., User]:
         return user
 
     return check
+
+
+MONEY_ROLES = (Role.owner, Role.accounts)
+
+
+# rates and costs leave the server only for the desks that price and pay; others get the row
+# with those fields blanked (the store still sees yarn cost: it types the rate at the gate)
+def hide_money(out: type[BaseModel], rows: list, user: User, fields: tuple[str, ...]) -> list:
+    if not fields or user.role in MONEY_ROLES:
+        return rows
+    blank = dict.fromkeys(fields)
+    return [out.model_validate(r, from_attributes=True).model_copy(update=blank) for r in rows]

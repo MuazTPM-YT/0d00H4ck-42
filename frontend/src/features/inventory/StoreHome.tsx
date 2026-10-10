@@ -8,7 +8,7 @@ import { PageHeader } from "@/components/layout/PageHeader";
 import { StatStrip } from "@/components/layout/StatStrip";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { api, type Paged } from "@/lib/api";
+import { api, apiAll, type Paged } from "@/lib/api";
 import { kg } from "@/lib/format";
 import { useSSE } from "@/lib/useSSE";
 
@@ -25,11 +25,11 @@ const QUEUES = [
 
 // store home: what needs doing now, low-stock warnings (live), and issue to production
 export function StoreHome() {
-  useSSE(["stock", "orders"]);
+  useSSE(["stock", "orders", "machines"]);
   const stock = useStock();
   const [deliveries, ...queues] = useQueries({
     queries: [
-      { queryKey: ["stock", "deliveries", "open"], queryFn: () => api<Paged<Delivery>>("/inventory/expected-deliveries?open_only=true&limit=100") },
+      { queryKey: ["stock", "deliveries", "open"], queryFn: () => apiAll<Delivery>("/inventory/expected-deliveries?open_only=true") },
       ...QUEUES.map((q) => ({ queryKey: ["stock", "batches", { status: q.status, count: true }], queryFn: () => api<Paged<Batch>>(`/inventory/batches?status=${q.status}&limit=1`) })),
     ],
   });

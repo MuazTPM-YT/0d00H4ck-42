@@ -139,6 +139,13 @@ def confirm_receipt(receipt_id: int, db: Session = Depends(get_db), user: User =
     return receiving.confirm_receipt(db, user, receipt_id)
 
 
+@router.post("/receipts/{receipt_id}/discard", status_code=204)
+def discard_receipt(
+    receipt_id: int, data: s.ReasonIn, db: Session = Depends(get_db), user: User = Store
+):
+    receiving.discard_receipt(db, user, receipt_id, data.reason)
+
+
 # --- issue to production
 @router.get(
     "/issue-plan",

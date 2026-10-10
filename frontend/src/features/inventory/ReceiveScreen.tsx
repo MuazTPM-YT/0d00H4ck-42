@@ -9,11 +9,12 @@ import { type FormEvent, useState } from "react";
 
 import { FormField } from "@/components/layout/FormField";
 import { PageHeader } from "@/components/layout/PageHeader";
+import { ReasonAction } from "@/components/layout/ReasonAction";
 import { StatusBadge } from "@/components/layout/StatusBadge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { api, ApiError, type Paged } from "@/lib/api";
+import { api, apiAll, ApiError, type Paged } from "@/lib/api";
 import { date, humanize, inr, kg, paiseToRupees, rupeesToPaise } from "@/lib/format";
 import { useSSE } from "@/lib/useSSE";
 import { cn } from "@/lib/utils";
@@ -52,7 +53,7 @@ export function ReceiveScreen() {
 
   const deliveries = useQuery({
     queryKey: ["stock", "deliveries", "open"],
-    queryFn: () => api<Paged<Delivery>>("/inventory/expected-deliveries?open_only=true&limit=100"),
+    queryFn: () => apiAll<Delivery>("/inventory/expected-deliveries?open_only=true"),
   });
   const drafts = useQuery({
     queryKey: ["stock", "receipts", "draft"],
@@ -268,14 +269,26 @@ export function ReceiveScreen() {
               Confirm receipt ({r.batches.length} {r.batches.length === 1 ? "lot" : "lots"})
             </Button>
           )}
+          {r && (
+            <ReasonAction
+              label="Discard truck"
+              question={`Why is ${r.code} discarded? Its lots never reached stock.`}
+              url={`/inventory/receipts/${r.id}/discard`}
+              onDone={() => {
+                setReceiptId(null);
+                setLastLine(null);
+                qc.invalidateQueries({ queryKey: ["stock"] });
+              }}
+            />
+          )}
           <ErrorText error={receipt.error} />
 
           {!r && (drafts.data?.items.length ?? 0) > 0 && (
             <div className="grid gap-2 border-t pt-3">
               <h3 className="text-sm font-medium">Trucks not confirmed yet</h3>
               {drafts.data!.items.map((d) => (
-                <Button key={d.id} variant="outline" className="justify-between" onClick={() => setReceiptId(d.id)}>
-                  <span>{d.code} · {d.supplier_name}</span>
+                <Button key={d.id} variant="outline" className="w-full min-w-0 shrink justify-between" onClick={() => setReceiptId(d.id)}>
+                  <span className="min-w-0 truncate">{d.code} · {d.supplier_name}</span>
                   <span className="text-muted-foreground">{d.batches.length} lots</span>
                 </Button>
               ))}
@@ -408,6 +421,7 @@ function MissingLine({ busy, onAdd }: { busy: boolean; onAdd: (body: object) => 
 }
 
 function DeliveryTable({ query }: { query: UseQueryResult<Paged<Delivery>> }) {
+  const qc = useQueryClient();
   if (query.isError) return <ErrorText error={query.error} />;
   if (query.isPending) return <p className="text-sm text-muted-foreground">Loading…</p>;
   if (query.data.total === 0) return <p className="text-sm text-muted-foreground">No open deliveries. Add one when a supplier confirms a dispatch.</p>;
@@ -423,6 +437,7 @@ function DeliveryTable({ query }: { query: UseQueryResult<Paged<Delivery>> }) {
             <th className="px-3 py-2 font-medium">Due</th>
             <th className="px-3 py-2 font-medium">For order</th>
             <th className="px-3 py-2 font-medium">Status</th>
+            <th className="px-3 py-2 font-medium"><span className="sr-only">Actions</span></th>
           </tr>
         </thead>
         <tbody>
@@ -435,6 +450,9 @@ function DeliveryTable({ query }: { query: UseQueryResult<Paged<Delivery>> }) {
               <td className="px-3 py-2">{date(d.expected_date)}</td>
               <td className="px-3 py-2">{d.order_code ?? "—"}</td>
               <td className="px-3 py-2"><StatusBadge status={d.status} /></td>
+              <td className="px-3 py-2">
+                <ReasonAction label="Cancel" question={`Why will ${d.supplier_name} not send this?`} url={`/inventory/expected-deliveries/${d.id}/cancel`} onDone={() => qc.invalidateQueries({ queryKey: ["stock"] })} />
+              </td>
             </tr>
           ))}
         </tbody>

@@ -187,6 +187,11 @@
   * {
     @apply border-border outline-ring/50;
   }
+  /* a grid with no column template sizes its one column to the widest child, so a wide table
+     inside pushes the page sideways. One shrinkable column instead; grid-cols-* still wins */
+  .grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
   /* 17px root: Apple's body size. Every rem-based size and gap grows with it, so touch
      targets get bigger too, and a user's browser text size still scales the whole layout */
   html {

@@ -1,23 +1,26 @@
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 
 import pytest
 from sqlalchemy import select
 
 from app.core.audit import AuditLog
+from app.core.enums import Stage
 from app.core.errors import AppError
 from app.core.security import create_token
+from app.modules.analytics.service import attention_items
 from app.modules.auth.models import Role
 from app.modules.inventory import service as inv
 from app.modules.inventory.labels import parse_label
 from app.modules.inventory.models import (
     BatchStatus,
     MoveReason,
+    Receipt,
     Reservation,
     ReservationStatus,
     YarnBatch,
 )
-from app.modules.masters.models import LocationKind
+from app.modules.masters.models import FabricTypeStage, LocationKind
 from app.modules.orders.models import Order, OrderStatus
 from app.modules.production.service import create_work_orders
 from tests.inventory_helpers import (
@@ -197,6 +200,17 @@ def test_projected_free_warns_below_reorder_level(db, setup, buyer):
     assert row["projected_free_kg"] == D(50) and row["level"] == "low"  # reorder level 100
 
 
+# owner and store alerts use the same rule as the store screen: free after open orders
+def test_attention_low_stock_counts_open_orders(db, setup, buyer):
+    fabric = plain_fabric(db)
+    make_batch(db, setup["sup"], setup["white40"], 250)
+    make_order(db, buyer, fabric, "Raw White", 1000)
+    db.commit()
+    items = attention_items(db, Role.store, datetime.now(UTC))
+    assert [i["title"] for i in items] == ["Cotton Ne 40/1 Raw White below reorder level"]
+    assert items[0]["detail"] == "50.000 kg free after open orders, reorder at 100.000 kg"
+
+
 # ---------------------------------------------------------------- issue and return
 
 
@@ -221,6 +235,25 @@ def test_issue_consumes_reservation_and_moves_to_wip(db, issuing, make_user):
     assert inv.batch_kg_at(db, b.id, LocationKind.wip) == D(60)
     alloc = inv.order_allocation(db, issuing["order"].id)["lines"][0]
     assert (alloc["kg_issued"], alloc["kg_reserved"], alloc["kg_short"]) == (60, 40, 0)
+
+
+# rolls draw yarn lineage from the weaving job; yarn sent to spinning would be counted twice
+def test_yarn_goes_only_to_the_weaving_job(db, setup, buyer, make_user):
+    fabric = plain_fabric(db, code="TDRILL")
+    fabric.stages[0].seq = 2
+    db.flush()
+    fabric.stages.insert(0, FabricTypeStage(seq=1, stage=Stage.spinning))
+    db.flush()
+    batch = make_batch(db, setup["sup"], setup["white40"], 300)
+    order = make_order(db, buyer, fabric, "Raw White", 500)
+    inv.reserve(db, order.id, None)
+    spin, weave = create_work_orders(db, order.id, None)
+    db.commit()
+    user = make_user(Role.store)
+    with pytest.raises(AppError) as refused:
+        inv.issue_to_work_order(db, spin.id, batch.id, D(10), user.id)
+    assert refused.value.code == "not_weaving"
+    inv.issue_to_work_order(db, weave.id, batch.id, D(10), user.id)
 
 
 def test_over_issue_needs_reason_and_never_takes_other_orders_yarn(db, issuing, make_user):
@@ -410,6 +443,25 @@ def test_weight_variance_flagged_but_never_adjusted(api, delivery):
     assert batch["status"] == "inspection"
     assert batch["received_kg"] == "240.000"
     assert "label 250.000 kg, weighed 240" in batch["mismatch_notes"]
+
+
+# a truck entered by mistake: draft lots never touched stock, so discarding leaves no trace but
+# the audit row; a confirmed truck is in the ledger and can't be discarded
+def test_discard_draft_truck(api, db, delivery):
+    rid = new_receipt(api, delivery)
+    lot = add(api, rid, payload=label("D-1"), received_kg="250").json()["batch"]["id"]
+    url = f"/api/inventory/receipts/{rid}/discard"
+    assert api(Role.store, "POST", url, json={"reason": "  "}).status_code == 422
+    assert api(Role.store, "POST", url, json={"reason": "Wrong supplier picked"}).status_code == 204
+    assert db.get(YarnBatch, lot) is None and db.get(Receipt, rid) is None
+    note = db.scalar(select(AuditLog).where(AuditLog.action == "discard"))
+    assert note.reason == "Wrong supplier picked" and note.data["lots"] == ["D-1"]
+
+    rid = new_receipt(api, delivery)
+    add(api, rid, payload=label("D-2"), received_kg="250")
+    api(Role.store, "POST", f"/api/inventory/receipts/{rid}/confirm")
+    url = f"/api/inventory/receipts/{rid}/discard"
+    assert api(Role.store, "POST", url, json={"reason": "Too late"}).status_code == 409
 
 
 def test_partial_delivery_stays_open(api, delivery):

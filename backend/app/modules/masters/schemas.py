@@ -163,7 +163,7 @@ class MachineOut(Out):
     code: str
     name: str
     type: Stage
-    hourly_cost_paise: int
+    hourly_cost_paise: int | None  # None for roles that do not see money
     rated_output_per_hour: Decimal
     output_unit: Unit
     active: bool

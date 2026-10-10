@@ -13,7 +13,7 @@ from app.core.idempotency import run_once
 from app.core.pagination import Page, paginate
 from app.core.states import check_transition
 from app.core.units import qty, yarn_kg_for_fabric
-from app.modules.inventory.models import ItemKind, MoveReason, StockMove
+from app.modules.inventory.models import ItemKind, MoveReason, StockMove, YarnBatch
 from app.modules.masters.models import FabricType, Location, LocationKind, Machine, Worker
 from app.modules.orders.models import Order, OrderStatus
 from app.modules.production.models import (
@@ -283,6 +283,38 @@ def finish_work_order(
     source: Source = Source.manual,
 ) -> WorkOrder:
     wo = _lock_work_order(db, work_order_id)
+    if wo.stage == Stage.dyeing and not wo.roll_id:
+        _check_nothing_left_to_dye(db, wo)
+    _close(db, wo, user_id, at, source)
+    db.commit()
+    events.publish("machines", {"type": "work_order", "id": wo.id})
+    events.publish("orders", {"type": "work_order", "id": wo.order_id})
+    return wo
+
+
+# dyeing takes every roll the loom cuts; closing it early strands those rolls before QC
+def _check_nothing_left_to_dye(db: Session, wo: WorkOrder) -> None:
+    weaving = db.scalar(
+        select(WorkOrder.code).where(
+            WorkOrder.order_id == wo.order_id,
+            WorkOrder.stage == Stage.weaving,
+            WorkOrder.roll_id.is_(None),
+            WorkOrder.status != WorkOrderStatus.done,
+        )
+    )
+    waiting = db.scalar(
+        select(func.count()).where(
+            Roll.order_id == wo.order_id, Roll.status == RollStatus.in_process
+        )
+    )
+    if weaving or waiting:
+        why = f"weaving {weaving} is still open" if weaving else f"{waiting} roll(s) still to dye"
+        raise Conflict(
+            f"{wo.code} cannot finish: {why}", field="work_order_id", code="stage_still_feeding"
+        )
+
+
+def _close(db: Session, wo: WorkOrder, user_id, at, source: Source) -> None:
     _set_wo_status(db, wo, WorkOrderStatus.done, user_id)
     wo.finished_at = _now(at)
     db.flush()
@@ -290,10 +322,6 @@ def finish_work_order(
     if machine_status(db, machine.id) == MachineStatus.running:
         _set_machine_status(db, machine, MachineStatus.idle, user_id, source, at=at)
     _consume_rest(db, wo, user_id, _now(at))
-    db.commit()
-    events.publish("machines", {"type": "work_order", "id": wo.id})
-    events.publish("orders", {"type": "work_order", "id": wo.order_id})
-    return wo
 
 
 def _add_log(
@@ -450,6 +478,37 @@ def _publish_roll(result: dict) -> None:
         events.publish("quality", {"type": "roll", "id": result["id"]})
 
 
+# every yarn of the recipe (warp and weft) must be on the floor for this job before a roll exists
+def _check_recipe_issued(db: Session, wo: WorkOrder, order: Order, issued: dict) -> None:
+    from app.modules.inventory.service import order_needs  # inventory imports production
+
+    have = set(db.scalars(select(YarnBatch.yarn_item_id).where(YarnBatch.id.in_(issued))))
+    missing = [n for n in order_needs(db, order) if n["yarn_item_id"] not in have | {None}]
+    if missing:
+        names = ", ".join(f"{n['fibre']} {n['count']} {n['colour']}" for n in missing)
+        raise Conflict(
+            f"{names} not issued to {wo.code} yet. The store issues every yarn of the recipe.",
+            field="work_order_id",
+            code="recipe_not_issued",
+        )
+
+
+# woven metres drive progress and piece wages; a roll can't be longer than what was woven,
+# so a cut past the loom's logged metres logs the gap (tablet flow) and counter flow adds nothing
+def _log_uncounted_metres(db: Session, wo: WorkOrder, body: RollIn, when: datetime) -> None:
+    woven = db.scalar(
+        select(func.coalesce(func.sum(ProductionLog.qty), 0)).where(
+            ProductionLog.work_order_id == wo.id
+        )
+    )
+    cut = db.scalar(
+        select(func.coalesce(func.sum(Roll.length_m), 0)).where(Roll.work_order_id == wo.id)
+    )
+    gap = cut + body.length_m - woven
+    if gap > 0:
+        _add_log(db, wo, wo.machine_id, gap, when, body.source, body.shift_id, body.weaver_id)
+
+
 # weaver cuts a roll off the loom: new identity, yarn lineage, fabric enters WIP
 def cut_roll(db: Session, body: RollIn, user_id: int | None, at: datetime | None = None) -> dict:
     def work():
@@ -469,6 +528,8 @@ def cut_roll(db: Session, body: RollIn, user_id: int | None, at: datetime | None
         when = _now(at)
         order = db.get(Order, wo.order_id)
         fabric = db.get(FabricType, order.fabric_type_id)
+        _check_recipe_issued(db, wo, order, issued)
+        _log_uncounted_metres(db, wo, body, when)
         roll = Roll(
             code=next_code(db, "R"),
             order_id=order.id,
@@ -566,6 +627,7 @@ def process_roll(
         _add_log(db, wo, wo.machine_id, roll.length_m, when, body.source)
         if wo.roll_id:
             _set_roll_status(db, roll, RollStatus.awaiting_qc, user_id)
+            _close(db, wo, user_id, when, body.source)
         else:
             _after_stage(db, roll, wo.stage, user_id)
         db.flush()

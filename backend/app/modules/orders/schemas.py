@@ -28,7 +28,7 @@ class OrderOut(BaseModel):
     fabric_type_id: int
     colour: str
     qty_m: Decimal
-    rate_paise_per_m: int
+    rate_paise_per_m: int | None  # None for roles that do not see money
     deadline: date
     status: OrderStatus
     confirmed_at: datetime | None

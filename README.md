@@ -28,6 +28,7 @@ API docs: http://localhost:8000/docs.
 | `make db-up` / `make db-down` | Start / stop Postgres 16 in Docker on `127.0.0.1:${DB_PORT}` (default 5435) |
 | `make migrate` | `alembic upgrade head` |
 | `make seed` | Demo data: masters, 6 users, at least one row in every status. Safe to run twice. |
+| `make seed-big` | **Wipes the dev DB.** Mill-scale masters (43 suppliers, 155 buyers, 224 workers, 42 yarn items; the same 10 machines), then 60 simulated days through the real services: ~2,200 rolls, ~230 dispatches and invoices, then monthly wage runs and running costs. About 3 min. |
 | `make dev` | FastAPI with reload + Next dev server |
 | `make dev-https` | Same, web over HTTPS (self-signed) so tablets on the LAN can scan labels with the camera |
 | `make test` | pytest against a separate `everest_test` database |

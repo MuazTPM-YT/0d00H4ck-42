@@ -97,3 +97,18 @@ def test_fabric_spec_frozen_while_orders_are_open(client_as, db):
     dyed = [{"seq": 1, "stage": "weaving"}, {"seq": 2, "stage": "dyeing"}]
     assert owner.put(url, json={**body, "stages": dyed}).status_code == 409
     assert owner.put(url, json={**body, "name": "Renamed shirting"}).status_code == 200
+
+
+# rates and costs reach only the desks that price and pay; the floor sees the rest of the row
+def test_money_fields_only_for_owner_and_accounts(client_as, db):
+    mill = Mill(db)
+    order = mill.order()
+    db.commit()
+    qc = client_as(Role.qc)
+    machine = qc.get("/api/masters/machines?limit=1").json()["items"][0]
+    assert machine["hourly_cost_paise"] is None and machine["code"]
+    assert qc.get(f"/api/orders/{order.id}").json()["rate_paise_per_m"] is None
+    assert qc.get("/api/orders").json()["items"][0]["rate_paise_per_m"] is None
+    accounts = client_as(Role.accounts)
+    assert accounts.get("/api/masters/machines?limit=1").json()["items"][0]["hourly_cost_paise"]
+    assert accounts.get(f"/api/orders/{order.id}").json()["rate_paise_per_m"] > 0

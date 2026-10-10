@@ -2,7 +2,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 
-import { api, type Paged } from "@/lib/api";
+import { api, apiAll } from "@/lib/api";
 
 export type Shift = { id: number; code: string; name: string; start_time: string; end_time: string };
 export type Worker = { id: number; code: string; name: string };
@@ -30,10 +30,10 @@ export const useCurrentShift = () =>
   useQuery({ queryKey: ["machines", "current-shift"], queryFn: () => api<{ date: string; shift_id: number }>("/workforce/current-shift") });
 
 export const useShifts = () =>
-  useQuery({ queryKey: ["masters", "shifts", "all"], queryFn: () => api<Paged<Shift>>("/masters/shifts?limit=50") });
+  useQuery({ queryKey: ["masters", "shifts", "all"], queryFn: () => apiAll<Shift>("/masters/shifts") });
 
 export const useWorkers = () =>
-  useQuery({ queryKey: ["masters", "workers", "active"], queryFn: () => api<Paged<Worker>>("/masters/workers?active=true&limit=200") });
+  useQuery({ queryKey: ["masters", "workers", "active"], queryFn: () => apiAll<Worker>("/masters/workers?active=true") });
 
 export const useCrew = (day: string, shiftId: number) =>
   useQuery({
@@ -45,7 +45,7 @@ export const useCrew = (day: string, shiftId: number) =>
 export const useAttendance = (day: string, shiftId: number) =>
   useQuery({
     queryKey: ["machines", "attendance", day, shiftId],
-    queryFn: () => api<Paged<Attendance>>(`/workforce/attendance?date=${day}&shift_id=${shiftId}&limit=200`),
+    queryFn: () => apiAll<Attendance>(`/workforce/attendance?date=${day}&shift_id=${shiftId}`),
     enabled: shiftId > 0,
   });
 

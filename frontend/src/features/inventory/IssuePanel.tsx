@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { api } from "@/lib/api";
 import { date, humanize, kg } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import { useOpenWorkOrders } from "@/features/production/api";
 
 import { type IssuePlan, newIdemKey, type PlanLine } from "./types";
 import { ErrorText, ScanField } from "./ui";
@@ -54,6 +55,7 @@ export function IssuePanel() {
           setScanError(null);
         }}
       />
+      {!woCode && <YarnJobs onPick={setWoCode} />}
       <ErrorText error={plan.error} />
       {plan.data && (
         <>
@@ -110,6 +112,31 @@ export function IssuePanel() {
         </>
       )}
     </section>
+  );
+}
+
+// weaving jobs queued or running take yarn; tap one instead of scanning its code
+function YarnJobs({ onPick }: { onPick: (code: string) => void }) {
+  const open = useOpenWorkOrders();
+  const jobs = (open.data ?? []).filter((w) => w.status !== "waiting" && w.stage === "weaving" && !w.roll_id);
+  if (open.isError) return <ErrorText error={open.error} />;
+  if (!open.data) return null;
+  if (jobs.length === 0) return <p className="text-sm text-muted-foreground">No weaving job is queued or running.</p>;
+  return (
+    <div className="grid gap-2">
+      <p className="text-sm font-medium">Jobs that take yarn</p>
+      <ul className="scroll-panel grid max-h-60 gap-2">
+        {jobs.map((w) => (
+          <li key={w.id}>
+            <button type="button" onClick={() => onPick(w.code)} className="pressable flex w-full flex-wrap items-center gap-2 border p-2 text-left text-sm [@media(hover:hover)]:hover:border-input">
+              <span className="font-medium tabular">{w.code}</span>
+              <span className="text-muted-foreground">{humanize(w.stage)} · {w.order_code}</span>
+              <StatusBadge status={w.status} className="ml-auto" />
+            </button>
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
 

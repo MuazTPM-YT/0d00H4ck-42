@@ -1,13 +1,17 @@
 # base demo data: masters + one record in every status. Safe to run twice.
 # run: make seed   (cd backend && PYTHONPATH=. uv run python ../scripts/seed.py)
+# --bulk: masters at mill scale only, no demo story; make seed-big runs the simulator after it
+import random
+import sys
 from datetime import UTC, datetime, time, timedelta
 from decimal import Decimal
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 import app.models  # noqa: F401  registers every table
 from app.core.codes import next_code
+from app.core.dates import mill_today
 from app.core.db import SessionLocal
 from app.core.enums import Source, Stage, Unit
 from app.core.security import hash_password
@@ -16,6 +20,7 @@ from app.modules.analytics.models import Insight, InsightStatus, Severity
 from app.modules.auth.models import Role, User
 from app.modules.dispatch.models import Dispatch, DispatchRoll, DispatchStatus
 from app.modules.dispatch.service import open_delivery
+from app.modules.finance import service as finance
 from app.modules.finance.models import (
     Expense,
     ExpenseCategory,
@@ -28,6 +33,7 @@ from app.modules.finance.models import (
     WageRun,
     WageRunStatus,
 )
+from app.modules.finance.schemas import ExpenseIn
 from app.modules.inventory.models import (
     BatchStatus,
     ExpectedDelivery,
@@ -55,6 +61,7 @@ from app.modules.masters.models import (
     Worker,
     YarnItem,
 )
+from app.modules.masters.schemas import BuyerIn, SupplierIn, WorkerIn, YarnItemIn
 from app.modules.orders.models import Order, OrderStatus
 from app.modules.production.models import (
     MachineEvent,
@@ -262,6 +269,133 @@ def seed_masters(db: Session) -> None:
         get_or_create(
             db, Shift, {"code": code}, name=f"Shift {code}", start_time=start, end_time=end
         )
+    db.flush()
+
+
+FIRST = [
+    "Arun",
+    "Bhavna",
+    "Chetan",
+    "Deepa",
+    "Farhan",
+    "Gauri",
+    "Harish",
+    "Indira",
+    "Jagdish",
+    "Kiran",
+    "Latha",
+    "Madhu",
+    "Naveen",
+    "Omkar",
+    "Padma",
+    "Rahul",
+    "Sameer",
+    "Tara",
+    "Usha",
+    "Vinod",
+    "Yamuna",
+    "Zubair",
+    "Anil",
+    "Bharathi",
+    "Dinesh",
+    "Lalitha",
+]
+LAST = [
+    "Rao",
+    "Naik",
+    "Shetty",
+    "Gowda",
+    "Patil",
+    "Reddy",
+    "Iyer",
+    "Khan",
+    "Hegde",
+    "Kulkarni",
+    "Desai",
+    "Pillai",
+    "Nair",
+    "Joshi",
+]
+TOWNS = [
+    "Erode",
+    "Tiruppur",
+    "Coimbatore",
+    "Salem",
+    "Surat",
+    "Bhiwandi",
+    "Ludhiana",
+    "Panipat",
+    "Karur",
+    "Madurai",
+]
+CITIES = [
+    "Mumbai",
+    "Delhi",
+    "Chennai",
+    "Bengaluru",
+    "Ahmedabad",
+    "Kolkata",
+    "Hyderabad",
+    "Pune",
+    "Jaipur",
+    "Kochi",
+]
+STATES = ["27", "07", "33", "29", "24", "19", "36", "27", "08", "32"]  # GST state per city
+
+
+# pan-shaped part of a gstin, unique per n: 5 letters, 4 digits, 1 letter
+def _pan(n: int, kind: str) -> str:
+    a = "ABCDEFGHJKLMNPQRSTUVWXYZ"
+    return f"AA{kind}{a[n // 24 % 24]}{a[n % 24]}{1000 + n:04d}{a[(n * 7) % 24]}"
+
+
+# validated through the same input schemas as the masters screens, so every row is editable
+def seed_bulk_masters(db: Session, rng: random.Random) -> None:
+    for i in range(1, 41):
+        town = TOWNS[i % len(TOWNS)]
+        kind = ("Spinners", "Yarns", "Mills", "Yarn Co")[i % 4]
+        row = SupplierIn(
+            code=f"SUP{i:03d}",
+            name=f"{LAST[i % len(LAST)]} {kind}, {town}",
+            gstin=f"33{_pan(i, 'C')}1Z{i % 10}",
+            phone=f"+91 9{rng.randint(100000000, 999999999)}",
+            city=town,
+        )
+        get_or_create(db, Supplier, {"code": row.code}, **row.model_dump(exclude={"code"}))
+    for i in range(1, 151):
+        c = i % len(CITIES)
+        first, last = FIRST[i % len(FIRST)], LAST[(i * 3) % len(LAST)]
+        kind = ["Garments", "Apparels", "Exports", "Fashions", "Uniforms", "Textiles"][i % 6]
+        row = BuyerIn(
+            code=f"BUY{i:03d}",
+            name=f"{last} {kind}, {CITIES[c]}",
+            gstin=f"{STATES[c]}{_pan(i, 'F')}1Z{i % 10}",
+            contact_name=f"{first} {last}",
+            phone=f"+91 9{rng.randint(100000000, 999999999)}",
+            email=f"orders{i}@{last.lower()}{kind.lower()}.example.in",
+            city=CITIES[c],
+        )
+        get_or_create(db, Buyer, {"code": row.code}, **row.model_dump(exclude={"code"}))
+    for fibre, counts in [
+        ("Cotton", ["Ne 20/1", "Ne 30/1", "Ne 40/1", "Ne 60/1"]),
+        ("Polyester", ["30D", "75D"]),
+        ("Viscose", ["Ne 30/1"]),
+    ]:
+        for count in counts:
+            for colour in ["Raw White", "Navy", "Black", "Maroon", "Bottle Green", "Grey"]:
+                # catalogue yarn: no reorder level, so no stock alarm until the mill uses it
+                YarnItemIn(fibre=fibre, count=count, colour=colour)
+                get_or_create(db, YarnItem, {"fibre": fibre, "count": count, "colour": colour})
+    for i in range(25, 225):
+        piece = i % 3 == 0  # about a third are weavers paid per metre
+        row = WorkerIn(
+            code=f"W-{i:03d}",
+            name=f"{FIRST[i % len(FIRST)]} {LAST[(i * 5) % len(LAST)]}",
+            wage_type=WageType.piece if piece else WageType.daily,
+            daily_rate_paise=None if piece else rng.choice([60000, 65000, 70000, 75000]),
+            piece_rate_paise_per_m=rng.choice([350, 400, 450]) if piece else None,
+        )
+        get_or_create(db, Worker, {"code": row.code}, **row.model_dump(exclude={"code"}))
     db.flush()
 
 
@@ -929,9 +1063,39 @@ def seed_demo(db: Session) -> None:
         )
 
 
+# after the simulator: wage runs per month from its attendance and output, plus running costs,
+# all through the finance service, so month-end shows a real result instead of sales minus yarn
+def seed_books(db: Session, rng: random.Random) -> None:
+    accounts = db.scalar(select(User).where(User.role == Role.accounts))
+    start = db.scalar(select(func.min(Attendance.date)))
+    today = mill_today()
+    while start and start <= today:
+        nxt = (start.replace(day=1) + timedelta(days=32)).replace(day=1)
+        end = min(nxt - timedelta(days=1), today)
+        run = finance.create_wage_run(db, accounts, start, end)
+        if end < today.replace(day=1):  # an ended month: wages final and paid out
+            finance.set_wage_run_status(db, accounts, run["id"], WageRunStatus.final)
+            finance.set_wage_run_status(db, accounts, run["id"], WageRunStatus.paid)
+        for category, rupees in [("power", 380000), ("rent", 150000), ("maintenance", 60000)]:
+            day = min(start.replace(day=min(start.day + 4, 28)), today)
+            amount = int(rupees * rng.uniform(0.9, 1.1)) * 100
+            body = ExpenseIn(date=day, category=category, amount_paise=amount, note="Monthly bill")
+            finance.create_expense(db, accounts, body)
+        start = nxt
+
+
 def main() -> None:
     with SessionLocal() as db:
         seed_masters(db)
+        if "--books" in sys.argv:
+            seed_books(db, random.Random(11))
+            print("wage runs and running costs booked")
+            return
+        if "--bulk" in sys.argv:
+            seed_bulk_masters(db, random.Random(7))
+            db.commit()
+            print("seeded masters at mill scale; run the simulator for transactions")
+            return
         if db.scalar(select(Order.id).limit(1)):
             print("masters checked; demo data already present, skipped")
         else:

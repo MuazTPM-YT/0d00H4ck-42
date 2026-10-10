@@ -13,7 +13,7 @@ from app.modules.analytics.models import Insight, InsightStatus, Severity
 from app.modules.auth.models import Role, User
 from app.modules.finance.models import Invoice, InvoiceStatus
 from app.modules.inventory import service as inventory
-from app.modules.masters.models import Machine, YarnItem
+from app.modules.masters.models import Machine
 from app.modules.orders.models import Order, OrderStatus
 from app.modules.production.models import MachineEvent, MachineStatus
 from app.modules.quality.models import Roll, RollEvent, RollStatus
@@ -210,21 +210,22 @@ def _hours(td: timedelta) -> str:
 # store: free yarn (on hand minus reservations) below the item's reorder level
 def _low_stock(db: Session, now: datetime) -> list[dict]:
     items = []
-    for item in db.scalars(select(YarnItem).where(YarnItem.active, YarnItem.reorder_level_kg > 0)):
-        free = inventory.free_stock(db, item.id)
-        if free < item.reorder_level_kg:
-            name = f"{item.fibre} {item.count} {item.colour}"
-            items.append(
-                _item(
-                    "low_stock",
-                    Severity.critical if free <= 0 else Severity.warn,
-                    f"{name} below reorder level",
-                    f"{free} kg free, reorder at {item.reorder_level_kg} kg",
-                    "/store/stock",
-                    "yarn_items",
-                    item.id,
-                )
+    # same rule as the store screen: free stock after open orders take their share
+    for row in inventory.stock_warnings(db):
+        projected, reorder = row["projected_free_kg"], row["reorder_level_kg"]
+        if reorder <= 0:
+            continue
+        items.append(
+            _item(
+                "low_stock",
+                Severity.critical if projected <= 0 else Severity.warn,
+                f"{row['label']} below reorder level",
+                f"{projected} kg free after open orders, reorder at {reorder} kg",
+                "/store/stock",
+                "yarn_items",
+                row["yarn_item_id"],
             )
+        )
     return items
 
 

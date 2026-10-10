@@ -6,7 +6,7 @@ import { type KeyboardEvent, useState } from "react";
 
 import { CameraScan } from "@/components/layout/CameraScan";
 import { Input } from "@/components/ui/input";
-import { api, type Paged } from "@/lib/api";
+import { apiAll } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 // small pieces shared by the store and order screens
@@ -20,7 +20,7 @@ type Option = { id: number; [key: string]: unknown };
 export function useMaster<T extends Option>(path: "suppliers" | "buyers" | "yarn-items" | "fabric-types") {
   return useQuery({
     queryKey: ["masters", path, "options"],
-    queryFn: () => api<Paged<T>>(`/masters/${path}?active=true&limit=200`),
+    queryFn: () => apiAll<T>(`/masters/${path}?active=true`),
     staleTime: 60_000,
   });
 }

@@ -177,7 +177,6 @@ export function CrewBoard() {
   const selected = roster.find((r) => r.worker.id === selectedId) ?? null;
   const machineList = machines.data?.items ?? [];
   const stages = [...new Set(machineList.map((m) => m.type))].sort((a, b) => STAGE_ORDER.indexOf(a) - STAGE_ORDER.indexOf(b));
-  const truncated = (workers.data?.total ?? 0) > (workers.data?.items.length ?? 0);
 
   // "/" jumps to search from anywhere; Esc drops the picked worker
   useEffect(() => {
@@ -364,7 +363,6 @@ export function CrewBoard() {
               onMark={(worker, status) => setMarking({ worker, status })}
               onAssigned={assigned}
             />
-            {truncated && <p className="label normal-case tracking-[0.04em]">Showing the first {workers.data?.items.length} of {workers.data?.total} active workers.</p>}
           </div>
         </div>
       )}
