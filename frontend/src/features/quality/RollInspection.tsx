@@ -287,7 +287,7 @@ function DecisionForm({ roll, onDone }: { roll: RollDetail; onDone: (message: st
         rework_stage: decision === "rework" ? reworkStage : null,
         idempotency_key: key,
       },
-      { onSuccess: () => onDone(`${roll.code} ${DONE_TEXT[decision]}.`) },
+      { onSuccess: (res) => onDone(`${roll.code} ${DONE_TEXT[decision]}.${res.dispatch_code ? ` Order covered: truck ${res.dispatch_code} drafted for dispatch.` : ""}`) },
     );
   };
 

@@ -10,6 +10,10 @@ screens `/stock/finished`, `/dispatch`, `/dispatch/[id]`. Requirements R16 to R1
 - **Corner check.** Lists rolls that have been on the shelf longer than N days (default 7), rolls
   whose order is no longer open, and leftovers from orders that are already fully shipped.
 - **Create dispatch.** For one confirmed order. The screen suggests which rolls to load.
+- **Auto draft.** When a QC pass means one shade band of passed rolls covers what is left of the
+  order, `auto_draft` opens a draft dispatch in the same transaction (audit action `auto_draft`).
+  No rolls are loaded and no vehicle is set: dispatch still scans every roll and confirms, so the
+  right-rolls check stays. Never a second open truck for the same order.
 - **Loading by scan.** Each roll is scanned (or typed) onto the truck. The server checks it and
   returns a running count, the metres loaded and the metres still to load.
 - **Confirm.** In one transaction:

@@ -346,6 +346,38 @@ def shelf(db: Session) -> list[dict]:
 # --- shared services (contract: docs/contracts.md). Never commit; caller owns the transaction.
 
 
+# QC pass that lets one shade band cover the rest of the order: draft a truck for dispatch.
+# order row lock so two inspectors passing at once cannot open two trucks
+def auto_draft(
+    db: Session, order_id: int, user_id: int, at: datetime | None = None
+) -> Dispatch | None:
+    order = db.scalar(select(Order).where(Order.id == order_id).with_for_update())
+    if not order or order.status != OrderStatus.confirmed:
+        return None
+    open_truck = select(Dispatch.id).where(
+        Dispatch.order_id == order.id, Dispatch.status != DispatchStatus.confirmed
+    )
+    if db.scalar(open_truck):
+        return None
+    shipped, _ = _order_metres(db, order.id)
+    pick = pick_rolls(_free_rolls(db, order.id), qty(order.qty_m - shipped))
+    if not pick or pick.short > 0:
+        return None
+    d = Dispatch(
+        code=next_code(db, "DN"),
+        order_id=order.id,
+        buyer_id=order.buyer_id,
+        status=DispatchStatus.draft,
+    )
+    if at:
+        d.created_at = at
+    db.add(d)
+    db.flush()
+    data = {"order_id": order.id, "band": pick.band, "roll_ids": [r.id for r in pick.rolls]}
+    audit.record(db, user_id, "auto_draft", "dispatches", d.id, data=data)
+    return d
+
+
 # rolls on the shelf: passed QC, not on any dispatch; optional order / shade band filter
 def finished_stock(
     db: Session, order_id: int | None = None, shade_band: str | None = None

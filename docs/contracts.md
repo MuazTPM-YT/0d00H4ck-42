@@ -116,6 +116,7 @@ caller. Status: **done** = implemented and tested, **stub** = raises `NotImpleme
 | `quality.roll_trace(db, roll_id)` | Razan | done | order, loom, shift, weaver, yarn batches + suppliers, QC attempts, events |
 | `tracking.order_stage(db, order_id)` | Ashil | done | derived buyer stage + metres per bucket |
 | `dispatch.finished_stock(db, order_id=None, shade_band=None)` | Ashil | done | `list[Roll]` passed and not dispatched |
+| `dispatch.auto_draft(db, order_id, user_id, at=None)` | Ashil | done | draft `Dispatch` when one shade band of passed rolls covers what is left of the order and no truck is open, else `None`. Locks the order row. Called by `quality.decide` on pass |
 | `dispatch.corner_check(db, days=7)` | Ashil | done | rolls too long on shelf, order not open, or leftover of a shipped order |
 | `finance.order_cost(db, order_id)` | Ashil | done | yarn (FIFO GRN cost) + labour + machine + rework/reject vs revenue |
 | `finance.issue_invoice(db, user_id, dispatch, rolls)` | Ashil | done | `Invoice` + one line per roll; called only by dispatch confirm |
