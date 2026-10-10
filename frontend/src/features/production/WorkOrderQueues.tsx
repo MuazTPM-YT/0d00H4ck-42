@@ -23,11 +23,11 @@ const qtyOf = (wo: OpenWorkOrder, v: string) => (wo.unit === "kg" ? kg(v) : metr
 function JobLine({ wo }: { wo: OpenWorkOrder }) {
   return (
     <div className="min-w-0">
-      <p className="truncate font-medium">
+      <p className="truncate font-medium" title={`${wo.code} · ${wo.order_code}`}>
         {wo.code} · {wo.order_code}
         {wo.roll_id && " · rework"}
       </p>
-      <p className="text-xs text-muted-foreground tabular">
+      <p className="truncate text-xs text-muted-foreground tabular" title={`${qtyOf(wo, wo.produced)} of ${qtyOf(wo, wo.planned_qty)} · due ${date(wo.deadline)}`}>
         {qtyOf(wo, wo.produced)} of {qtyOf(wo, wo.planned_qty)} ({pct(wo.produced, wo.planned_qty)}%) · due {date(wo.deadline)}
       </p>
     </div>
@@ -49,16 +49,16 @@ function WaitingRow({ wo, machines }: { wo: OpenWorkOrder; machines: BoardTile[]
   const queue = useFloorAction<{ id: number; machine_id: number }>((b) => `/production/work-orders/${b.id}/queue`);
   const usable = machines.filter((m) => m.type === wo.stage);
   return (
-    <li className="grid gap-2 rounded-lg border bg-card p-3">
+    <li className="grid min-w-0 gap-2 rounded-lg border bg-card p-3">
       <JobLine wo={wo} />
       <form
-        className="flex gap-2"
+        className="flex min-w-0 gap-2"
         onSubmit={(e) => {
           e.preventDefault();
           if (machineId) queue.mutate({ id: wo.id, machine_id: Number(machineId) });
         }}
       >
-        <select aria-label={`Machine for ${wo.code}`} required value={machineId} onChange={(e) => setMachineId(e.target.value)} className={selectClass}>
+        <select aria-label={`Machine for ${wo.code}`} required value={machineId} onChange={(e) => setMachineId(e.target.value)} className={`${selectClass} min-w-0 flex-1`}>
           <option value="">Pick a {wo.stage} machine</option>
           {usable.map((m) => (
             <option key={m.machine_id} value={m.machine_id} disabled={m.status === "breakdown" || m.status === "maintenance"}>
@@ -138,54 +138,59 @@ function MachineQueue({ machine, jobs, onMove }: { machine: BoardTile; jobs: Ope
   }
 
   return (
-    <section className="rounded-lg border bg-card" aria-label={`${machine.code} queue`}>
-      <header className="flex items-center justify-between gap-2 border-b px-4 py-3">
-        <h3 className="font-semibold">{machine.code}</h3>
-        <StatusBadge status={machine.status} />
+    <section className="min-w-0 rounded-lg border bg-card" aria-label={`${machine.code} queue`}>
+      <header className="flex min-w-0 items-center justify-between gap-2 border-b px-4 py-3">
+        <h3 className="truncate font-semibold" title={machine.name}>{machine.code}</h3>
+        <StatusBadge status={machine.status} className="shrink-0" />
       </header>
       <ul className="divide-y">
         {active.map((wo) => (
-          <li key={wo.id} className="flex flex-wrap items-center gap-2 px-4 py-3">
-            <div className="min-w-0 flex-1">
-              <JobLine wo={wo} />
+          <li key={wo.id} className="grid gap-2 px-4 py-3">
+            <JobLine wo={wo} />
+            <div className="flex flex-wrap items-center gap-2">
+              <StatusBadge status={wo.status} />
+              <span className="flex-1" aria-hidden />
+              {wo.status === "paused" ? (
+                <>
+                  <Button variant="outline" onClick={() => onMove(wo)}>
+                    Move
+                  </Button>
+                  <Button onClick={() => act.mutate({ id: wo.id, verb: "start" })} disabled={act.isPending}>
+                    <Play /> Resume
+                  </Button>
+                </>
+              ) : (
+                <Button variant="outline" onClick={() => act.mutate({ id: wo.id, verb: "finish" })} disabled={act.isPending}>
+                  <Square /> Finish
+                </Button>
+              )}
             </div>
-            <StatusBadge status={wo.status} />
-            {wo.status === "paused" ? (
-              <>
-                <Button size="lg" variant="outline" onClick={() => onMove(wo)}>
-                  Move
-                </Button>
-                <Button size="lg" onClick={() => act.mutate({ id: wo.id, verb: "start" })} disabled={act.isPending}>
-                  <Play /> Resume
-                </Button>
-              </>
-            ) : (
-              <Button size="lg" variant="outline" onClick={() => act.mutate({ id: wo.id, verb: "finish" })} disabled={act.isPending}>
-                <Square /> Finish
-              </Button>
-            )}
           </li>
         ))}
         {queued.map((wo, i) => (
-          <li key={wo.id} className="flex flex-wrap items-center gap-2 px-4 py-3">
-            <span className="w-6 text-center text-sm text-muted-foreground tabular">{i + 1}</span>
-            <div className="min-w-0 flex-1">
-              <JobLine wo={wo} />
+          <li key={wo.id} className="grid gap-2 px-4 py-3">
+            <div className="flex min-w-0 items-start gap-2">
+              <span className="w-6 shrink-0 pt-0.5 text-center text-sm text-muted-foreground tabular">{i + 1}</span>
+              <div className="min-w-0 flex-1">
+                <JobLine wo={wo} />
+              </div>
             </div>
-            <div className="flex gap-1">
-              <Button size="icon-lg" variant="ghost" aria-label={`Move ${wo.code} up`} disabled={i === 0 || reorder.isPending} onClick={() => swap(i, i - 1)}>
+            <div className="flex flex-wrap items-center gap-1 pl-8">
+              <StatusBadge status={wo.status} />
+              <span className="flex-1" aria-hidden />
+              <Button size="icon" variant="ghost" aria-label={`Move ${wo.code} up`} disabled={i === 0 || reorder.isPending} onClick={() => swap(i, i - 1)}>
                 <ArrowUp />
               </Button>
-              <Button size="icon-lg" variant="ghost" aria-label={`Move ${wo.code} down`} disabled={i === queued.length - 1 || reorder.isPending} onClick={() => swap(i, i + 1)}>
+              <Button size="icon" variant="ghost" aria-label={`Move ${wo.code} down`} disabled={i === queued.length - 1 || reorder.isPending} onClick={() => swap(i, i + 1)}>
                 <ArrowDown />
               </Button>
-              <Button size="icon-lg" variant="ghost" aria-label={`Take ${wo.code} off the queue`} disabled={act.isPending} onClick={() => act.mutate({ id: wo.id, verb: "unqueue" })}>
+              <Button size="icon" variant="ghost" aria-label={`Take ${wo.code} off the queue`} disabled={act.isPending} onClick={() => act.mutate({ id: wo.id, verb: "unqueue" })}>
                 <Undo2 />
               </Button>
-              <Button size="lg" variant="outline" onClick={() => onMove(wo)}>
+              <Button variant="outline" onClick={() => onMove(wo)}>
                 Move
               </Button>
-              <Button size="lg" disabled={active.length > 0 || act.isPending} onClick={() => act.mutate({ id: wo.id, verb: "start" })}>
+              <Button disabled={active.length > 0 || act.isPending} onClick={() => act.mutate({ id: wo.id, verb: "start" })}>
                 <Play /> Start
               </Button>
             </div>
@@ -225,7 +230,7 @@ export function WorkOrderQueues() {
     <>
       <PageHeader title="Work orders" description="Queue jobs on machines of the right type. A broken machine takes no new work." />
       {jobs.isPending || board.isPending ? (
-        <div className="grid gap-4 lg:grid-cols-[22rem_1fr]">
+        <div className="grid gap-4 lg:grid-cols-[22rem_minmax(0,1fr)]">
           <Skeleton className="h-64" />
           <Skeleton className="h-64" />
         </div>
@@ -234,7 +239,7 @@ export function WorkOrderQueues() {
           Work orders appear here when sales confirms an order.
         </EmptyState>
       ) : (
-        <div className="grid items-start gap-6 lg:grid-cols-[22rem_1fr]">
+        <div className="grid items-start gap-6 lg:grid-cols-[22rem_minmax(0,1fr)]">
           <section aria-label="Waiting">
             <h2 className="mb-3 text-sm font-semibold text-muted-foreground">Waiting</h2>
             {all.some((w) => w.status === "waiting") ? (
