@@ -6,7 +6,7 @@ can embed `OrderYarnPanel`. Covers R4: "is there enough yarn to start this order
 
 ## What it does
 
-1. **Sales enters the order:** buyer, fabric, colour, metres, rate per metre, deadline. While they
+1. **The accounts desk enters the order:** buyer, fabric, colour, metres, rate per metre, deadline. While they
    type, `POST /orders/requirement-preview` shows needed / free / short per recipe line.
 2. **Save** creates a `draft` order `SO-000123`.
 3. **Confirm** runs in one transaction:
@@ -45,7 +45,7 @@ is applied at dyeing. Worked example: 1000 m × 1.5 m × 120 g/m² / 1000 = 180 
    later, so the loom needs white yarn. This is in `yarn_components` and tested.
 3. **What if there is not enough yarn?** Confirm still reserves what is free. The rest shows on the
    to-buy list, and one click turns it into an expected delivery tagged to the order.
-4. **Can sales confirm the same order twice and double the work orders?** No. The second confirm
+4. **Can the desk confirm the same order twice and double the work orders?** No. The second confirm
    is a 409 `illegal_transition`, and `create_work_orders` returns the existing set anyway.
 5. **Why compute the to-buy list instead of storing it?** It is derived from orders, reservations,
    issues and deliveries. A stored list would go stale the moment yarn arrives.

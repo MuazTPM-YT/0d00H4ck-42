@@ -49,7 +49,7 @@ function WaitingRow({ wo, machines }: { wo: OpenWorkOrder; machines: BoardTile[]
   const queue = useFloorAction<{ id: number; machine_id: number }>((b) => `/production/work-orders/${b.id}/queue`);
   const usable = machines.filter((m) => m.type === wo.stage);
   return (
-    <li className="grid min-w-0 gap-2 rounded-lg border bg-card p-3">
+    <li className="grid min-w-0 gap-2 border border-border bg-card p-3">
       <JobLine wo={wo} />
       <form
         className="flex min-w-0 gap-2"
@@ -138,12 +138,12 @@ function MachineQueue({ machine, jobs, onMove }: { machine: BoardTile; jobs: Ope
   }
 
   return (
-    <section className="min-w-0 rounded-lg border bg-card" aria-label={`${machine.code} queue`}>
-      <header className="flex min-w-0 items-center justify-between gap-2 border-b px-4 py-3">
+    <section className="min-w-0 border border-border border-t-2 border-t-foreground bg-card" aria-label={`${machine.code} queue`}>
+      <header className="flex min-w-0 items-center justify-between gap-2 border-b border-border px-4 py-3">
         <h3 className="truncate font-semibold" title={machine.name}>{machine.code}</h3>
         <StatusBadge status={machine.status} className="shrink-0" />
       </header>
-      <ul className="divide-y">
+      <ul className="scroll-panel max-h-[28rem] divide-y divide-border">
         {active.map((wo) => (
           <li key={wo.id} className="grid gap-2 px-4 py-3">
             <JobLine wo={wo} />
@@ -236,14 +236,16 @@ export function WorkOrderQueues() {
         </div>
       ) : all.length === 0 ? (
         <EmptyState icon={ClipboardList} title="No open work orders">
-          Work orders appear here when sales confirms an order.
+          Work orders appear here when the accounts desk confirms an order.
         </EmptyState>
       ) : (
         <div className="grid items-start gap-6 lg:grid-cols-[22rem_minmax(0,1fr)]">
-          <section aria-label="Waiting">
-            <h2 className="mb-3 text-sm font-semibold text-muted-foreground">Waiting</h2>
+          <section aria-label="Waiting" className="lg:sticky lg:top-6">
+            <h2 className="eyebrow mb-3">
+              Waiting <span className="num">{all.filter((w) => w.status === "waiting").length}</span>
+            </h2>
             {all.some((w) => w.status === "waiting") ? (
-              <ul className="grid gap-3">
+              <ul className="scroll-panel grid content-start gap-3 pr-1 lg:max-h-[calc(100dvh-8rem)]">
                 {all
                   .filter((w) => w.status === "waiting")
                   .map((wo) => (
@@ -259,7 +261,7 @@ export function WorkOrderQueues() {
               const ofStage = machines.filter((m) => m.type === stage);
               return ofStage.length ? (
                 <section key={stage} aria-label={humanize(stage)}>
-                  <h2 className="mb-3 text-sm font-semibold text-muted-foreground">{humanize(stage)}</h2>
+                  <h2 className="eyebrow mb-3">{humanize(stage)}</h2>
                   <div className="grid gap-4 xl:grid-cols-2">
                     {ofStage.map((m) => (
                       <MachineQueue key={m.machine_id} machine={m} jobs={all.filter((w) => w.machine_id === m.machine_id)} onMove={setMoving} />

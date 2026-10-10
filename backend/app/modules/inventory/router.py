@@ -17,7 +17,7 @@ router = APIRouter(
 )
 
 Store = Depends(require_roles(Role.store))
-Buyers = Depends(require_roles(Role.store, Role.sales))  # people who order yarn from suppliers
+Buyers = Depends(require_roles(Role.store, Role.accounts))  # people who order yarn from suppliers
 OwnerOnly = Depends(require_roles())
 Search = Annotated[str | None, Query(max_length=60)]
 

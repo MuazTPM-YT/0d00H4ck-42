@@ -47,8 +47,8 @@ flowchart LR
 | `POST /api/analytics/run` | supervisor | run all detectors now; returns created/updated/unchanged/skipped |
 | `GET /api/analytics/attention` | any logged in | the caller role's to-do list (max 12) |
 | `GET /api/analytics/briefing` | any logged in | that list in sentences |
-| `GET /api/analytics/delivery` | sales, supervisor | every confirmed order's forecast, worst first |
-| `GET /api/analytics/orders/{id}/delivery-estimate` | sales, supervisor | one order; 409 `not_forecastable` if not confirmed |
+| `GET /api/analytics/delivery` | accounts, supervisor | every confirmed order's forecast, worst first |
+| `GET /api/analytics/orders/{id}/delivery-estimate` | accounts, supervisor | one order; 409 `not_forecastable` if not confirmed |
 
 Shared services (never commit): `delivery_estimate(db, order_id)`, `attention_items(db, role)`.
 

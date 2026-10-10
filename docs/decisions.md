@@ -35,3 +35,6 @@ One line of context, the choice, and why. Newest at the bottom.
 | 29 | Delivery forecast computed on read, not stored | Always matches the floor; a breakdown or QC event triggers one debounced `orders` SSE event so screens refetch. | Cached forecast table (goes stale) |
 | 30 | Analytics background loop via `APIRouter(lifespan=...)` | FastAPI merges router lifespans, so `main.py` stays untouched. One uvicorn worker, so one loop. | Cron / separate worker process (more moving parts) |
 | 31 | Detector runs serialised by a Postgres advisory lock | Loop and button can overlap; the lock makes the second wait, so no duplicate insights. | Unique index only (needs a schema change, see schema-requests) |
+| 32 | Sales merged into accounts: one desk for buyer orders and the books (migration `0002`) | The mill runs one office desk; six roles match the people on site. | Two roles with the same person logged in twice |
+| 33 | QC: Razan's `quality.decide` is the base; trace, repeat-scan key, ledger guard and 4-point points added on top | One inspection path for UI, scanners and the simulator. | Two parallel QC services |
+| 34 | Type: IBM Plex Sans body, Plex Mono labels and codes, Source Serif 4 titles, self-hosted at build | Clean and readable on a tablet at the loom; still works offline. | Cormorant Garamond titles (thin at small sizes), system fonts |

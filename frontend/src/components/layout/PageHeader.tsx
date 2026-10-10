@@ -25,7 +25,7 @@ export function PageHeader({ title, description, actions }: { title: string; des
       <span className="reg -top-[6px] -right-[6px]" aria-hidden />
       <div className="grid gap-6 py-7 sm:grid-cols-[minmax(0,1fr)_minmax(0,42%)]">
         <div className="flex min-w-0 flex-col">
-          <p className="eyebrow">
+          <div className="eyebrow">
             <span className="num text-foreground">{index}</span>
             <span aria-hidden>·</span>
             {crumbs.length > 1 ? (
@@ -42,8 +42,8 @@ export function PageHeader({ title, description, actions }: { title: string; des
             ) : (
               <span>{group}</span>
             )}
-          </p>
-          <h1 className="mt-3 truncate text-[2.5rem] font-normal sm:text-[3rem]">{title}</h1>
+          </div>
+          <h1 className="mt-3 truncate text-[2.25rem] sm:text-[2.7rem]">{title}</h1>
           {description && <p className="mt-2 max-w-xl text-[0.97rem] text-body">{description}</p>}
           {actions && <div className="mt-5 flex flex-wrap items-center gap-2">{actions}</div>}
         </div>

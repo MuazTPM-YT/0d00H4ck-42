@@ -3,7 +3,8 @@
 Things the problem statement does not say, and what we chose. Change one only with the team.
 
 - **Mill size.** One site, about 10 machines, 24 workers, 3 shifts. One server on the factory LAN.
-- **Roles.** Owner, store, supervisor, QC, dispatch, accounts, sales. Owner can do everything.
+- **Roles.** Owner, store, supervisor, QC, dispatch, accounts. Accounts is one desk for buyer
+  orders (sales) and the books. Owner can do everything.
 - **Route.** Every fabric is woven (rolls are born at weaving). Spinning and dyeing are optional
   stages per fabric type.
 - **Dyed fabric.** A fabric with a dyeing stage is woven from `Raw White` yarn. The order colour

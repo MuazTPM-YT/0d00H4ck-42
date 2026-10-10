@@ -583,11 +583,11 @@ def new_order(mill: Mill, t: datetime) -> None:
     )
     db.add(order)
     db.flush()
-    audit.record(db, mill.user[Role.sales], "create", "orders", order.id)
+    audit.record(db, mill.user[Role.accounts], "create", "orders", order.id)
     check_transition(ORDER_TRANSITIONS, order.status, OrderStatus.confirmed)
     order.status, order.confirmed_at = OrderStatus.confirmed, t
-    audit.record(db, mill.user[Role.sales], "confirmed", "orders", order.id)
-    production.create_work_orders(db, order.id, mill.user[Role.sales])
+    audit.record(db, mill.user[Role.accounts], "confirmed", "orders", order.id)
+    production.create_work_orders(db, order.id, mill.user[Role.accounts])
     db.commit()
     mill.orders_made += 1
     if mill.orders_made == LEAKY_ORDER_NO:

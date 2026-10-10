@@ -173,7 +173,7 @@ def test_order_cost_hand_calculated(db, mill):
 def test_order_cost_is_accounts_only(client_as, mill, db):
     o = mill.order()
     db.commit()
-    assert client_as(Role.sales).get(f"/api/finance/orders/{o.id}/cost").status_code == 403
+    assert client_as(Role.store).get(f"/api/finance/orders/{o.id}/cost").status_code == 403
     res = client_as(Role.accounts).get(f"/api/finance/orders/{o.id}/cost")
     assert res.status_code == 200 and res.json()["rules"]
 
@@ -423,3 +423,20 @@ def test_machine_production_counts_metres_and_hours(client_as, db, mill):
 
 def test_finance_roles(client_as):
     assert client_as(Role.qc).get("/api/finance/invoices").status_code == 403
+
+
+# scene 7: every order billed in the month, with cost to date that matches order_cost
+def test_order_costs_lists_billed_orders_with_their_cost(client_as, db, mill):
+    billed = mill.order()
+    invoice_for(db, billed, 150_000, days_ago=0)
+    quiet = mill.order()
+    db.commit()
+    month = datetime.now(IST).strftime("%Y-%m")
+    acc = client_as(Role.accounts)
+    rows = acc.get(f"/api/finance/order-costs?month={month}").json()
+    assert [r["order_code"] for r in rows] == [billed.code]
+    cost = service.order_cost(db, billed.id)
+    assert rows[0]["total_paise"] == cost["total_paise"]
+    assert rows[0]["invoiced_paise"] == cost["invoiced_paise"]
+    assert quiet.code not in {r["order_code"] for r in rows}
+    assert client_as(Role.store).get(f"/api/finance/order-costs?month={month}").status_code == 403

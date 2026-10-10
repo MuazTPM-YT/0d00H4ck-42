@@ -1,15 +1,15 @@
 from decimal import Decimal
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import func, select
 
-from app.core.errors import Conflict
+from app.core.errors import Conflict, Unprocessable
 from app.modules.auth.models import Role
 from app.modules.inventory.models import MoveReason, StockMove
 from app.modules.masters.models import Location, LocationKind
 from app.modules.production import service as production
 from app.modules.production.models import WorkOrder
-from app.modules.production.schemas import RollIn
+from app.modules.production.schemas import RollIn, RollProcessIn
 from app.modules.quality import service
 from app.modules.quality.models import QcCheck, Roll, RollEvent, RollStatus
 from app.modules.quality.schemas import QcCheckIn
@@ -155,3 +155,92 @@ def test_summary_counts_decisions_and_defects(db, floor, make_user, client_as):
     assert s["defects_by_type"] == {"hole": 3, "colour_mismatch": 1}
     assert s["by_machine"] == [{"key": "LM-T1", "checks": 3, "defects": 4}]
     assert s["by_order"] == [{"key": "SO-T1", "checks": 3, "defects": 4}]
+
+
+# --- 4-point score, repeat scans, ledger guard, checks list, trace
+
+
+def test_hole_scores_four_and_score_is_per_100_square_metres():
+    defects = [{"type": "hole", "count": 2}, {"type": "stain", "count": 3, "points": 2}]
+    points = service.defect_points(defects)
+    assert points == 2 * 4 + 3 * 2
+    # 100 m x 1.5 m = 150 m2 -> 14 points x 100 / 150
+    assert service.points_per_100m2(points, Decimal(100), Decimal(150)) == Decimal("9.3")
+    assert service.points_per_100m2(points, Decimal(100), None) is None
+
+
+def test_each_defect_type_once(db, floor, client_as):
+    roll = roll_waiting(db, floor)
+    twice = [{"type": "stain", "count": 1}, {"type": "stain", "count": 2}]
+    res = client_as(Role.qc).post(
+        f"/api/quality/rolls/{roll.id}/checks", json={"decision": "rework", "defects": twice}
+    )
+    assert res.status_code == 422 and res.json()["error"]["field"] == "defects"
+
+
+def test_same_scan_twice_saves_once(db, floor, client_as):
+    roll = roll_waiting(db, floor)
+    qc = client_as(Role.qc)
+    body = {"decision": "pass", "shade_band": "A", "idempotency_key": "tablet-7-0001"}
+    first = qc.post(f"/api/quality/rolls/{roll.id}/checks", json=body)
+    second = qc.post(f"/api/quality/rolls/{roll.id}/checks", json=body)
+    assert first.status_code == second.status_code == 201
+    assert second.json() == first.json()
+    assert db.scalar(select(func.count()).where(QcCheck.roll_id == roll.id)) == 1
+
+
+def test_roll_off_its_ledger_location_is_refused(db, floor, make_user):
+    roll = roll_waiting(db, floor)
+    roll.location_id = floor.loc[LocationKind.finished].id  # row says shelf, ledger says floor
+    db.commit()
+    with pytest.raises(Conflict) as e:
+        decide(db, roll, make_user(Role.qc), decision="pass", shade_band="A")
+    assert e.value.code == "stock_mismatch"
+
+
+def test_rework_stage_must_be_on_the_route(db, floor, make_user):
+    roll = roll_waiting(db, floor)
+    with pytest.raises(Unprocessable):
+        decide(
+            db,
+            roll,
+            make_user(Role.qc),
+            decision="rework",
+            defects=[{"type": "colour_mismatch", "count": 1}],
+            rework_stage="dyeing",
+        )
+
+
+def test_checks_list_and_trace_follow_the_rework_loop(db, floor, client_as):
+    roll = roll_waiting(db, floor, 40)
+    qc = client_as(Role.qc)
+    url = f"/api/quality/rolls/{roll.id}/checks"
+    defects = [{"type": "broken_pick", "count": 2, "points": 3}, {"type": "hole", "count": 1}]
+    res = qc.post(url, json={"decision": "rework", "defects": defects})
+    assert res.status_code == 201, res.text
+    job = db.get(WorkOrder, res.json()["rework_work_order_id"])
+    production.queue_work_order(db, job.id, floor.loom2.id, floor.supervisor.id)
+    production.start_work_order(db, job.id, floor.supervisor.id)
+    production.process_roll(db, roll.id, RollProcessIn(work_order_id=job.id), None)
+    body = {"decision": "pass", "shade_band": "A", "gsm": "115", "width_cm": "147"}
+    assert qc.post(url, json=body).status_code == 201
+
+    checks = qc.get(f"/api/quality/checks?roll_id={roll.id}").json()
+    assert checks["total"] == 2 and checks["items"][0]["decision"] == "pass"
+    rework = checks["items"][1]
+    assert rework["points"] == 2 * 3 + 4  # hole forced to 4 points
+    assert rework["defects"][1] == {"type": "hole", "count": 1, "points": 4}
+
+    trace = client_as(Role.dispatch).get(f"/api/quality/rolls/{roll.id}/trace").json()
+    assert trace["roll"]["status"] == "passed"
+    assert [c["decision"] for c in trace["checks"]] == ["rework", "pass"]
+    assert [y["supplier_lot"] for y in trace["yarn"]] == ["LOT-1"]
+    assert [j["code"] for j in trace["rework_jobs"]] == [job.code]
+    assert [e["kind"] for e in trace["events"]] == ["woven", "qc_rework", "rework", "qc_pass"]
+    assert trace["rework_stages"] == ["weaving"]
+
+
+def test_find_roll_by_scanned_code(db, floor, client_as):
+    roll = roll_waiting(db, floor)
+    res = client_as(Role.qc).get(f"/api/quality/rolls?code={roll.code.lower()}")
+    assert [r["id"] for r in res.json()["items"]] == [roll.id]

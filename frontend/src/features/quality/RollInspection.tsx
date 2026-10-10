@@ -10,10 +10,10 @@ import { StatusBadge } from "@/components/layout/StatusBadge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
-import { dateTime, humanize, metres } from "@/lib/format";
+import { dateTime, humanize, kg, metres } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
-import { type Decision, DEFECT_TYPES, type DefectType, type RollDetail, SHADE_BANDS, type ShadeBand, useDecide, useRoll } from "./api";
+import { type Decision, DEFECTS, type DefectType, defectLabel, defectPoints, type RollDetail, SHADE_BANDS, type ShadeBand, SIZES, scorePer100, type Stage, useDecide, useQueue, useRoll, useTrace } from "./api";
 
 const DECISIONS: { value: Decision; label: string; icon: typeof Check; on: string }[] = [
   { value: "pass", label: "Pass", icon: Check, on: "border-success bg-success-soft text-success" },
@@ -99,10 +99,11 @@ export function RollInspection({ id, compact = false }: { id: number; compact?: 
       </dl>
 
       {done && (
-        <p role="status" className="flex items-center gap-2 border border-success bg-success-soft px-3 py-2.5 text-sm font-medium text-success">
+        <div role="status" className="flex flex-wrap items-center gap-2 border border-success bg-success-soft px-3 py-2.5 text-sm font-medium text-success">
           <Check className="size-4 shrink-0" aria-hidden />
-          {done}
-        </p>
+          <span className="flex-1">{done}</span>
+          {!compact && <NextRoll after={r.id} />}
+        </div>
       )}
 
       {r.status === "awaiting_qc" && <DecisionForm key={`${r.id}-${r.checks.length}`} roll={r} onDone={setDone} />}
@@ -116,10 +117,15 @@ export function RollInspection({ id, compact = false }: { id: number; compact?: 
                   <span className="label">Attempt {c.attempt_no}</span>
                   <StatusBadge status={c.decision} />
                   {c.shade_band && <span className="label">Shade {c.shade_band}</span>}
+                  {c.defects.length > 0 && (
+                    <span className="label">
+                      {defectPoints(c.defects)} pts · {scorePer100(defectPoints(c.defects), Number(r.length_m), Number(c.width_cm ?? r.fabric_width_cm))} / 100 m²
+                    </span>
+                  )}
                   <span className="ml-auto text-sm text-muted-foreground">{dateTime(c.at)}</span>
                 </div>
                 {c.defects.length > 0 && (
-                  <p className="text-sm text-body">{c.defects.map((d) => `${humanize(d.type)} × ${d.count}`).join(", ")}</p>
+                  <p className="text-sm text-body">{c.defects.map((d) => `${defectLabel(d.type)} × ${d.count}`).join(", ")}</p>
                 )}
                 {(c.gsm || c.width_cm) && (
                   <p className="num text-sm text-muted-foreground">
@@ -134,19 +140,129 @@ export function RollInspection({ id, compact = false }: { id: number; compact?: 
           </ol>
         </Section>
       )}
+
+      {!compact && <TraceSections id={r.id} />}
     </div>
   );
+}
+
+// the oldest other roll still waiting: inspectors work the queue without going back to it
+function NextRoll({ after }: { after: number }) {
+  const queue = useQueue(0, 2);
+  const next = queue.data?.items.find((x) => x.id !== after);
+  if (!next) return <Link href="/qc" className="underline underline-offset-4">Back to the queue</Link>;
+  return (
+    <Link href={`/qc/rolls/${next.id}`} className="underline underline-offset-4">
+      Open next roll {next.code}
+    </Link>
+  );
+}
+
+const EVENT_TITLE: Record<string, string> = {
+  woven: "Woven",
+  dyed: "Dyed",
+  rework: "Reworked",
+  qc_pass: "QC passed",
+  qc_rework: "QC sent to rework",
+  qc_reject: "QC rejected",
+};
+
+// D3 genealogy: yarn lots and suppliers in the roll, every event, rework jobs, the truck
+function TraceSections({ id }: { id: number }) {
+  const trace = useTrace(id);
+  if (trace.isPending) return <Skeleton className="h-40 w-full" />;
+  if (trace.isError) return <p className="text-sm text-danger">Trace did not load: {trace.error.message}</p>;
+  const t = trace.data;
+  return (
+    <>
+      <Section title="Yarn in this roll">
+        {t.yarn.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No yarn lineage recorded for this roll.</p>
+        ) : (
+          <ul className="grid border border-border">
+            {t.yarn.map((y) => (
+              <li key={y.batch_id} className="grid grid-cols-[minmax(0,1fr)_auto] gap-x-3 border-b border-border px-3 py-2.5 last:border-0">
+                <span className="min-w-0">
+                  <span className="num font-medium">{y.batch_code}</span> · {y.yarn}
+                  <span className="block truncate text-sm text-muted-foreground">
+                    {y.supplier_name} · lot {y.supplier_lot ?? "none"}
+                  </span>
+                </span>
+                <span className="num self-center">{kg(y.kg)}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </Section>
+      <Section title="Where it has been">
+        <ol className="scroll-panel grid max-h-72 border border-border">
+          {t.events.map((e, i) => (
+            <li key={i} className="grid grid-cols-[8.5rem_1fr] gap-3 border-b border-border px-3 py-2.5 last:border-0">
+              <span className="num text-sm text-muted-foreground">{dateTime(e.at)}</span>
+              <span>
+                <span className="block font-medium">{EVENT_TITLE[e.kind] ?? humanize(e.kind)}</span>
+                <span className="block text-sm text-muted-foreground">{[e.machine_code, e.work_order_code, e.note].filter(Boolean).join(" · ") || "—"}</span>
+              </span>
+            </li>
+          ))}
+          <li className="grid grid-cols-[8.5rem_1fr] gap-3 px-3 py-2.5">
+            <span className="label self-center">Now</span>
+            <span>
+              {t.roll.location_name} ({t.roll.location_code})
+              {t.dispatch && <span className="block text-sm text-muted-foreground">On {t.dispatch.code} · {humanize(t.dispatch.status)}</span>}
+            </span>
+          </li>
+        </ol>
+      </Section>
+      {t.rework_jobs.length > 0 && (
+        <Section title="Rework jobs">
+          <ul className="grid border border-border">
+            {t.rework_jobs.map((j) => (
+              <li key={j.id} className="flex items-center justify-between gap-3 border-b border-border px-3 py-2.5 last:border-0">
+                <span>
+                  <span className="num font-medium">{j.code}</span>
+                  <span className="block text-sm text-muted-foreground">
+                    {humanize(j.stage)}
+                    {j.machine_code ? ` on ${j.machine_code}` : ", not on a machine yet"}
+                  </span>
+                </span>
+                <StatusBadge status={j.status} />
+              </li>
+            ))}
+          </ul>
+        </Section>
+      )}
+    </>
+  );
+}
+
+// the rework job goes where the fault can be fixed: colour faults to dyeing, cloth faults to the loom
+function defaultStage(stages: Stage[], types: string[]): Stage | null {
+  if (stages.includes("dyeing") && types.some((t) => t === "colour_mismatch" || t === "stain")) return "dyeing";
+  return stages.includes("weaving") ? "weaving" : (stages.at(-1) ?? null);
 }
 
 function DecisionForm({ roll, onDone }: { roll: RollDetail; onDone: (message: string) => void }) {
   const decide = useDecide(roll.id);
   const [decision, setDecision] = useState<Decision | null>(null);
   const [defects, setDefects] = useState<Partial<Record<DefectType, number>>>({});
+  const [sizes, setSizes] = useState<Partial<Record<DefectType, number>>>({});
+  const [stage, setStage] = useState<Stage | null>(null);
+  const [key] = useState(() => crypto.randomUUID());
+  const stages = useTrace(roll.id).data?.rework_stages ?? [];
   const [shade, setShade] = useState<ShadeBand | null>(null);
   const [gsm, setGsm] = useState("");
   const [width, setWidth] = useState("");
   const [note, setNote] = useState("");
   const errors = decide.errors;
+  const picked = DEFECTS.filter((d) => defects[d.type]).map((d) => ({ type: d.type, count: defects[d.type]!, points: d.type === "hole" ? 4 : (sizes[d.type] ?? 1) }));
+  const points = defectPoints(picked);
+  const score = scorePer100(points, Number(roll.length_m), Number(width) > 0 ? Number(width) : Number(roll.fabric_width_cm));
+  const reworkStage = stage ?? defaultStage(stages, picked.map((d) => d.type));
+  // measured vs spec, signed percent
+  const off = (measured: string, spec: string) => (Number(measured) > 0 ? Math.round(((Number(measured) - Number(spec)) / Number(spec)) * 1000) / 10 : null);
+  const gsmOff = off(gsm, roll.fabric_gsm);
+  const widthOff = off(width, roll.fabric_width_cm);
 
   const bump = (type: DefectType, by: number) =>
     setDefects((d) => {
@@ -163,11 +279,13 @@ function DecisionForm({ roll, onDone }: { roll: RollDetail; onDone: (message: st
     decide.mutate(
       {
         decision,
-        defects: DEFECT_TYPES.filter((t) => defects[t]).map((t) => ({ type: t, count: defects[t]! })),
+        defects: picked,
         shade_band: decision === "pass" ? shade : null,
         gsm: gsm.trim() || null,
         width_cm: width.trim() || null,
         note: note.trim() || null,
+        rework_stage: decision === "rework" ? reworkStage : null,
+        idempotency_key: key,
       },
       { onSuccess: () => onDone(`${roll.code} ${DONE_TEXT[decision]}.`) },
     );
@@ -185,7 +303,7 @@ function DecisionForm({ roll, onDone }: { roll: RollDetail; onDone: (message: st
               aria-checked={decision === value}
               onClick={() => setDecision(value)}
               className={cn(
-                "pressable flex h-20 flex-col items-center justify-center gap-1.5 border font-mono text-[0.8rem] tracking-[0.1em] uppercase outline-none focus-visible:ring-1 focus-visible:ring-ember",
+                "pressable flex h-20 flex-col items-center justify-center gap-1.5 border text-[0.95rem] font-semibold outline-none focus-visible:ring-1 focus-visible:ring-ember",
                 decision === value ? on : "border-border bg-card text-foreground hover:border-foreground",
               )}
             >
@@ -197,29 +315,45 @@ function DecisionForm({ roll, onDone }: { roll: RollDetail; onDone: (message: st
       </Section>
 
       <Section title="Defects">
-        <div className="grid grid-cols-2 gap-2">
-          {DEFECT_TYPES.map((t) => {
-            const n = defects[t] ?? 0;
+        <p className="-mt-1 flex justify-between gap-3 text-sm text-muted-foreground">
+          <span>4-point system: each fault scores by its length.</span>
+          <span className="num shrink-0 text-foreground">
+            {points} {points === 1 ? "pt" : "pts"}{score !== null && points > 0 ? ` · ${score} / 100 m²` : ""}
+          </span>
+        </p>
+        <ul className="grid border border-border">
+          {DEFECTS.map(({ type, label, hint }) => {
+            const n = defects[type] ?? 0;
             return (
-              <div key={t} className={cn("flex items-center justify-between gap-1 border pl-3", n ? "border-ember bg-ember-soft" : "border-border bg-card")}>
-                <button type="button" onClick={() => bump(t, n ? -n : 1)} className={cn("min-w-0 truncate py-2 text-left text-sm", n && "text-ember")}>
-                  {humanize(t)}
-                </button>
-                <div className="flex shrink-0 items-center">
-                  <Button type="button" variant="ghost" size="icon-sm" aria-label={`Fewer ${humanize(t)}`} disabled={!n} onClick={() => bump(t, -1)}>
+              <li key={type} className={cn("grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-2 border-b border-border px-3 py-2 last:border-0", n > 0 && "bg-ember-soft")}>
+                <span className="min-w-0">
+                  <span className={cn("block font-medium", n > 0 && "text-ember")}>{label}</span>
+                  <span className="block truncate text-[0.8rem] text-muted-foreground">{hint}</span>
+                </span>
+                <span className="flex items-center">
+                  <Button type="button" variant="ghost" size="icon-sm" aria-label={`Fewer ${label}`} disabled={!n} onClick={() => bump(type, -1)}>
                     <Minus />
                   </Button>
-                  <span className="num w-6 text-center text-sm" aria-live="polite">
+                  <span className="num w-8 text-center" aria-live="polite">
                     {n}
                   </span>
-                  <Button type="button" variant="ghost" size="icon-sm" aria-label={`More ${humanize(t)}`} onClick={() => bump(t, 1)}>
+                  <Button type="button" variant="ghost" size="icon-sm" aria-label={`More ${label}`} onClick={() => bump(type, 1)}>
                     <Plus />
                   </Button>
-                </div>
-              </div>
+                </span>
+                {n > 0 && type !== "hole" && (
+                  <select aria-label={`${label} length`} value={sizes[type] ?? 1} onChange={(e) => setSizes((v) => ({ ...v, [type]: Number(e.target.value) }))} className="col-span-2 h-10 border border-input px-3 text-sm">
+                    {SIZES.map((sz) => (
+                      <option key={sz.points} value={sz.points}>
+                        {sz.label} · {sz.points} {sz.points === 1 ? "point" : "points"} each
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </li>
             );
           })}
-        </div>
+        </ul>
         {errors.defects && (
           <p role="alert" className="flex items-start gap-1.5 text-[0.88rem] font-medium text-danger">
             <CircleAlert className="mt-0.5 size-4 shrink-0" aria-hidden />
@@ -259,13 +393,25 @@ function DecisionForm({ roll, onDone }: { roll: RollDetail; onDone: (message: st
       )}
 
       <div className="grid grid-cols-2 gap-3">
-        <FormField name="gsm" label="GSM" error={errors.gsm} hint={`Spec ${Number(roll.fabric_gsm)}`}>
+        <FormField name="gsm" label="GSM" error={errors.gsm} hint={gsmOff === null ? `Spec ${Number(roll.fabric_gsm)}` : `${gsmOff > 0 ? "+" : ""}${gsmOff}% vs spec ${Number(roll.fabric_gsm)}`}>
           <Input id="gsm" inputMode="decimal" value={gsm} onChange={(e) => setGsm(e.target.value)} aria-invalid={!!errors.gsm} aria-describedby={errors.gsm ? "gsm-error" : undefined} />
         </FormField>
-        <FormField name="width_cm" label="Width (cm)" error={errors.width_cm} hint={`Spec ${Number(roll.fabric_width_cm)}`}>
+        <FormField name="width_cm" label="Width (cm)" error={errors.width_cm} hint={widthOff === null ? `Spec ${Number(roll.fabric_width_cm)}` : `${widthOff > 0 ? "+" : ""}${widthOff}% vs spec ${Number(roll.fabric_width_cm)}`}>
           <Input id="width_cm" inputMode="decimal" value={width} onChange={(e) => setWidth(e.target.value)} aria-invalid={!!errors.width_cm} aria-describedby={errors.width_cm ? "width_cm-error" : undefined} />
         </FormField>
       </div>
+
+      {decision === "rework" && stages.length > 1 && (
+        <FormField name="rework_stage" label="Redo at" error={errors.rework_stage} hint="The rework job lands on the supervisor's work orders. The roll comes back here after it.">
+          <select id="rework_stage" value={reworkStage ?? ""} onChange={(e) => setStage(e.target.value as Stage)} className="h-11 w-full border border-input px-3">
+            {stages.map((st) => (
+              <option key={st} value={st}>
+                {humanize(st)}
+              </option>
+            ))}
+          </select>
+        </FormField>
+      )}
 
       <FormField name="note" label="Note" error={errors.note}>
         <Input id="note" value={note} maxLength={500} onChange={(e) => setNote(e.target.value)} placeholder="What you saw, where on the roll" />

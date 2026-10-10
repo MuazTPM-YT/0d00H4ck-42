@@ -1,14 +1,15 @@
 import type { Metadata, Viewport } from "next";
-import { Cormorant_Garamond, IBM_Plex_Mono, Manrope } from "next/font/google";
+import { IBM_Plex_Mono, IBM_Plex_Sans, Source_Serif_4 } from "next/font/google";
 import type { ReactNode } from "react";
 
 import { Providers } from "@/app/providers";
 
 import "./globals.css";
 
-// Dither Ledger type: serif display, sans body and figures, mono labels (self-hosted at build)
-const cormorant = Cormorant_Garamond({ subsets: ["latin"], weight: ["300", "400", "500", "600"], style: ["normal", "italic"], variable: "--font-cormorant", display: "swap" });
-const manrope = Manrope({ subsets: ["latin"], variable: "--font-manrope", display: "swap" });
+// one industrial family: Plex Sans body and figures, Plex Mono labels and codes, Source Serif titles
+// (self-hosted at build, so the running app needs no internet)
+const serif = Source_Serif_4({ subsets: ["latin"], style: ["normal", "italic"], axes: ["opsz"], variable: "--font-source-serif", display: "swap" });
+const plexSans = IBM_Plex_Sans({ subsets: ["latin"], variable: "--font-plex-sans", display: "swap" });
 const plexMono = IBM_Plex_Mono({ subsets: ["latin"], weight: ["400", "500"], variable: "--font-plex-mono", display: "swap" });
 
 export const metadata: Metadata = {
@@ -23,7 +24,7 @@ const THEME_BOOT = `try{if(localStorage.getItem("theme")==="dark")document.docum
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
-    <html lang="en-IN" className={`${cormorant.variable} ${manrope.variable} ${plexMono.variable}`} suppressHydrationWarning>
+    <html lang="en-IN" className={`${serif.variable} ${plexSans.variable} ${plexMono.variable}`} suppressHydrationWarning>
       <head>
         <script dangerouslySetInnerHTML={{ __html: THEME_BOOT }} />
       </head>

@@ -19,6 +19,7 @@ from app.modules.finance.schemas import (
     MonthRecord,
     MonthView,
     OrderCost,
+    OrderCostRow,
     PaymentIn,
     PaymentOut,
     PaymentRow,
@@ -102,6 +103,12 @@ def create_expense(data: ExpenseIn, db: Session = Depends(get_db), user: User = 
 @router.get("/orders/{order_id}/cost", response_model=OrderCost)
 def order_cost(order_id: int, db: Session = Depends(get_db)):
     return service.order_cost(db, order_id)
+
+
+# orders worked or billed in the month, each with its cost to date
+@router.get("/order-costs", response_model=list[OrderCostRow])
+def order_costs(month: Month, db: Session = Depends(get_db)):
+    return service.order_costs(db, month)
 
 
 @router.get("/machine-production", response_model=list[MachineProduction])
