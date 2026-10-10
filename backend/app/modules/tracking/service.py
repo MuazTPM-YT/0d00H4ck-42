@@ -9,7 +9,7 @@ from app.core.config import get_settings
 from app.core.db import SessionLocal
 from app.core.enums import Unit
 from app.core.errors import NotFound
-from app.core.units import qty
+from app.core.units import fully_shipped, qty
 from app.modules.analytics import service as analytics
 from app.modules.auth.models import User
 from app.modules.dispatch.models import Dispatch, DispatchRoll, DispatchStatus
@@ -37,7 +37,6 @@ BUCKET = {
 STARTED = {WorkOrderStatus.queued, WorkOrderStatus.running, WorkOrderStatus.paused}
 BUSY = {WorkOrderStatus.running, WorkOrderStatus.paused}
 # good metres within this share of the order count as the whole order (rolls never cut exact)
-DONE_SHARE = Decimal("0.98")
 
 
 def order_by_token(db: Session, token: str) -> Order:
@@ -77,14 +76,13 @@ def derive_stage(
         return BuyerStage.cancelled, None, None
     if order_status == OrderStatus.draft:
         return BuyerStage.order_received, None, None
-    enough = qty_m * DONE_SHARE
-    if order_status == OrderStatus.closed or m["shipped"] >= enough:
+    if order_status == OrderStatus.closed or fully_shipped(m["shipped"], qty_m):
         return BuyerStage.shipped, None, None
     if m["shipped"] > 0:
         return BuyerStage.partly_shipped, None, None
     waiting_qc = m["in_qc"] > 0
     good = m["passed"] + m["shipped"]
-    if m["passed"] >= qty_m or (good >= enough and not waiting_qc):
+    if m["passed"] >= qty_m or (fully_shipped(good, qty_m) and not waiting_qc):
         return BuyerStage.ready_to_ship, None, None
     busy = any(s["status"] in BUSY for s in stages)
     last_done = bool(stages) and _stage_done(stages[-1], qty_m)

@@ -17,7 +17,7 @@ from app.core.errors import Conflict, NotFound, Unprocessable
 from app.core.idempotency import run_once
 from app.core.pagination import Page
 from app.core.states import check_transition
-from app.core.units import qty
+from app.core.units import fully_shipped, qty
 from app.modules.auth.models import User
 from app.modules.dispatch.models import Dispatch, DispatchRoll, DispatchStatus
 from app.modules.finance import service as finance
@@ -39,7 +39,6 @@ SHELF_DAYS = 7
 # corner check: a truck open (draft or loading) longer than this is forgotten
 STALE_TRUCK_HOURS = 12
 # an order counts as fully shipped within this short fall (rolls never cut exact)
-CLOSE_TOLERANCE = Decimal("0.02")
 OPEN = (DispatchStatus.draft, DispatchStatus.loading)
 # wrong delivery codes before the code locks; 6 digits and 5 tries leave a 1 in 200,000 guess
 OTP_TRIES = 5
@@ -440,13 +439,13 @@ def finished_stock(
     return list(db.scalars(stmt))
 
 
-# shipped (confirmed trucks) covers the order, give or take CLOSE_TOLERANCE
+# shipped (confirmed trucks) covers the order, by the one fully-shipped rule
 def order_fully_shipped(db: Session, order_id: int) -> bool:
     db.flush()  # confirm calls this before commit: its own truck must count
     order = db.get(Order, order_id)
     if not order:
         raise NotFound(f"Order {order_id} not found")
-    return shipped_metres(db, order_id) >= order.qty_m * (1 - CLOSE_TOLERANCE)
+    return fully_shipped(shipped_metres(db, order_id), order.qty_m)
 
 
 # trucks left open: started long ago and never sent, or their order is no longer open
@@ -501,7 +500,7 @@ def corner_check(db: Session, days: int = SHELF_DAYS) -> list[dict]:
             reasons.append(f"on shelf over {days} days")
         if order.status != OrderStatus.confirmed:
             reasons.append(f"order is {order.status}")
-        elif shipped >= order.qty_m:
+        elif fully_shipped(shipped, order.qty_m):
             reasons.append("leftover: order already fully shipped")
         if reasons:
             items.append(
