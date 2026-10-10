@@ -132,6 +132,14 @@ def test_store_sees_yarn_below_reorder_level(db, floor):
     assert items[0]["href"] == "/store/stock"
 
 
+# R3: low-stock warning also lands on the owner dashboard
+def test_owner_sees_yarn_below_reorder_level(db, floor):
+    db.get(YarnItem, floor.batches[0].yarn_item_id).reorder_level_kg = Decimal(100)
+    db.commit()
+    items = service.attention_items(db, Role.owner, NOW)
+    assert "Cotton Ne 40/1 Raw White below reorder level" in titles(items)
+
+
 def test_open_insights_join_the_role_list(client_as, db):
     db.add(
         Insight(
