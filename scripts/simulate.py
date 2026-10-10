@@ -430,7 +430,7 @@ class Mill:
         if local.hour in (9, 17, 1) and self.rng.random() < 0.15:
             self.move_one_worker(t)
         if local.hour == 10:
-            for _ in range(3 if self.day(t) == 0 else int(self.rng.random() < 0.85)):
+            for _ in range(3 if self.day(t) == 0 else 1 + int(self.rng.random() < 0.3)):
                 new_order(self, t)
         self.schedule(t)
         for m in self.machines:
