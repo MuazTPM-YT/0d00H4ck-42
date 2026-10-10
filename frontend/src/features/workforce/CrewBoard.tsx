@@ -15,7 +15,7 @@ import { useSSE } from "@/lib/useSSE";
 import { type Machine, todayIST, useFloorAction, useMachines } from "@/features/production/api";
 import { selectClass } from "@/features/production/FloorForms";
 
-import { type AttendanceStatus, clock, type Crew, matches, rosterOf, type RosterRow, useAttendance, useCrew, useCurrentShift, useShifts, useWorkers, type Worker } from "./api";
+import { type AttendanceStatus, clock, type Crew, matches, rosterOf, type RosterRow, type Shift, useAttendance, useCrew, useCurrentShift, useShifts, useWorkers, type Worker } from "./api";
 import { AttendanceDialog, AttendancePanel, compactSelect, type Filter } from "./AttendancePanel";
 
 const STAGE_ORDER = ["spinning", "weaving", "dyeing"];
@@ -47,8 +47,10 @@ function MachineCard({
   const [workerId, setWorkerId] = useState("");
   const assign = useFloorAction<object>(() => "/workforce/crew");
   const end = useFloorAction<{ id: number }>((b) => `/workforce/crew/${b.id}/end`);
-  const now = crew.filter((c) => !c.to_at);
-  const earlier = crew.filter((c) => c.to_at);
+  // an assignment closed at a shift end still to come is on the machine until then
+  const onUntil = (c: Crew) => !c.to_at || Date.parse(c.to_at) > Date.now();
+  const now = crew.filter(onUntil);
+  const earlier = crew.filter((c) => !onUntil(c));
   const error = assign.errors.machine_id ?? assign.errors.worker_id ?? assign.errors.form ?? assign.errors.date ?? assign.errors.shift_id ?? end.errors.form;
   const pickedHere = picked?.crew?.machine_id === machine.id;
 
@@ -150,6 +152,56 @@ function MachineCard({
   );
 }
 
+// the shift before this one; the one before the first shift of a day is last night's
+function previousShift(shifts: Shift[], day: string, shiftId: number): { date: string; shift: Shift } | null {
+  const ordered = [...shifts].sort((a, b) => a.start_time.localeCompare(b.start_time));
+  const i = ordered.findIndex((s) => s.id === shiftId);
+  if (i < 0 || ordered.length < 2) return null;
+  if (i > 0) return { date: day, shift: ordered[i - 1] };
+  const before = new Date(`${day}T00:00:00Z`);
+  before.setUTCDate(before.getUTCDate() - 1);
+  return { date: before.toISOString().slice(0, 10), shift: ordered[ordered.length - 1] };
+}
+
+// shift change in one tap: last shift's crew onto the same machines, absent people skipped
+function CarryCrew({ day, shiftId, shifts }: { day: string; shiftId: number; shifts: Shift[] }) {
+  const prev = previousShift(shifts, day, shiftId);
+  const carry = useFloorAction<object>(() => "/workforce/crew/carry");
+  const [done, setDone] = useState<number | null>(null);
+  if (!prev) return null;
+  const error = Object.values(carry.errors)[0];
+  return (
+    <div className="grid gap-2">
+      <span className="label">Shift change</span>
+      <Button
+        type="button"
+        variant="outline"
+        className="h-14"
+        disabled={carry.isPending}
+        onClick={() =>
+          carry.mutate(
+            { date: day, shift_id: shiftId, from_date: prev.date, from_shift_id: prev.shift.id },
+            { onSuccess: (res) => setDone((res as { created: number }).created) },
+          )
+        }
+      >
+        {carry.isPending ? "Bringing crew…" : `Bring crew from ${prev.shift.name}`}
+      </Button>
+      {error ? (
+        <p role="alert" className="text-sm text-danger">
+          {error}
+        </p>
+      ) : (
+        done !== null && (
+          <p className="label normal-case tracking-[0.04em]">
+            <span className="num">{done}</span> placed from {prev.shift.name}
+          </p>
+        )
+      )}
+    </div>
+  );
+}
+
 // R9 + R20: who runs which machine this shift; attendance follows from it
 export function CrewBoard() {
   useSSE(["machines"]);
@@ -222,7 +274,7 @@ export function CrewBoard() {
     <>
       <PageHeader title="Crew and attendance" description="Put workers on machines at shift start. Attendance fills itself from this." />
 
-      <div className="mb-6 grid items-end gap-4 border border-border bg-card p-4 lg:grid-cols-[minmax(0,1fr)_auto_auto]">
+      <div className="mb-6 grid items-end gap-4 border border-border bg-card p-4 lg:grid-cols-[minmax(0,1fr)_auto_auto_auto]">
         <div className="grid gap-2">
           <label htmlFor="crew-search" className="label">
             Find a worker
@@ -288,6 +340,7 @@ export function CrewBoard() {
             ))}
           </select>
         </FormField>
+        <CarryCrew key={`${day}-${shiftId}`} day={day} shiftId={shiftId} shifts={shifts.data?.items ?? []} />
       </div>
 
       {failed ? (

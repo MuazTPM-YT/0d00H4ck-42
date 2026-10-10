@@ -11,6 +11,8 @@ from app.modules.workforce import service
 from app.modules.workforce.schemas import (
     AttendanceIn,
     AttendanceOut,
+    CarryIn,
+    CarryOut,
     CrewIn,
     CrewOut,
     CurrentShiftOut,
@@ -54,6 +56,11 @@ def list_crew(date: date, shift_id: int, db: Session = Depends(get_db)):
 def assign_crew(body: CrewIn, db: Session = Depends(get_db), user: User = Supervisor):
     row = service.assign_crew(db, body, user.id)
     return next(c for c in service.list_crew(db, row.date, row.shift_id) if c["id"] == row.id)
+
+
+@router.post("/crew/carry", response_model=CarryOut)
+def carry_crew(body: CarryIn, db: Session = Depends(get_db), user: User = Supervisor):
+    return {"created": service.carry_crew(db, body, user.id)}
 
 
 @router.post("/crew/{assignment_id}/end", response_model=CrewOut)

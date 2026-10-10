@@ -50,7 +50,7 @@ export const useAttendance = (day: string, shiftId: number) =>
   });
 
 export function rosterOf(workers: Worker[], crew: Crew[], attendance: Attendance[]): RosterRow[] {
-  const onMachine = new Map(crew.filter((c) => !c.to_at).map((c) => [c.worker_id, c]));
+  const onMachine = new Map(crew.filter((c) => !c.to_at || Date.parse(c.to_at) > Date.now()).map((c) => [c.worker_id, c]));
   const marked = new Map(attendance.map((a) => [a.worker_id, a]));
   return workers.map((worker) => {
     const c = onMachine.get(worker.id);
