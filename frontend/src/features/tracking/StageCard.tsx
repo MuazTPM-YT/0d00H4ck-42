@@ -28,6 +28,8 @@ export type Track = {
   projected_finish: string | null;
   risk: "on_track" | "at_risk" | "late" | null;
   timeline: { at: string; title: string }[];
+  // trucks that left; only on the buyer link
+  deliveries?: { challan: string; left_at: string; rolls: number; metres: string; vehicle_no: string | null; driver: string | null }[];
 };
 
 const STEPS: { stage: Stage; label: string }[] = [
@@ -127,6 +129,31 @@ export function Timeline({ events }: { events: Track["timeline"] }) {
           </li>
         ))}
       </ol>
+    </section>
+  );
+}
+
+// every truck that left for the buyer, with the challan number their gate will sign
+export function Deliveries({ items }: { items: NonNullable<Track["deliveries"]> }) {
+  if (items.length === 0) return null;
+  return (
+    <section className="rounded-lg border bg-card">
+      <h2 className="border-b px-4 py-3 font-medium">Deliveries ({items.length})</h2>
+      <ul className="divide-y text-sm">
+        {items.map((d) => (
+          <li key={d.challan} className="grid gap-1 px-4 py-3 sm:grid-cols-[1fr_auto]">
+            <div>
+              <div className="font-medium">Challan {d.challan}</div>
+              <div className="text-muted-foreground">
+                Left the mill {dateTime(d.left_at)}
+                {d.vehicle_no && ` · vehicle ${d.vehicle_no}`}
+                {d.driver && ` · driver ${d.driver}`}
+              </div>
+            </div>
+            <div className="tabular sm:text-right">{d.rolls} {d.rolls === 1 ? "roll" : "rolls"} · {metres(d.metres)}</div>
+          </li>
+        ))}
+      </ul>
     </section>
   );
 }

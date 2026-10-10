@@ -219,9 +219,24 @@ def stages(db: Session, order_ids: list[int]) -> list[dict]:
 
 # produced counts good fabric only, else produced minus the rest gives rejects away
 def public_view(db: Session, token: str) -> dict:
-    card = _card(db, order_by_token(db, token), internal=False)
+    order = order_by_token(db, token)
+    card = _card(db, order, internal=False)
     m = card["metres"]
-    return {**card, "metres": {**m, "produced": qty(m["produced"] - m["rejected"])}}
+    # only trucks that left; a draft or loading truck is still the mill's business
+    deliveries = [
+        {
+            "challan": d.code,
+            "left_at": d.confirmed_at,
+            "rolls": count,
+            "metres": qty(metres),
+            "vehicle_no": d.vehicle_no,
+            "driver": d.driver,
+        }
+        for d, count, metres in _dispatch_rows(db, order.id)
+        if d.status == DispatchStatus.confirmed
+    ]
+    produced = qty(m["produced"] - m["rejected"])
+    return {**card, "metres": {**m, "produced": produced}, "deliveries": deliveries}
 
 
 def order_view(db: Session, order_id: int) -> dict:

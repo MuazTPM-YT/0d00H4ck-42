@@ -214,3 +214,43 @@ def test_stages_for_a_page_of_orders(client_as, db):
     assert client_as(Role.dispatch).get("/api/track/stages?ids=4,x").status_code == 422
     bad = client_as(Role.qc).get(f"/api/track/stages?ids={ready.id}")
     assert bad.status_code == 403
+
+
+# buyer sees every truck that left: challan, when, rolls, metres, vehicle, driver
+def test_buyer_link_lists_trucks_that_left(client, db):
+    from datetime import UTC, datetime
+
+    from app.modules.dispatch.models import Dispatch, DispatchRoll, DispatchStatus
+
+    mill = Mill(db)
+    o = mill.order(200)
+    w = mill.work_order(o)
+    gone = [mill.roll(w, 60, status=RollStatus.dispatched) for _ in range(2)]
+    waiting = mill.roll(w, 80)
+    left = Dispatch(
+        code="DN-T1",
+        order_id=o.id,
+        buyer_id=o.buyer_id,
+        vehicle_no="KA 05 MN 4321",
+        driver="Suresh Kumar",
+        status=DispatchStatus.confirmed,
+        confirmed_at=datetime(2026, 10, 9, 6, 30, tzinfo=UTC),
+    )
+    draft = Dispatch(code="DN-T2", order_id=o.id, buyer_id=o.buyer_id)
+    db.add_all([left, draft])
+    db.flush()
+    db.add_all([DispatchRoll(dispatch_id=left.id, roll_id=r.id) for r in gone])
+    db.add(DispatchRoll(dispatch_id=draft.id, roll_id=waiting.id))
+    db.commit()
+
+    body = client.get(f"/api/track/{o.tracking_token}").json()
+    assert body["deliveries"] == [
+        {
+            "challan": "DN-T1",
+            "left_at": "2026-10-09T06:30:00Z",
+            "rolls": 2,
+            "metres": "120.000",
+            "vehicle_no": "KA 05 MN 4321",
+            "driver": "Suresh Kumar",
+        }
+    ]

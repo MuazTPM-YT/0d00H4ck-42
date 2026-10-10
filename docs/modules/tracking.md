@@ -21,6 +21,8 @@ Owner: Ashil. Code: `backend/app/modules/tracking/`, `frontend/src/features/trac
 - **`/track/[token]`:** a public, read-only page. It shows the same card and a reduced timeline,
   and refreshes every minute. The buyer does not see rejected metres. Produced counts good
   fabric only, so the gap between the numbers does not reveal the rejects either.
+  A **Deliveries** section lists every truck that left: challan number, date and time, rolls,
+  metres, vehicle number and driver. Draft and loading trucks are not shown.
 
 ## Data flow
 
