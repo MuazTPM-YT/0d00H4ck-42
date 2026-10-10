@@ -55,7 +55,8 @@ function Body({ data }: { data: BatchDetail }) {
         <Info label="Received" value={kg(b.received_kg)} />
         <Info label="Cost" value={`${inr(b.unit_cost_paise_per_kg)}/kg`} />
         <Info label="Receipt" value={`${b.receipt?.code} (${b.receipt?.status})`} />
-        <Info label="Where now" value={Object.entries(data.where).map(([k, v]) => `${humanize(k)} ${kg(v)}`).join(", ") || "Not moved yet"} />
+        {/* virtual places (supplier, consumed) run negative in the ledger; show only kilos that sit somewhere */}
+        <Info label="Where now" value={Object.entries(data.where).filter(([, v]) => Number(v) > 0).map(([k, v]) => `${humanize(k)} ${kg(v)}`).join(", ") || "Not moved yet"} />
       </dl>
       {b.mismatch_notes && <p className="rounded-md bg-warning-soft p-3 text-sm text-warning">{b.mismatch_notes}</p>}
 
