@@ -1,4 +1,3 @@
-import logging
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
@@ -6,10 +5,9 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core import audit, events, mail
-from app.core.audit import AuditLog
 from app.core.config import get_settings
 from app.core.db import SessionLocal
-from app.core.errors import Conflict, NotFound
+from app.core.errors import NotFound
 from app.core.units import qty
 from app.modules.analytics import service as analytics
 from app.modules.auth.models import User
@@ -23,14 +21,7 @@ from app.modules.production.models import ProductionLog, WorkOrder, WorkOrderSta
 from app.modules.quality.models import Roll, RollStatus
 from app.modules.tracking.schemas import BuyerStage, Risk
 
-log = logging.getLogger(__name__)
 IST = timezone(timedelta(hours=5, minutes=30))
-# audit actions of the buyer link email; the newest one is what the order page shows
-LINK_EMAIL = {
-    "link_email_sent": "sent",
-    "link_email_failed": "failed",
-    "link_email_skipped": "skipped",
-}
 ZERO = Decimal(0)
 # roll status -> buyer bucket; in_process rolls are woven but not yet at the QC table
 BUCKET = {
@@ -287,7 +278,7 @@ def order_view(db: Session, order_id: int) -> dict:
     return {
         **_card(db, order, internal=True),
         "mail_on": mail.enabled(),
-        "link_email": _last_link_email(db, order.id),
+        "link_email": mail.last_attempt(db, "link", ("orders", order.id)),
         "order_id": order.id,
         "order_status": order.status,
         "buyer_name": buyer.name,
@@ -347,29 +338,7 @@ def rotate_token(db: Session, user: User, order_id: int) -> dict:
 # --- buyer link email
 
 
-def _last_link_email(db: Session, order_id: int) -> dict | None:
-    row = db.scalar(
-        select(AuditLog)
-        .where(
-            AuditLog.entity_type == "orders",
-            AuditLog.entity_id == order_id,
-            AuditLog.action.in_(LINK_EMAIL),
-        )
-        .order_by(AuditLog.id.desc())
-        .limit(1)
-    )
-    if not row:
-        return None
-    data = row.data or {}
-    return {
-        "status": LINK_EMAIL[row.action],
-        "at": row.created_at,
-        "to": data.get("to"),
-        "error": data.get("error"),
-    }
-
-
-def _link_message(db: Session, order: Order) -> tuple[str | None, str, str]:
+def _link_message(db: Session, order: Order) -> mail.Letter:
     buyer = db.get(Buyer, order.buyer_id)
     fabric = db.get(FabricType, order.fabric_type_id)
     url = f"{get_settings().web_url.rstrip('/')}/track/{order.tracking_token}"
@@ -383,7 +352,8 @@ def _link_message(db: Session, order: Order) -> tuple[str | None, str, str]:
         "driver only after you have counted the rolls.\n\n"
         "Everest Textile Mills"
     )
-    return buyer.email, f"Order {order.code} confirmed: track it here", body
+    subject = f"Order {order.code} confirmed: track it here"
+    return mail.Letter(buyer.email, subject, body, "Buyer has no email address")
 
 
 # shared service: email the buyer their tracking link; the result is an audit row, so a
@@ -392,18 +362,7 @@ def email_link(db: Session, order_id: int, user_id: int | None) -> str:
     order = db.get(Order, order_id)
     if not order:
         raise NotFound(f"Order {order_id} not found")
-    to, subject, body = _link_message(db, order)
-    if not to:
-        action, data = "link_email_skipped", {"error": "Buyer has no email address"}
-    else:
-        try:
-            mail.send(to, subject, body)
-            action, data = "link_email_sent", {"to": to}
-        except OSError as e:
-            log.warning("link email for %s failed: %s", order.code, type(e).__name__)
-            action, data = "link_email_failed", {"to": to, "error": mail.reason(e)}
-    audit.record(db, user_id, action, "orders", order.id, data=data)
-    return LINK_EMAIL[action]
+    return mail.attempt(db, user_id, "link", ("orders", order.id), _link_message(db, order))
 
 
 # after confirm, off the request (BackgroundTasks) on its own session: a slow or dead mail
@@ -419,8 +378,7 @@ def email_link_later(order_id: int, user_id: int) -> None:
 
 # office resend, e.g. after a failure or a new link; waits for the answer so the clerk sees it
 def resend_link(db: Session, user: User, order_id: int) -> dict:
-    if not mail.enabled():
-        raise Conflict("Email is not set up on the server (SMTP_HOST in .env)", code="mail_off")
+    mail.require_on()
     email_link(db, order_id, user.id)
     db.commit()
     events.publish("orders", {"type": "link_email", "id": order_id})
