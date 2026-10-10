@@ -29,6 +29,7 @@ API docs: http://localhost:8000/docs.
 | `make migrate` | `alembic upgrade head` |
 | `make seed` | Demo data: masters, 6 users, at least one row in every status. Safe to run twice. |
 | `make dev` | FastAPI with reload + Next dev server |
+| `make dev-https` | Same, web over HTTPS (self-signed) so tablets on the LAN can scan labels with the camera |
 | `make test` | pytest against a separate `everest_test` database |
 | `make lint` | ruff check, ruff format check, `tsc --noEmit` |
 

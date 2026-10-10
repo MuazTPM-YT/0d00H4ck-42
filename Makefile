@@ -1,7 +1,7 @@
 # Everest Textile Mills: one-command dev tasks.
 # Fresh clone: make db-up migrate seed dev
 
-.PHONY: install db-up db-down db-reset migrate seed simulate simulate-live evaluate dev test lint
+.PHONY: install db-up db-down db-reset migrate seed simulate simulate-live evaluate dev dev-https test lint
 
 .env:
 	python3 scripts/init_env.py
@@ -46,6 +46,14 @@ dev: .env frontend/node_modules
 	@trap 'kill 0' INT TERM; \
 	(cd backend && uv run uvicorn app.main:app --reload --port 8000) & \
 	(cd frontend && npm run dev) & \
+	wait
+
+# same as dev, web on https://<this-computer-ip>:3000 so tablets on the mill Wi-Fi can use the
+# camera (browsers allow it only on HTTPS). Self-signed: each tablet accepts the warning once.
+dev-https: .env frontend/node_modules
+	@trap 'kill 0' INT TERM; \
+	(cd backend && uv run uvicorn app.main:app --reload --port 8000) & \
+	(cd frontend && npx next dev --port 3000 --experimental-https) & \
 	wait
 
 test: .env

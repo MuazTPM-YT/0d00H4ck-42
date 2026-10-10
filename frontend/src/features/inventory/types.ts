@@ -63,6 +63,7 @@ export type LabelCheck = {
   supplier: { id: number; code: string; name: string };
   delivery: Delivery | null;
   comparison: ComparisonRow[];
+  suggested_rate_paise_per_kg: number | null;
 };
 
 export type Receipt = {
@@ -109,7 +110,8 @@ export type IssuePlan = {
   on_floor: { yarn_batch_id: number; code: string; kg: Kg }[];
 };
 
-export type SampleLabel = { delivery_id: number; supplier: string; kg: Kg; kind: "match" | "wrong_colour"; title: string; payload: string };
+// walk_in: no request behind it, so the truck needs a rate per kg
+export type SampleLabel = { delivery_id: number | null; supplier: string; kg: Kg; kind: "match" | "wrong_colour" | "walk_in"; title: string; payload: string };
 
 export const itemLabel = (i: Batch["yarn_item"]) => (i ? `${i.fibre} ${i.count} ${i.colour}` : "Not identified");
 
