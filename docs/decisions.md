@@ -24,3 +24,4 @@ One line of context, the choice, and why. Newest at the bottom.
 | 18 | Commit format `[TAG] module: short message` (Odoo style) | Matches how Odoo writes commits. Judges read it daily. | Conventional Commits |
 | 19 | One folder per module (`models`, `schemas`, `service`, `router`) and `CODEOWNERS` per path | Four people work in parallel with few merge conflicts. Ownership is visible. | Layer-first folders |
 | 20 | Deactivate masters (`active = false`), never delete | Old orders and rolls keep pointing at valid rows. | Hard delete |
+| 21 | QR labels drawn on the server with `segno` (SVG) | Pure Python, zero dependencies, offline. Page shows `<img src=/api/inventory/qr.svg>`. One place defines the label payload. | npm QR package (adds transitive deps to the web app), plain text labels (no scan demo) |
