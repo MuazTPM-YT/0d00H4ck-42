@@ -183,3 +183,19 @@ def test_late_when_forecast_lands_after_deadline(client, db):
     # no forecast outside production, but a missed deadline is still late
     body = client.get(f"/api/track/{draft.tracking_token}").json()
     assert body["risk"] == "late" and body["projected_finish"] is None
+
+
+# order list column: stage for many orders in one call, office roles only
+def test_stages_for_a_page_of_orders(client_as, db):
+    mill = Mill(db)
+    ready = mill.order(100)
+    mill.roll(mill.work_order(ready), 120)
+    waiting = mill.order(200)
+    db.commit()
+    rows = client_as(Role.accounts).get(f"/api/track/stages?ids={ready.id},{waiting.id}").json()
+    by_id = {r["order_id"]: r for r in rows}
+    assert by_id[ready.id]["stage"] == "ready_to_ship" and by_id[ready.id]["passed_m"] == "120.000"
+    assert by_id[waiting.id]["stage"] == "waiting_for_yarn"
+    assert client_as(Role.dispatch).get("/api/track/stages?ids=4,x").status_code == 422
+    bad = client_as(Role.qc).get(f"/api/track/stages?ids={ready.id}")
+    assert bad.status_code == 403

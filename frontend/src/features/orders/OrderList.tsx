@@ -3,12 +3,13 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus, Search } from "lucide-react";
 import Link from "next/link";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 
 import { type Column, DataTable } from "@/components/layout/DataTable";
 import { EmptyState } from "@/components/layout/EmptyState";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { StatusBadge } from "@/components/layout/StatusBadge";
+import { Tabs } from "@/components/layout/Tabs";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -16,6 +17,7 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "
 import { Skeleton } from "@/components/ui/skeleton";
 import { api, type Paged, qs } from "@/lib/api";
 import { date, humanize, inr, kg, metres } from "@/lib/format";
+import { cn } from "@/lib/utils";
 import { useSSE } from "@/lib/useSSE";
 
 import { DeliveryForm, type DeliveryPrefill } from "@/features/inventory/DeliveryForm";
@@ -27,16 +29,64 @@ import type { Order, ToBuyRow } from "./types";
 const LIMIT = 25;
 const STATUSES = ["draft", "confirmed", "cancelled", "closed"];
 
+// buyer-facing stage, derived on the server from work orders, rolls and trucks
+type StageRow = { order_id: number; stage: string; production_stage: string | null; progress_pct: number | null; passed_m: string; shipped_m: string };
+const STAGE_TEXT: Record<string, string> = {
+  order_received: "Not confirmed",
+  waiting_for_yarn: "Waiting for yarn",
+  in_production: "In production",
+  being_checked: "Being checked",
+  ready_to_ship: "Ready to ship",
+  partly_shipped: "Partly shipped",
+  shipped: "Shipped",
+  cancelled: "Cancelled",
+};
+const STAGE_TONE: Record<string, string> = {
+  ready_to_ship: "text-success",
+  shipped: "text-success",
+  partly_shipped: "text-info",
+  being_checked: "text-info",
+  waiting_for_yarn: "text-warning",
+  cancelled: "text-muted-foreground",
+};
+
+function StageCell({ s }: { s?: StageRow }) {
+  if (!s) return <span className="text-muted-foreground">…</span>;
+  if (s.stage === "in_production") {
+    const pct = s.progress_pct ?? 0;
+    return (
+      <span className="grid w-36 gap-1">
+        <span className="text-[0.9rem]">
+          {humanize(s.production_stage ?? "production")} <span className="num text-muted-foreground">{pct}%</span>
+        </span>
+        <span className="h-1.5 border border-border">
+          <span className="block h-full bg-foreground" style={{ width: `${pct}%` }} />
+        </span>
+      </span>
+    );
+  }
+  return <span className={cn("text-[0.9rem] font-medium", STAGE_TONE[s.stage])}>{STAGE_TEXT[s.stage] ?? humanize(s.stage)}</span>;
+}
+
 const columns: Column<Order>[] = [
   { key: "code", header: "Order", cell: (o) => <span className="font-medium tabular">{o.code}</span> },
   { key: "buyer", header: "Buyer", cell: (o) => o.buyer?.name ?? "—", className: "whitespace-nowrap" },
-  { key: "fabric", header: "Fabric", cell: (o) => o.fabric_type?.name ?? "—", className: "whitespace-nowrap" },
-  { key: "colour", header: "Colour", cell: (o) => o.colour },
+  {
+    key: "fabric",
+    header: "Fabric",
+    cell: (o) => (
+      <>
+        <span className="block">{o.fabric_type?.name ?? "—"}</span>
+        <span className="block text-[0.82rem] text-muted-foreground">{o.colour}</span>
+      </>
+    ),
+  },
   { key: "qty", header: "Quantity", cell: (o) => metres(o.qty_m), className: "text-right" },
   { key: "rate", header: "Rate / m", cell: (o) => inr(o.rate_paise_per_m), className: "text-right" },
   { key: "deadline", header: "Deadline", cell: (o) => date(o.deadline) },
   { key: "status", header: "Status", cell: (o) => <StatusBadge status={o.status} /> },
 ];
+const stageColumn = (stages: Map<number, StageRow>): Column<Order> => ({ key: "stage", header: "Where it is", cell: (o) => <StageCell s={stages.get(o.id)} /> });
 
 // sales desk: every order with filters, and the yarn to-buy list
 export function OrderList() {
@@ -49,10 +99,15 @@ export function OrderList() {
         description="Confirming an order plans its work orders and reserves yarn. Anything short lands on the to-buy list."
         actions={<Button asChild><Link href="/orders/new"><Plus /> New order</Link></Button>}
       />
-      <div className="mb-4 flex gap-2" role="tablist" aria-label="Orders view">
-        <Button role="tab" aria-selected={tab === "orders"} variant={tab === "orders" ? "secondary" : "ghost"} onClick={() => setTab("orders")}>All orders</Button>
-        <Button role="tab" aria-selected={tab === "to-buy"} variant={tab === "to-buy" ? "secondary" : "ghost"} onClick={() => setTab("to-buy")}>Yarn to buy</Button>
-      </div>
+      <Tabs
+        label="Orders view"
+        value={tab}
+        onChange={setTab}
+        items={[
+          { key: "orders", label: "All orders" },
+          { key: "to-buy", label: "Yarn to buy" },
+        ]}
+      />
       {tab === "orders" ? <Orders /> : <ToBuy />}
     </>
   );
@@ -68,6 +123,18 @@ function Orders() {
     queryFn: () => api<Paged<Order>>(`/orders${qs({ q, status, limit: LIMIT, offset })}`),
     placeholderData: keepPreviousData,
   });
+  // one extra call per page answers "where is my order" for every row at once
+  const ids = (query.data?.items ?? []).map((o) => o.id).join(",");
+  const stages = useQuery({
+    queryKey: ["orders", "stages", ids],
+    queryFn: () => api<StageRow[]>(`/track/stages?ids=${ids}`),
+    enabled: ids.length > 0,
+    placeholderData: keepPreviousData,
+  });
+  const cols = useMemo(() => {
+    const map = new Map((stages.data ?? []).map((s) => [s.order_id, s]));
+    return [...columns.slice(0, -1), stageColumn(map), columns.at(-1)!];
+  }, [stages.data]);
   return (
     <>
       <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center">
@@ -81,7 +148,7 @@ function Orders() {
         </select>
       </div>
       <DataTable
-        columns={columns}
+        columns={cols}
         query={query}
         offset={offset}
         limit={LIMIT}
