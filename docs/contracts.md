@@ -117,6 +117,7 @@ caller. Status: **done** = implemented and tested, **stub** = raises `NotImpleme
 | `production.create_rework_work_order(db, roll_id, stage, user_id)` | Muaz | done | `WorkOrder` with `roll_id` set; roll must be `rework`; second call returns the open one. Processing the roll on that job sends it back to `awaiting_qc` |
 | `quality.roll_trace(db, roll_id)` | Razan | done | order, loom, shift, weaver, yarn batches + suppliers, QC attempts, events |
 | `tracking.order_stage(db, order_id)` | Ashil | done | derived buyer stage + metres per bucket |
+| `dispatch.email_driver(db, dispatch_id, user_id)` | Ashil | done | `"sent" \| "failed" \| "skipped"`; emails the driver their link (never the code), audit row, never raises on a mail error; caller commits |
 | `tracking.email_link(db, order_id, user_id)` | Ashil | done | `"sent" \| "failed" \| "skipped"`; emails the buyer their link, writes the audit row, never raises on a mail error; caller commits |
 | `dispatch.finished_stock(db, order_id=None, shade_band=None)` | Ashil | done | `list[Roll]` passed and not dispatched |
 | `dispatch.auto_draft(db, order_id, user_id, at=None)` | Ashil | done | draft `Dispatch` when one shade band of passed rolls covers what is left of the order and no truck is open, else `None`. Locks the order row. Called by `quality.decide` on pass |
@@ -170,7 +171,7 @@ Pure helpers in `app.core.units`: `qty`, `rupees_to_paise`, `line_amount_paise`,
 | `GET /api/dispatch/dispatches[/{id}]`, `/finished-stock`, `/corner-check` | dispatch, accounts, supervisor |
 | `POST /api/dispatch/dispatches`, `.../{id}/scan`, `PUT .../{id}/vehicle`, `DELETE .../{id}/rolls/{roll_id}`, `POST .../{id}/confirm` | dispatch |
 | `POST /api/dispatch/dispatches/{id}/shade-override` | supervisor |
-| `POST /api/dispatch/dispatches/{id}/deliver` (code read out on the phone), `.../{id}/new-code` | dispatch |
+| `POST /api/dispatch/dispatches/{id}/deliver` (code read out on the phone), `.../{id}/new-code`, `.../{id}/email-driver` | dispatch |
 | `GET`, `POST /api/deliver/{token}` (driver link; POST needs the buyer's 6-digit code) | public |
 | `/api/finance/*` (invoices, payments, wage-runs, expenses, orders/{id}/cost, order-costs, machine-production, month, month/records) | accounts |
 | `GET /api/analytics/insights[/{id}]` (`?q=` title search), `/insights/counts`, `/attention`, `/briefing` | any logged in (insights filtered to the role's kinds) |
