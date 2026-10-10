@@ -9,6 +9,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.enums import Stage, Unit
+from app.core.units import fully_shipped
 from app.modules.masters.models import Machine, Shift
 from app.modules.orders.models import Order, OrderStatus
 from app.modules.production.models import (
@@ -29,7 +30,6 @@ QC_HOURS = 8  # rolls wait about one shift for inspection
 DISPATCH_HOURS = 24  # dispatch loads once a day
 AT_RISK_HOURS = 24  # less than a day of slack = at risk
 DEFAULT_REPAIR_HOURS = 2.0
-SHIPPED_SHARE = Decimal("0.98")  # this much shipped = order done, nothing left to forecast
 
 
 @dataclass
@@ -191,7 +191,7 @@ def estimate_all(db: Session, now: datetime) -> dict[int, dict]:
             .group_by(Roll.order_id)
         ).all()
     )
-    done = {i for i, o in orders.items() if shipped.get(i, 0) >= o.qty_m * SHIPPED_SHARE}
+    done = {i for i, o in orders.items() if fully_shipped(shipped.get(i, 0), o.qty_m)}
     produced = dict(
         db.execute(
             select(ProductionLog.work_order_id, func.sum(ProductionLog.qty)).group_by(

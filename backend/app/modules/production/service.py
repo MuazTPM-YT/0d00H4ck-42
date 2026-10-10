@@ -38,7 +38,7 @@ from app.modules.quality.models import Roll, RollBatch, RollEvent, RollStatus
 from app.modules.quality.service import ROLL_TRANSITIONS
 from app.modules.workforce.models import CrewAssignment
 from app.modules.workforce.schemas import IST
-from app.modules.workforce.service import crew_on_machine, current_shift, day_start
+from app.modules.workforce.service import crew_on_machine, current_shift, day_start, payroll_open
 
 # weaving and dyeing plan this much over the order so rejected rolls still leave enough metres
 PROCESS_ALLOWANCE = Decimal("0.05")
@@ -588,12 +588,14 @@ def log_output(db: Session, body: OutputIn, user_id: int, at: datetime | None = 
         _require_open_order(db, wo)
         if not _order_issued(db, wo.order_id):
             raise _no_yarn(db, wo.order_id)
+        when = _now(body.at or at)
+        payroll_open(db, when.astimezone(IST).date())  # piece pay for that day is settled
         log = _add_log(
             db,
             wo,
             machine.id,
             body.qty,
-            _now(body.at or at),
+            when,
             body.source,
             body.shift_id,
             body.worker_id,
@@ -1063,24 +1065,18 @@ def timeline(db: Session, machine_id: int, day: date, now: datetime | None = Non
         .order_by(MachineEvent.at, MachineEvent.id)
     ).all()
     points = [(e.at, e.status) for e in ([before] if before else []) + list(day_events)]
+    # route output only, like the board and month-end: rework redoes metres already counted
     logs = db.scalars(
         select(ProductionLog)
         .where(
             ProductionLog.machine_id == machine.id,
             ProductionLog.at >= start,
             ProductionLog.at < start + timedelta(days=1),
+            _main_logs(),
         )
         .order_by(ProductionLog.at)
     ).all()
-    rework = set(
-        db.scalars(
-            select(WorkOrder.id).where(
-                WorkOrder.id.in_({log.work_order_id for log in logs}),
-                WorkOrder.roll_id.is_not(None),
-            )
-        )
-    )
-    made = (log.qty for log in logs if log.work_order_id not in rework)
+    made = (log.qty for log in logs)
     return {
         "machine_id": machine.id,
         "code": machine.code,
@@ -1289,6 +1285,17 @@ def plan_waiting(db: Session, user_id: int | None) -> list[WorkOrder]:
         load[best.id] = load.get(best.id, 0) + 1
         planned.append(wo)
     return planned
+
+
+# ready jobs the planner could not place: no running or idle machine of their stage
+def unplaced_jobs(db: Session) -> list[WorkOrder]:
+    waiting = db.scalars(
+        select(WorkOrder)
+        .join(Order, Order.id == WorkOrder.order_id)
+        .where(WorkOrder.status == WorkOrderStatus.waiting, Order.status == OrderStatus.confirmed)
+        .order_by(Order.deadline, WorkOrder.id)
+    )
+    return [wo for wo in waiting if _ready_to_plan(db, wo)]
 
 
 # after any floor change: queue what became ready, then start whatever a free machine can take

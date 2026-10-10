@@ -488,3 +488,50 @@ def test_cancelled_order_cannot_load_or_ship(client_as, db, mill, dispatch_for):
     res = clerk.post(f"/api/dispatch/dispatches/{d.id}/confirm")
     assert res.status_code == 409 and res.json()["error"]["code"] == "order_not_open"
     assert db.scalar(select(Invoice).where(Invoice.dispatch_id == d.id)) is None
+
+
+# --- no single shade band covers the rest (SO-000019): one band per truck, truck after truck
+
+
+def open_trucks(db, order):
+    return db.scalars(
+        select(Dispatch).where(
+            Dispatch.order_id == order.id, Dispatch.status != DispatchStatus.confirmed
+        )
+    ).all()
+
+
+def test_finished_order_gets_a_truck_in_the_closest_band(db, mill):
+    o = mill.order(200)
+    wo = mill.work_order(o, WorkOrderStatus.running)
+    mill.roll(wo, 100, band="A")
+    mill.roll(wo, 98, band="B")
+    mill.db.commit()
+    assert service.auto_draft(db, o.id, None) is None  # still weaving: a covering band may come
+    wo.status = WorkOrderStatus.done
+    db.commit()
+    d = service.auto_draft(db, o.id, None)
+    assert d is not None and d.status == DispatchStatus.draft
+
+
+def test_confirm_drafts_the_next_truck_and_the_last_closes_the_order(client_as, db, mill):
+    o = mill.order(200)
+    wo = mill.work_order(o)
+    a, b = mill.roll(wo, 100, band="A"), mill.roll(wo, 98, band="B")  # 198 m within 2%
+    first = service.auto_draft(db, o.id, None)
+    db.commit()
+    clerk = client_as(Role.dispatch)
+    vehicle = {"vehicle_no": "KA-01-AB-1234"}
+    assert scan(clerk, first, a).status_code == 200
+    assert (
+        clerk.put(f"/api/dispatch/dispatches/{first.id}/vehicle", json=vehicle).status_code == 200
+    )
+    assert clerk.post(f"/api/dispatch/dispatches/{first.id}/confirm").status_code == 200
+    (second,) = open_trucks(db, o)  # drafted by the confirm, for the rest
+    assert scan(clerk, second, b).status_code == 200
+    assert (
+        clerk.put(f"/api/dispatch/dispatches/{second.id}/vehicle", json=vehicle).status_code == 200
+    )
+    assert clerk.post(f"/api/dispatch/dispatches/{second.id}/confirm").status_code == 200
+    db.refresh(o)
+    assert o.status == OrderStatus.closed and open_trucks(db, o) == []

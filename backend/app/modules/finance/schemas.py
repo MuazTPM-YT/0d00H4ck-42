@@ -211,6 +211,7 @@ class MachineProduction(BaseModel):
     machine_id: int
     code: str
     name: str
+    type: str
     unit: str
     month_qty: Decimal
     days: list[MachineDay]
@@ -222,10 +223,12 @@ class MonthView(BaseModel):
     invoiced_paise: int
     invoiced_ex_gst_paise: int
     received_paise: int
+    collected_of_invoiced_paise: int
     yarn_bills_paise: int
     wages_accrued_paise: int
     wages_paid_paise: int
     expenses_paise: int
+    wage_runs: int
     result_invoiced_paise: int
     result_cash_paise: int
     notes: list[str]

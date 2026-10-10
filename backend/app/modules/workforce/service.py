@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from app.core import audit, events
 from app.core.errors import Conflict, NotFound, Unprocessable
 from app.core.pagination import Page, paginate
-from app.modules.finance.models import WageRun, WageRunStatus
+from app.modules.finance.service import locking_run
 from app.modules.masters.models import Machine, Shift, Worker
 from app.modules.workforce.models import (
     Attendance,
@@ -101,15 +101,10 @@ def list_crew(db: Session, on: date, shift_id: int) -> list[dict]:
     ]
 
 
-# wages for this day are final or paid: changing who worked would no longer match the payout
-def _payroll_open(db: Session, day: date) -> None:
-    run = db.scalar(
-        select(WageRun).where(
-            WageRun.period_start <= day,
-            WageRun.period_end >= day,
-            WageRun.status.in_([WageRunStatus.final, WageRunStatus.paid]),
-        )
-    )
+# wages for this day are final or paid: changing who worked, or what they made, would no
+# longer match the payout
+def payroll_open(db: Session, day: date) -> None:
+    run = locking_run(db, day)
     if run:
         raise Conflict(
             f"Wages for {run.period_start} to {run.period_end} are {run.status}; "
@@ -171,7 +166,7 @@ def _place(
     user_id: int | None,
     at: datetime,
 ) -> CrewAssignment:
-    _payroll_open(db, day)
+    payroll_open(db, day)
     start, end = shift_window(day, shift)
     # a past shift is a record of the whole shift; a later one begins when it begins
     from_at, to_at = (start, end) if at >= end else (max(at, start), None)
@@ -310,7 +305,7 @@ def end_crew(
 
 # manual entry for staff off the machines, and corrections; reason goes in the audit row
 def set_attendance(db: Session, body: AttendanceIn, user_id: int) -> Attendance:
-    _payroll_open(db, body.date)
+    payroll_open(db, body.date)
     shift = _active(db, Shift, body.shift_id, "shift_id")
     _active(db, Worker, body.worker_id, "worker_id")
     if body.status == AttendanceStatus.absent and _on_shift(db, body.date, shift, body.worker_id):

@@ -46,15 +46,17 @@ type MonthView = {
   month: string;
   invoiced_paise: number;
   received_paise: number;
+  collected_of_invoiced_paise: number;
   yarn_bills_paise: number;
   wages_accrued_paise: number;
   wages_paid_paise: number;
   expenses_paise: number;
   result_cash_paise: number;
   result_invoiced_paise: number;
+  wage_runs: number;
 };
 type MonthRecord = { on: string; ref: string; party: string; amount_paise: number };
-type MachineProduction = { machine_id: number; code: string; name: string; unit: string; month_qty: string; days: { day: string; qty: string }[] };
+type MachineProduction = { machine_id: number; code: string; name: string; type: string; unit: string; month_qty: string; days: { day: string; qty: string }[] };
 
 const monthKey = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 const monthName = (key: string) => new Date(`${key}-01T00:00:00`).toLocaleDateString("en-IN", { month: "long", year: "numeric" });
@@ -171,7 +173,7 @@ export function OwnerDashboard() {
   const fabricByDay = useMemo(() => {
     const byDay = new Map<string, number>();
     for (const m of machines.data ?? []) {
-      if (m.unit !== "m" || !m.code.startsWith("LM")) continue;
+      if (m.type !== "weaving") continue;
       for (const d of m.days) byDay.set(d.day, (byDay.get(d.day) ?? 0) + Number(d.qty));
     }
     return [...byDay].sort(([a], [b]) => a.localeCompare(b)).map(([day, metres]) => ({ day: shortDay(day), metres: Math.round(metres) }));
@@ -180,7 +182,7 @@ export function OwnerDashboard() {
   const machineRank = useMemo(
     () =>
       (machines.data ?? [])
-        .filter((m) => m.unit === "m")
+        .filter((m) => m.type === "weaving")
         .map((m) => ({ code: m.code, metres: Math.round(Number(m.month_qty)) }))
         .sort((a, b) => b.metres - a.metres),
     [machines.data],
@@ -212,13 +214,13 @@ export function OwnerDashboard() {
         {v ? (
           <>
             <Stat motif="orders" icon={TrendingUp} label="Invoiced" value={lakh(v.invoiced_paise)} sub={`${inr(v.invoiced_paise)} incl. GST`} />
-            <Stat motif="bars" icon={Banknote} label="Cash received" value={lakh(v.received_paise)} sub={v.invoiced_paise ? `${Math.round((v.received_paise / v.invoiced_paise) * 100)}% of invoiced collected` : "Nothing invoiced yet"} />
+            <Stat motif="bars" icon={Banknote} label="Cash received" value={lakh(v.received_paise)} sub={v.invoiced_paise ? `${Math.round((v.collected_of_invoiced_paise / v.invoiced_paise) * 100)}% of this month's invoices collected` : "Nothing invoiced yet"} />
             <Stat
               motif="mill"
               icon={Wallet}
               label="Month result (cash)"
               value={lakh(v.result_cash_paise)}
-              sub={`Yarn ${lakh(v.yarn_bills_paise)} · wages paid ${lakh(v.wages_paid_paise)} · other ${lakh(v.expenses_paise)}`}
+              sub={`Yarn ${lakh(v.yarn_bills_paise)} · wages paid ${v.wage_runs ? lakh(v.wages_paid_paise) : "none (no wage run yet)"} · other ${lakh(v.expenses_paise)}`}
               tone={v.result_cash_paise >= 0 ? "good" : "bad"}
             />
             <Stat motif="loom" icon={Ruler} label="Fabric woven" value={`${num.format(wovenTotal)} m`} sub={`${fabricByDay.length} working days on the looms`} />
@@ -270,7 +272,7 @@ export function OwnerDashboard() {
         </Card>
 
         <Card className="xl:col-span-2">
-          <CardTitle title="Output by machine" hint="Metres this month, busiest first" icon={Factory} />
+          <CardTitle title="Output by machine" hint="Metres woven this month by loom, busiest first" icon={Factory} />
           <div className="h-64">
             {machineRank.length ? (
               <ResponsiveContainer>
