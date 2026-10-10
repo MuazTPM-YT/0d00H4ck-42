@@ -1,7 +1,7 @@
 # Everest Textile Mills: one-command dev tasks.
 # Fresh clone: make db-up migrate seed dev
 
-.PHONY: install db-up db-down db-reset migrate seed simulate simulate-live dev test lint
+.PHONY: install db-up db-down db-reset migrate seed simulate simulate-live evaluate dev test lint
 
 .env:
 	python3 scripts/init_env.py
@@ -36,6 +36,10 @@ simulate-live: .env
 # DESTRUCTIVE: drops and recreates the dev database. All local data is lost.
 db-reset: .env
 	docker compose exec -T db sh -c 'dropdb -U "$$POSTGRES_USER" --force "$$POSTGRES_DB" && createdb -U "$$POSTGRES_USER" "$$POSTGRES_DB"'
+
+# detectors vs the simulator's planted problems, in a scratch DB; writes docs/ai-evaluation.md
+evaluate: .env
+	cd backend && PYTHONPATH=. uv run python ../scripts/evaluate_detectors.py
 
 # api on :8000, web on :3000 (web proxies /api to api). Ctrl+C stops both.
 dev: .env frontend/node_modules

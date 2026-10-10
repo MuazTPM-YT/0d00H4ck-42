@@ -1,0 +1,194 @@
+# Scores the AI layer's detectors against the problems the month simulator plants.
+# Builds its own scratch database (<POSTGRES_DB>_eval), never touches the dev one.
+# run: make evaluate      (writes docs/ai-evaluation.md)
+import time
+from collections import defaultdict
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
+
+from alembic.config import Config
+from simulate import BAD_SUPPLIER, DECLINE_DAYS, DECLINE_LOOM, LONG_GAP_HOUR, simulate
+from sqlalchemy import create_engine, text
+from sqlalchemy.orm import Session
+
+from alembic import command
+from app.core.config import get_settings
+from app.modules.analytics import detectors
+from app.modules.workforce.schemas import IST
+
+NOW = datetime(2026, 10, 10, 6, 30, tzinfo=UTC)  # fixed, so the report is the same every run
+SEED, DAYS = 42, 30
+REPORT = Path(__file__).resolve().parents[1] / "docs" / "ai-evaluation.md"
+
+
+def fresh_database() -> str:
+    s = get_settings()
+    name = f"{s.postgres_db}_eval"
+    admin = create_engine(s.db_url(), isolation_level="AUTOCOMMIT")
+    with admin.connect() as conn:
+        if not conn.scalar(text("SELECT 1 FROM pg_database WHERE datname = :d"), {"d": name}):
+            conn.execute(text(f'CREATE DATABASE "{name}"'))
+    admin.dispose()
+    url = s.db_url(name)
+    engine = create_engine(url)
+    with engine.begin() as conn:
+        conn.execute(text("DROP SCHEMA public CASCADE; CREATE SCHEMA public"))
+    engine.dispose()
+    cfg = Config("alembic.ini")
+    cfg.set_main_option("sqlalchemy.url", url)
+    command.upgrade(cfg, "head")
+    return url
+
+
+# ground truth: what the simulator planted, and how each finding is matched to it
+def truth(planted: dict) -> dict[str, set]:
+    start = datetime.fromisoformat(planted["from"]).astimezone(IST).date()
+    decline = {start + timedelta(days=d) for d in DECLINE_DAYS}
+    leaky_jobs = {row["work_order"] for row in planted["leaky_order"]}
+    leaky_order = planted["leaky_order"][0]["order"] if planted["leaky_order"] else None
+    return {
+        "supplier_defects": {(BAD_SUPPLIER, "colour_mismatch")},
+        "defect_root_cause": set(),
+        "machine_slowdown": {(DECLINE_LOOM, d) for d in decline},
+        "breakdown_cluster": set(),
+        "shift_change_idle": {f"{LONG_GAP_HOUR:02d}:00"},
+        "yarn_yield_gap": {leaky_order} | leaky_jobs,
+        "impossible_data": {
+            (row["machine"], datetime.fromisoformat(row["at"])) for row in planted["late_logs"]
+        },
+    }
+
+
+# which planted item a finding points at, or None when it points at nothing planted
+def match(f: dict, planted: set):
+    facts = f["facts"]
+    match f["kind"]:
+        case "supplier_defects":
+            key = (facts["supplier"], facts["key"])
+        case "machine_slowdown":
+            days = {
+                datetime.fromisoformat(facts["from"]).date() + timedelta(days=d)
+                for d in range(facts["days"])
+            }
+            hits = {(facts["machine"], d) for d in days} & planted
+            return min(hits, key=lambda h: h[1]) if hits else None
+        case "shift_change_idle":
+            key = facts["at"]
+        case "yarn_yield_gap":
+            jobs = {r["code"] for r in facts["records"] if r["type"] == "work_orders"}
+            hits = ({facts["name"]} | jobs) & planted
+            return sorted(hits)[0] if hits else None
+        case "impossible_data" if facts["check"] == "output_in_downtime":
+            key = (facts["machine"], datetime.fromisoformat(facts["logged_at"]))
+        case _:
+            return None
+    return key if key in planted else None
+
+
+def score(findings: list[dict], expected: dict[str, set]) -> list[dict]:
+    by_kind = defaultdict(list)
+    for f in findings:
+        by_kind[f["kind"]].append(f)
+    rows = []
+    for kind, planted in expected.items():
+        flagged = by_kind[kind]
+        hits = [match(f, planted) for f in flagged]
+        tp = sum(h is not None for h in hits)
+        # yield: the order and its jobs are one planted problem; slowdown: one loom episode
+        if kind in ("yarn_yield_gap", "machine_slowdown"):
+            found, total = int(any(h is not None for h in hits)), int(bool(planted))
+        else:
+            found, total = len({h for h in hits if h is not None}), len(planted)
+        rows.append(
+            {
+                "kind": kind,
+                "planted": total,
+                "flagged": len(flagged),
+                "tp": tp,
+                "fp": len(flagged) - tp,
+                "precision": f"{tp / len(flagged):.2f}" if flagged else "n/a",
+                "recall": f"{found / total:.2f}" if total else "n/a",
+                "titles": [(f["title"], h is not None) for f, h in zip(flagged, hits, strict=True)],
+            }
+        )
+    return rows
+
+
+def write_report(rows: list[dict], planted: dict, seconds: dict) -> None:
+    lines = [
+        "# AI layer: detector evaluation",
+        "",
+        "Generated by `scripts/evaluate_detectors.py` (`make evaluate`). Do not edit by hand.",
+        "",
+        "**This is simulated data, not real mill data.** We have no months of real logs from "
+        "Everest, so `scripts/simulate.py` replays 30 days of mill life through the real services "
+        "and plants five known problems (`docs/simulation.md`). The detectors do not know what "
+        "was planted. They learn each machine's, supplier's and shift's baseline from the same "
+        "simulated rows, then this script checks what they flagged against the planted list.",
+        "",
+        f"Run: seed {SEED}, {DAYS} days ending {planted['to']}. Simulation took "
+        f"{seconds['simulate']:.0f} s, all detectors {seconds['detect']:.2f} s.",
+        "",
+        "| Detector | Planted | Flagged | True | False | Precision | Recall |",
+        "|---|---|---|---|---|---|---|",
+    ]
+    lines += [
+        f"| `{r['kind']}` | {r['planted']} | {r['flagged']} | {r['tp']} | {r['fp']} "
+        f"| {r['precision']} | {r['recall']} |"
+        for r in rows
+    ]
+    lines += [
+        "",
+        "Precision = flagged findings that point at a planted problem. Recall = planted problems "
+        "found. `n/a` = nothing planted or nothing flagged. A detector with nothing planted is "
+        "still scored on false alarms: it should stay silent on a normal month.",
+        "",
+        "How findings are matched:",
+        "",
+        "- `supplier_defects`: supplier and defect type equal SLY, colour mismatch.",
+        "- `machine_slowdown`: LM-03, and the flagged days overlap the planted decline days.",
+        "- `shift_change_idle`: the 06:00 handover (shift C to A).",
+        "- `yarn_yield_gap`: the planted order, or a loom whose flagged jobs include its jobs. "
+        "Order and loom findings count as one planted problem for recall.",
+        "- `impossible_data`: machine and timestamp equal a planted late counter log.",
+        "",
+        "Not covered by the planted month: `defect_root_cause` needs a sudden rise in defects and "
+        "`breakdown_cluster` needs repeated breakdowns; the simulator plants neither. Their recall "
+        "is shown only by unit tests on hand-built fixtures (`backend/tests/"
+        "test_analytics_detectors.py`). Here they are checked for false alarms only.",
+        "",
+        "## Findings",
+        "",
+    ]
+    for r in rows:
+        for title, ok in r["titles"]:
+            lines.append(f"- {'planted' if ok else 'not planted'}: `{r['kind']}` {title}")
+    if not any(r["titles"] for r in rows):
+        lines.append("None.")
+    REPORT.write_text("\n".join(lines) + "\n")
+
+
+def main() -> None:
+    url = fresh_database()
+    engine = create_engine(url)
+    with Session(engine, expire_on_commit=False, autoflush=False) as db:
+        t = time.monotonic()
+        planted = simulate(db, NOW, DAYS, SEED)
+        simulated = time.monotonic() - t
+        end = datetime.fromisoformat(planted["to"])
+        t = time.monotonic()
+        findings = detectors.find_all(db, end)
+        detected = time.monotonic() - t
+    engine.dispose()
+    rows = score(findings, truth(planted))
+    write_report(rows, planted, {"simulate": simulated, "detect": detected})
+    for r in rows:
+        print(
+            f"{r['kind']:20} planted {r['planted']} flagged {r['flagged']} tp {r['tp']} "
+            f"fp {r['fp']} precision {r['precision']} recall {r['recall']}"
+        )
+    print(f"report: {REPORT}")
+
+
+if __name__ == "__main__":
+    main()

@@ -119,8 +119,8 @@ caller. Status: **done** = implemented and tested, **stub** = raises `NotImpleme
 | `dispatch.corner_check(db, days=7)` | Ashil | done | rolls too long on shelf, order not open, or leftover of a shipped order |
 | `finance.order_cost(db, order_id)` | Ashil | done | yarn (FIFO GRN cost) + labour + machine + rework/reject vs revenue |
 | `finance.issue_invoice(db, user_id, dispatch, rolls)` | Ashil | done | `Invoice` + one line per roll; called only by dispatch confirm |
-| `analytics.delivery_estimate(db, order_id)` | Muaz | stub | projected finish, `on_track` / `at_risk` / `late` |
-| `analytics.attention_items(db, role)` | Muaz | stub | short to-do list for that role |
+| `analytics.delivery_estimate(db, order_id)` | Muaz | done | `{expected_at, status, slack_hours, stages, basis}`; status `on_track` / `at_risk` / `late`; 409 `not_forecastable` unless confirmed |
+| `analytics.attention_items(db, role)` | Muaz | done | up to 12 `{kind, severity, title, detail, href, entity_type, entity_id, since}`, worst first |
 
 Also callable: `workforce.current_shift(db, at)` → `(shift date, Shift)`, night shift belongs to
 the date it started; `workforce.crew_on_machine(db, machine_id, at)` → worker id or `None`.
@@ -166,7 +166,10 @@ Pure helpers in `app.core.units`: `qty`, `rupees_to_paise`, `line_amount_paise`,
 | `POST /api/dispatch/dispatches`, `.../{id}/scan`, `PUT .../{id}/vehicle`, `DELETE .../{id}/rolls/{roll_id}`, `POST .../{id}/confirm` | dispatch |
 | `POST /api/dispatch/dispatches/{id}/shade-override` | supervisor |
 | `/api/finance/*` (invoices, payments, wage-runs, expenses, orders/{id}/cost, machine-production, month, month/records) | accounts |
-| `GET /api/analytics/insights` | supervisor |
+| `GET /api/analytics/insights[/{id}]`, `/attention`, `/briefing` | any logged in (insights filtered to the role's kinds) |
+| `POST /api/analytics/insights/{id}/acknowledge`, `/resolve` | any logged in, own kinds |
+| `POST /api/analytics/run` | supervisor |
+| `GET /api/analytics/delivery`, `/orders/{id}/delivery-estimate` | sales, supervisor |
 | `GET /api/track/{token}` | public |
 | `GET /api/track/orders/{id}` | sales, accounts, dispatch |
 | `POST /api/track/orders/{id}/rotate-token` | sales |

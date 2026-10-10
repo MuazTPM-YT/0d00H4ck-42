@@ -77,6 +77,7 @@ Start only after the Core items above work. Detail in `.claude/skills/odoo-hacka
 | # | Feature | Owner | Status |
 |---|---|---|---|
 | D1 | Lot continuity and shade-safe dispatch (one shade band per dispatch) | Razan (shade at QC), Ashil (dispatch rule) | dispatch rule done (scan + confirm + override); shade entry at QC is Razan |
-| D2 | Delivery risk early warning (on track / at risk / late) | Muaz | stub: `analytics.delivery_estimate` |
+| D2 | Delivery risk early warning (on track / at risk / late) | Muaz | done: `analytics.delivery_estimate`, `/owner` forecast table with basis, `DeliveryEstimateCard` drop-in for `/orders/[id]` |
 | D3 | Roll genealogy and root cause (machine, shift, supplier) | Razan | schema: `roll_batches`; stub: `quality.roll_trace` |
 | D4 | True cost per order (FIFO yarn, labour, machine, rework) | Ashil | done: `finance.order_cost` |
+| D5 | AI layer: detectors + insights + briefings (local, no model yet) | Muaz | done: `docs/ai.md`, evaluated in `docs/ai-evaluation.md` |

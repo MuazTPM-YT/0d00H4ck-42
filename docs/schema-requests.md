@@ -94,3 +94,13 @@ Do not edit `backend/alembic/versions/` yourself.
 - Change 2: `analytics.attention_items(db, Role.dispatch)` can call `dispatch.corner_check(db)` to list forgotten rolls as attention items.
 - Change 3: done. `tests/test_errors.py::test_stub_is_501_in_error_shape` used the tracking stub, which is now real. It now checks the 501 handler on its own small app, so it stays valid when the last stubs are built.
 - Status: requested
+
+### One live insight per finding, at the database
+- Requested by: Muaz, 2026-10-10
+- Module: analytics
+- Change: `insights.finding_key VARCHAR(80) NOT NULL DEFAULT ''` and a partial unique index on
+  `(kind, entity_type, entity_id, finding_key) WHERE status <> 'resolved'`
+- Why: D5. Today the key lives in `facts.key` and an advisory lock prevents duplicates; the index
+  would make the database the last guard, like every other invariant.
+- Nullable / default for existing rows: default `''`, backfill from `facts->>'key'`
+- Status: requested (nice to have, not blocking)
