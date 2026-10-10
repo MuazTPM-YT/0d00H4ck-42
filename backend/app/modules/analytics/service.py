@@ -1,3 +1,4 @@
+from collections import defaultdict
 from datetime import UTC, datetime, timedelta
 
 from fastapi.encoders import jsonable_encoder
@@ -13,9 +14,14 @@ from app.modules.analytics.models import Insight, InsightStatus, Severity
 from app.modules.auth.models import Role, User
 from app.modules.finance.models import Invoice, InvoiceStatus
 from app.modules.inventory import service as inventory
-from app.modules.masters.models import Machine, YarnItem
+from app.modules.masters.models import Machine
 from app.modules.orders.models import Order, OrderStatus
-from app.modules.production.models import MachineEvent, MachineStatus
+from app.modules.production.models import (
+    MachineEvent,
+    MachineStatus,
+    WorkOrder,
+    WorkOrderStatus,
+)
 from app.modules.quality.models import Roll, RollEvent, RollStatus
 from app.modules.workforce.schemas import IST
 
@@ -42,6 +48,18 @@ IDLE_TOO_LONG = timedelta(minutes=30)
 QC_WAIT_TOO_LONG = timedelta(hours=4)
 SHELF_TOO_LONG = timedelta(days=3)
 ATTENTION_LIMIT = 12
+PER_KIND = 3  # a flood of one kind must not push the others off the list
+# the "N more" row of each kind: what to call them, where the full list lives
+MORE = {
+    "delivery_risk": ("orders at risk", "/orders"),
+    "low_stock": ("yarns below reorder level", "/store/stock"),
+    "machine": ("machines stopped", "/floor"),
+    "qc_wait": ("rolls waiting for QC", "/qc"),
+    "shelf": ("rolls on the shelf", "/stock/finished"),
+    "overdue_invoice": ("invoices overdue", "/finance/invoices"),
+    "insight": ("open insights", "/insights"),
+}
+INSIGHTS_PAGE = {Role.owner, Role.supervisor}
 
 
 def _now(now: datetime | None) -> datetime:
@@ -138,9 +156,10 @@ def upsert_insight(db: Session, finding: dict) -> str:
         )
         if i.facts.get("key") == facts.get("key")
     ]
-    if any(i.status == InsightStatus.resolved for i in same):
+    closed = [i.id for i in same if i.status == InsightStatus.resolved]
+    if closed and set(closed) - _auto_resolved(db, closed):
         return "skipped"
-    live = same[0] if same else None
+    live = next((i for i in same if i.status != InsightStatus.resolved), None)
     if live and live.facts == facts and live.severity == finding["severity"]:
         return "unchanged"
     narrative = explainer.narrate(finding["kind"], facts)
@@ -155,14 +174,68 @@ def upsert_insight(db: Session, finding: dict) -> str:
     return "created"
 
 
+# insights a detector run closed itself; a person's resolve keeps the finding quiet, these do not
+def _auto_resolved(db: Session, ids: list[int]) -> set[int]:
+    return set(
+        db.scalars(
+            select(audit.AuditLog.entity_id).where(
+                audit.AuditLog.entity_type == "insights",
+                audit.AuditLog.entity_id.in_(ids),
+                audit.AuditLog.action == str(InsightStatus.resolved),
+                audit.AuditLog.user_id.is_(None),
+                audit.AuditLog.data["auto"].as_boolean().is_(True),
+            )
+        )
+    )
+
+
+def _finding_id(kind: str, entity_type: str, entity_id: int, facts: dict) -> tuple:
+    return kind, entity_type, entity_id, facts.get("key")
+
+
+# open findings of detector kinds this run did not produce again: the problem is gone.
+# find_all is all or nothing (a failing detector aborts the run), so a half run closes nothing;
+# kinds no detector owns (hand-made, seeded) are left alone
+def _close_gone(db: Session, findings: list[dict]) -> int:
+    seen = {
+        _finding_id(f["kind"], f["entity_type"], f["entity_id"], jsonable_encoder(f["facts"]))
+        for f in findings
+    }
+    gone = [
+        i
+        for i in db.scalars(
+            select(Insight).where(
+                Insight.status == InsightStatus.open, Insight.kind.in_(list(KIND_ROLES))
+            )
+        )
+        if _finding_id(i.kind, i.entity_type, i.entity_id, i.facts) not in seen
+    ]
+    for i in gone:
+        check_transition(INSIGHT_TRANSITIONS, i.status, InsightStatus.resolved)
+        audit.record(
+            db,
+            None,
+            str(InsightStatus.resolved),
+            "insights",
+            i.id,
+            reason="No longer found by the detectors",
+            data={"auto": True},
+        )
+        i.status = InsightStatus.resolved
+    return len(gone)
+
+
 # all detectors over the ledger; safe to run from the loop and the button at the same time
 def run_detectors(db: Session, now: datetime | None = None) -> dict:
     db.execute(text("SELECT pg_advisory_xact_lock(:k)"), {"k": DETECTOR_LOCK})
     counts = {"created": 0, "updated": 0, "unchanged": 0, "skipped": 0}
-    for finding in detectors.find_all(db, _now(now)):
+    findings = detectors.find_all(db, _now(now))
+    for finding in findings:
         counts[upsert_insight(db, finding)] += 1
+    db.flush()
+    counts["resolved"] = _close_gone(db, findings)
     db.commit()
-    if counts["created"] or counts["updated"]:
+    if counts["created"] or counts["updated"] or counts["resolved"]:
         events.publish("insights", {"type": "run", "id": 0})
     return counts
 
@@ -207,32 +280,45 @@ def _hours(td: timedelta) -> str:
     return f"{minutes} min" if minutes < 120 else f"{minutes // 60} h"
 
 
-# store: free yarn (on hand minus reservations) below the item's reorder level
+# store: inventory's own rule (projected free kg under reorder level), never a second copy of it
 def _low_stock(db: Session, now: datetime) -> list[dict]:
-    items = []
-    for item in db.scalars(select(YarnItem).where(YarnItem.active, YarnItem.reorder_level_kg > 0)):
-        free = inventory.free_stock(db, item.id)
-        if free < item.reorder_level_kg:
-            name = f"{item.fibre} {item.count} {item.colour}"
-            items.append(
-                _item(
-                    "low_stock",
-                    Severity.critical if free <= 0 else Severity.warn,
-                    f"{name} below reorder level",
-                    f"{free} kg free, reorder at {item.reorder_level_kg} kg",
-                    "/store/stock",
-                    "yarn_items",
-                    item.id,
-                )
-            )
-    return items
+    return [
+        _item(
+            "low_stock",
+            Severity.critical if w["level"] == "short" else Severity.warn,
+            f"{w['label']} below reorder level",
+            f"{w['projected_free_kg']} kg free after open orders, "
+            f"reorder at {w['reorder_level_kg']} kg",
+            "/store/stock",
+            "yarn_items",
+            w["yarn_item_id"],
+        )
+        for w in inventory.stock_warnings(db)
+    ]
 
 
-# supervisor: machines stopped, or idle for more than half an hour
+# machines with a job lined up on them, and stages with work waiting on a live order
+def _work_waiting(db: Session) -> tuple[set[int], set[str]]:
+    queued = db.scalars(
+        select(WorkOrder.machine_id).where(
+            WorkOrder.machine_id.is_not(None),
+            WorkOrder.status.in_([WorkOrderStatus.queued, WorkOrderStatus.paused]),
+        )
+    )
+    stages = db.scalars(
+        select(WorkOrder.stage)
+        .join(Order, Order.id == WorkOrder.order_id)
+        .where(WorkOrder.status == WorkOrderStatus.waiting, Order.status == OrderStatus.confirmed)
+    )
+    return set(queued), set(stages)
+
+
+# supervisor: machines stopped, or idle over half an hour while work waits for them
 def _stopped_machines(db: Session, now: datetime) -> list[dict]:
     items = []
-    for event, code in db.execute(
-        select(MachineEvent, Machine.code)
+    queued, waiting_stages = _work_waiting(db)
+    for event, code, stage in db.execute(
+        select(MachineEvent, Machine.code, Machine.type)
         .join(Machine, Machine.id == MachineEvent.machine_id)
         .where(Machine.active, MachineEvent.at <= now)
         .distinct(MachineEvent.machine_id)
@@ -243,14 +329,19 @@ def _stopped_machines(db: Session, now: datetime) -> list[dict]:
             severity, title = Severity.critical, f"{code} in breakdown"
         elif event.status == MachineStatus.maintenance:
             severity, title = Severity.warn, f"{code} in maintenance"
-        elif event.status == MachineStatus.idle and waited > IDLE_TOO_LONG:
+        elif (
+            event.status == MachineStatus.idle
+            and waited > IDLE_TOO_LONG
+            and (event.machine_id in queued or stage in waiting_stages)
+        ):
             severity, title = Severity.warn, f"{code} idle"
         else:
             continue
         detail = _hours(waited) + (f": {event.reason}" if event.reason else "")
         machine_id = event.machine_id
+        href = f"/floor?machine={machine_id}"
         items.append(
-            _item("machine", severity, title, detail, "/floor", "machines", machine_id, event.at)
+            _item("machine", severity, title, detail, href, "machines", machine_id, event.at)
         )
     return items
 
@@ -335,7 +426,7 @@ def _overdue(db: Session, now: datetime) -> list[dict]:
             Severity.warn,
             f"{code} overdue",
             f"due {due:%d %b}, {(today - due).days} days late",
-            "/finance/invoices",
+            f"/finance/invoices?open={invoice_id}",
             "invoices",
             invoice_id,
         )
@@ -349,7 +440,7 @@ def _open_insights(db: Session, role: Role) -> list[dict]:
         stmt = stmt.where(Insight.kind.in_(kinds))
     return [
         _item("insight", i.severity, i.title, i.narrative, f"/insights?id={i.id}", "insights", i.id)
-        for i in db.scalars(stmt.order_by(SEVERITY_RANK, Insight.id.desc()).limit(5))
+        for i in db.scalars(stmt.order_by(SEVERITY_RANK, Insight.id.desc()))
     ]
 
 
@@ -364,15 +455,46 @@ ATTENTION_RULES = {
 RANK = {Severity.critical: 0, Severity.warn: 1, Severity.info: 2}
 
 
-# short list of things this role should act on now; each item links to its record
-def attention_items(db: Session, role: Role, now: datetime | None = None) -> list[dict]:
-    now = _now(now)
+# everything this role should act on, worst first, uncapped
+def _all_items(db: Session, role: Role, now: datetime) -> list[dict]:
     items = [item for rule in ATTENTION_RULES[role] for item in rule(db, now)]
     items += _open_insights(db, role)
-    items.sort(key=lambda i: (RANK[i["severity"]], i["since"] or now))
-    return items[:ATTENTION_LIMIT]
+    return sorted(items, key=lambda i: (RANK[i["severity"]], i["since"] or now))
 
 
+# at most PER_KIND of one kind; the rest fold into one "N more" row linking to the full list
+def _per_kind(items: list[dict], role: Role) -> list[dict]:
+    groups: dict[str, list[dict]] = defaultdict(list)
+    for i in items:
+        groups[i["kind"]].append(i)
+    out = []
+    for kind, group in groups.items():
+        out += group[:PER_KIND]
+        hidden = group[PER_KIND:]
+        noun, href = MORE.get(kind, (None, None))
+        if hidden and noun and (kind != "insight" or role in INSIGHTS_PAGE):
+            worst = min((i["severity"] for i in hidden), key=RANK.get)
+            out.append(_item("more", worst, f"{len(hidden)} more {noun}", None, href, kind, 0))
+    return out
+
+
+# short list of things this role should act on now; each item links to its record.
+# Every kind keeps its top item and its "N more" row, so one flood cannot hide the rest
+def attention_items(db: Session, role: Role, now: datetime | None = None) -> list[dict]:
+    items = _per_kind(_all_items(db, role, _now(now)), role)
+    tops, kinds = [], set()
+    for i in items:
+        if i["kind"] != "more" and i["kind"] not in kinds:
+            kinds.add(i["kind"])
+            tops.append(i)
+    more = [i for i in items if i["kind"] == "more"]
+    top_ids = {id(i) for i in tops}
+    rest = [i for i in items if i["kind"] != "more" and id(i) not in top_ids]
+    keep = {id(i) for i in (tops + more + rest)[:ATTENTION_LIMIT]}
+    return [i for i in items if id(i) in keep]
+
+
+# counts every item, not only the capped list, so "N things" is the real number
 def briefing(db: Session, role: Role, now: datetime | None = None) -> dict:
-    items = attention_items(db, role, now)
+    items = _all_items(db, role, _now(now))
     return {"role": role, "text": explainer.briefing_text(items), "items": len(items)}

@@ -48,6 +48,7 @@ type MonthView = {
   received_paise: number;
   yarn_bills_paise: number;
   wages_accrued_paise: number;
+  wages_paid_paise: number;
   expenses_paise: number;
   result_cash_paise: number;
   result_invoiced_paise: number;
@@ -217,7 +218,7 @@ export function OwnerDashboard() {
               icon={Wallet}
               label="Month result (cash)"
               value={lakh(v.result_cash_paise)}
-              sub={`Yarn ${lakh(v.yarn_bills_paise)} · wages ${lakh(v.wages_accrued_paise)} · other ${lakh(v.expenses_paise)}`}
+              sub={`Yarn ${lakh(v.yarn_bills_paise)} · wages paid ${lakh(v.wages_paid_paise)} · other ${lakh(v.expenses_paise)}`}
               tone={v.result_cash_paise >= 0 ? "good" : "bad"}
             />
             <Stat motif="loom" icon={Ruler} label="Fabric woven" value={`${num.format(wovenTotal)} m`} sub={`${fabricByDay.length} working days on the looms`} />

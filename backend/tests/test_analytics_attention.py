@@ -2,6 +2,7 @@ from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 
 import pytest
+from sqlalchemy import select
 
 from app.core.enums import Source
 from app.modules.analytics import service
@@ -9,8 +10,10 @@ from app.modules.analytics.models import Insight, Severity
 from app.modules.auth.models import Role
 from app.modules.dispatch.models import Dispatch, DispatchStatus
 from app.modules.finance.models import Invoice
+from app.modules.inventory import service as inventory
 from app.modules.masters.models import LocationKind, YarnItem
-from app.modules.production.models import MachineEvent, MachineStatus
+from app.modules.orders.models import OrderStatus
+from app.modules.production.models import MachineEvent, MachineStatus, WorkOrderStatus
 from app.modules.quality.models import Roll, RollEvent, RollStatus
 from tests.floor import build_floor
 
@@ -68,7 +71,7 @@ def test_supervisor_sees_stopped_and_long_idle_machines(db, floor):
     assert titles(items) == ["LM-T1 in breakdown", "LM-T2 idle"]
     assert items[0]["severity"] == Severity.critical
     assert items[0]["detail"] == "60 min: Warp beam snapped"
-    assert items[0]["href"] == "/floor"
+    assert items[0]["href"] == f"/floor?machine={floor.loom1.id}"
 
 
 def test_qc_sees_rolls_waiting_over_four_hours(db, floor):
@@ -83,6 +86,20 @@ def test_dispatch_sees_rolls_on_shelf_for_days(db, floor):
     roll(db, floor, "R-T3", RollStatus.passed, passed_ago=timedelta(days=4))
     roll(db, floor, "R-T4", RollStatus.passed, passed_ago=timedelta(days=1))
     assert titles(service.attention_items(db, Role.dispatch, NOW)) == ["R-T3 on shelf"]
+
+
+# idle with nothing to run is not a problem; idle with a job lined up is
+def test_idle_machine_alerts_only_when_work_waits_for_it(db, floor):
+    floor.dyed_order.status = OrderStatus.cancelled
+    db.commit()
+    event(db, floor.jigger, MachineStatus.idle, timedelta(minutes=45))
+    assert titles(service.attention_items(db, Role.supervisor, NOW)) == []
+
+    floor.dyed_dye.status, floor.dyed_dye.machine_id = WorkOrderStatus.queued, floor.jigger.id
+    db.commit()
+    items = service.attention_items(db, Role.supervisor, NOW)
+    assert titles(items) == ["DYE-T1 idle"]
+    assert items[0]["href"] == f"/floor?machine={floor.jigger.id}"
 
 
 def test_accounts_sees_unpaid_invoices_past_due(db, floor):
@@ -112,6 +129,8 @@ def test_accounts_sees_unpaid_invoices_past_due(db, floor):
     items = service.attention_items(db, Role.accounts, NOW)
     assert titles(items) == ["INV-T1 overdue"]
     assert items[0]["detail"] == "due 01 Oct, 9 days late"
+    invoice_id = db.scalar(select(Invoice.id).where(Invoice.code == "INV-T1"))
+    assert items[0]["href"] == f"/finance/invoices?open={invoice_id}"
 
 
 def test_accounts_sees_orders_that_will_miss_the_deadline(db, floor):
@@ -138,6 +157,98 @@ def test_owner_sees_yarn_below_reorder_level(db, floor):
     db.commit()
     items = service.attention_items(db, Role.owner, NOW)
     assert "Cotton Ne 40/1 Raw White below reorder level" in titles(items)
+
+
+def warning(item_id, level, projected="-40.000", label="Cotton Ne 30/1 Navy") -> dict:
+    return {
+        "yarn_item_id": item_id,
+        "label": label,
+        "projected_free_kg": Decimal(projected),
+        "reorder_level_kg": Decimal("100.000"),
+        "level": level,
+    }
+
+
+# one low-stock rule: inventory's projected warning, not a second count of free kg here
+def test_low_stock_follows_inventory_stock_warnings(db, monkeypatch):
+    rows = [warning(1, "short"), warning(2, "low", "60.000", "Cotton Ne 40/1 Black")]
+    monkeypatch.setattr(inventory, "stock_warnings", lambda db: rows)
+    items = service.attention_items(db, Role.store, NOW)
+    assert titles(items) == [
+        "Cotton Ne 30/1 Navy below reorder level",
+        "Cotton Ne 40/1 Black below reorder level",
+    ]
+    assert [i["severity"] for i in items] == [Severity.critical, Severity.warn]
+    assert items[1]["detail"] == "60.000 kg free after open orders, reorder at 100.000 kg"
+    assert (items[0]["entity_type"], items[0]["entity_id"]) == ("yarn_items", 1)
+
+
+def insight(db, n: int) -> None:
+    for k in range(n):
+        db.add(
+            Insight(
+                kind="machine_slowdown",
+                severity=Severity.warn,
+                entity_type="machines",
+                entity_id=100 + k,
+                title=f"Loom {k} slowed down",
+                facts={},
+                narrative="text",
+            )
+        )
+    db.commit()
+
+
+def late(order_id: int) -> dict:
+    return {
+        "order_id": order_id,
+        "order_code": f"SO-L{order_id}",
+        "status": "late",
+        "deadline": date(2026, 10, 9),
+        "expected_at": NOW + timedelta(days=2),
+        "slack_hours": -48.0,
+    }
+
+
+# ten late orders must not push low stock, overdue bills and findings off the owner's list
+def test_owner_list_caps_each_kind_and_keeps_the_others(db, monkeypatch):
+    monkeypatch.setattr(service, "delivery_board", lambda db, now: [late(k) for k in range(10)])
+    monkeypatch.setattr(
+        inventory, "stock_warnings", lambda db: [warning(k, "short") for k in range(5)]
+    )
+    insight(db, 4)
+    items = service.attention_items(db, Role.owner, NOW)
+    kinds = [i["kind"] for i in items]
+    assert kinds.count("delivery_risk") == 3 and kinds.count("low_stock") == 3
+    assert kinds.count("insight") == 3
+    more = {i["entity_type"]: i for i in items if i["kind"] == "more"}
+    assert more["delivery_risk"]["title"] == "7 more orders at risk"
+    assert more["delivery_risk"]["href"] == "/orders"
+    assert more["delivery_risk"]["severity"] == Severity.critical
+    assert more["low_stock"]["title"] == "2 more yarns below reorder level"
+    assert more["insight"]["title"] == "1 more open insights"
+    assert len(items) <= service.ATTENTION_LIMIT
+    # briefing still counts everything, not the capped list
+    assert service.briefing(db, Role.owner, NOW)["items"] == 19
+
+
+# a role that cannot open /insights gets no "more" row pointing there
+def test_more_findings_row_only_for_roles_with_the_insights_page(db):
+    for k in range(4):
+        db.add(
+            Insight(
+                kind="supplier_defects",
+                severity=Severity.warn,
+                entity_type="suppliers",
+                entity_id=k + 1,
+                title=f"Supplier {k}",
+                facts={},
+                narrative="text",
+            )
+        )
+    db.commit()
+    items = service.attention_items(db, Role.qc, NOW)
+    assert [i["kind"] for i in items] == ["insight"] * 3
 
 
 def test_open_insights_join_the_role_list(client_as, db):

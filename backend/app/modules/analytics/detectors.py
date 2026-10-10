@@ -517,6 +517,7 @@ def load_machine_days(db: Session, now: datetime, days: int = 30) -> list[Machin
 
 CLUSTER_DAYS, MACHINE_CLUSTER, REASON_CLUSTER = 7, 4, 4
 SHIFT_CLUSTER, SHIFT_SHARE = 8, 0.6
+REASON_ENTITY = "breakdown_reasons"  # a reason cluster spans looms, so no one machine owns it
 
 
 @dataclass
@@ -536,10 +537,12 @@ def breakdown_clusters(events: list[Breakdown], now: datetime) -> list[dict]:
     week = now.astimezone(IST).strftime("%G-W%V")
     found = []
 
-    def cluster(group: list[Breakdown], what: str, entity_type: str, entity_id: int, name: str):
+    def cluster(
+        group: list[Breakdown], what: str, entity_type: str, entity_id: int, name: str, tag=None
+    ):
         reasons = Counter(e.reason for e in group).most_common()
         facts = {
-            "key": f"{what}:{week}",
+            "key": f"{what}:{tag}:{week}" if tag else f"{what}:{week}",
             "what": what,
             "name": name,
             "count": len(group),
@@ -562,10 +565,10 @@ def breakdown_clusters(events: list[Breakdown], now: datetime) -> list[dict]:
     for (machine_id, code), group in _group(recent, lambda e: (e.machine_id, e.machine)).items():
         if len(group) >= MACHINE_CLUSTER:
             found.append(cluster(group, "machine", "machines", machine_id, code))
-    for group in _group(recent, lambda e: e.reason.strip().lower()).values():
+    # one finding per reason per week, pinned to the reason, not to whichever loom leads today
+    for reason, group in _group(recent, lambda e: e.reason.strip().lower()).items():
         if len(group) >= REASON_CLUSTER and len({e.machine_id for e in group}) > 1:
-            busiest = Counter(e.machine_id for e in group).most_common(1)[0][0]
-            found.append(cluster(group, "reason", "machines", busiest, group[0].reason))
+            found.append(cluster(group, "reason", REASON_ENTITY, 0, group[0].reason, reason))
     for (shift_id, code), group in _group(recent, lambda e: (e.shift_id, e.shift)).items():
         # a shift pattern needs several days; one bad afternoon is not a pattern
         days = {e.at.astimezone(IST).date() for e in group}
@@ -784,20 +787,32 @@ def load_yield_jobs(db: Session, now: datetime) -> list[YieldJob]:
         )
     ).all()
     ids = [wo.id for wo, *_ in jobs]
+    # yarn goes to the route's first stage (spinning for some fabrics), so read it per order
+    # over every main job of the order, then pin it on the order's weaving job
+    order_of = dict(
+        db.execute(
+            select(WorkOrder.id, WorkOrder.order_id).where(
+                WorkOrder.order_id.in_({wo.order_id for wo, *_ in jobs} or {0}),
+                WorkOrder.roll_id.is_(None),
+            )
+        ).all()
+    )
     sign = {MoveReason.issue: 1, MoveReason.return_: -1}
-    issued, cost = defaultdict(float), defaultdict(float)
+    by_order, cost_by_order = defaultdict(float), defaultdict(float)
     for wo_id, reason, kg, paise in db.execute(
         select(StockMove.ref_id, StockMove.reason, StockMove.qty, YarnBatch.unit_cost_paise_per_kg)
         .join(YarnBatch, YarnBatch.id == StockMove.yarn_batch_id)
         .where(
             StockMove.item_kind == ItemKind.yarn,
             StockMove.ref_type == "work_order",
-            StockMove.ref_id.in_(ids),
+            StockMove.ref_id.in_(list(order_of) or [0]),
             StockMove.reason.in_(sign),
         )
     ):
-        issued[wo_id] += sign[reason] * float(kg)
-        cost[wo_id] += sign[reason] * float(kg) * paise
+        by_order[order_of[wo_id]] += sign[reason] * float(kg)
+        cost_by_order[order_of[wo_id]] += sign[reason] * float(kg) * paise
+    issued = {wo.id: by_order[wo.order_id] for wo, *_ in jobs}
+    cost = {wo.id: cost_by_order[wo.order_id] for wo, *_ in jobs}
     metres = dict(
         db.execute(
             select(Roll.work_order_id, func.sum(Roll.length_m))
