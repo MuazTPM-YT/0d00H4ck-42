@@ -36,6 +36,12 @@ class AttentionItemOut(BaseModel):
     since: datetime | None
 
 
+class BriefingOut(BaseModel):
+    role: str
+    text: str
+    items: int
+
+
 class NoteIn(BaseModel):
     note: Note
 

@@ -8,6 +8,7 @@ from app.modules.analytics import service
 from app.modules.analytics.models import InsightStatus, Severity
 from app.modules.analytics.schemas import (
     AttentionItemOut,
+    BriefingOut,
     DeliveryEstimateOut,
     InsightOut,
     NoteIn,
@@ -71,6 +72,12 @@ def run_detectors(db: Session = Depends(get_db)):
 @router.get("/attention", response_model=list[AttentionItemOut])
 def attention(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     return service.attention_items(db, user.role)
+
+
+# two or three sentences from the same list, for the top of the role home
+@router.get("/briefing", response_model=BriefingOut)
+def briefing(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    return service.briefing(db, user.role)
 
 
 @router.get("/delivery", response_model=list[DeliveryEstimateOut], dependencies=[Planners])

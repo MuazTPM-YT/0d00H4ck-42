@@ -346,3 +346,8 @@ def attention_items(db: Session, role: Role, now: datetime | None = None) -> lis
     items += _open_insights(db, role)
     items.sort(key=lambda i: (RANK[i["severity"]], i["since"] or now))
     return items[:ATTENTION_LIMIT]
+
+
+def briefing(db: Session, role: Role, now: datetime | None = None) -> dict:
+    items = attention_items(db, role, now)
+    return {"role": role, "text": explainer.briefing_text(items), "items": len(items)}

@@ -129,3 +129,17 @@ TEMPLATES: dict[str, Callable[[dict], str]] = {
 
 def narrate(kind: str, facts: dict) -> str:
     return TEMPLATES[kind](facts)
+
+
+# a role's morning summary, from its attention list (which already holds its open insights)
+def briefing_text(items: list[dict]) -> str:
+    if not items:
+        return "Nothing needs you right now. New problems will show up here as they happen."
+    urgent = sum(i["severity"] == "critical" for i in items)
+    text = f"{len(items)} things need you today"
+    text += f", {urgent} of them urgent. " if urgent else ". "
+    text += f"Start with {items[0]['title']}"
+    text += f" ({items[0]['detail']})." if items[0]["detail"] else "."
+    if len(items) > 1:
+        text += f" Then {items[1]['title']}."
+    return text

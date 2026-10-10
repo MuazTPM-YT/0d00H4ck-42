@@ -145,3 +145,14 @@ def test_open_insights_join_the_role_list(client_as, db):
     items = client_as(Role.qc).get("/api/analytics/attention").json()
     assert titles(items) == ["SLY lots: colour mismatch 2.6x"]
     assert items[0]["href"].startswith("/insights?id=")
+
+
+def test_briefing_starts_with_the_most_urgent_item(client_as, db, floor):
+    event(db, floor.loom2, MachineStatus.idle, timedelta(minutes=45))
+    event(db, floor.loom1, MachineStatus.breakdown, timedelta(hours=1), "Warp beam snapped")
+    text = service.briefing(db, Role.supervisor, NOW)["text"]
+    assert text == (
+        "2 things need you today, 1 of them urgent. Start with LM-T1 in breakdown "
+        "(60 min: Warp beam snapped). Then LM-T2 idle."
+    )
+    assert client_as(Role.qc).get("/api/analytics/briefing").json()["text"].startswith("Nothing")
