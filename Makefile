@@ -1,7 +1,7 @@
 # Everest Textile Mills: one-command dev tasks.
 # Fresh clone: make db-up migrate seed dev
 
-.PHONY: install db-up db-down db-reset migrate seed simulate simulate-live evaluate dev dev-https test lint
+.PHONY: install db-up db-down db-reset migrate seed seed-big simulate simulate-live evaluate dev dev-https test lint
 
 .env:
 	python3 scripts/init_env.py
@@ -24,6 +24,13 @@ migrate: .env
 
 seed: .env
 	cd backend && PYTHONPATH=. uv run python ../scripts/seed.py
+
+# DESTRUCTIVE: wipes the dev DB. Masters at mill scale, then 60 simulated days through the real
+# services: hundreds of buyers and workers, ~90 orders, ~2000 rolls and QC checks (~3 min)
+seed-big: .env
+	$(MAKE) db-reset migrate
+	cd backend && PYTHONPATH=. uv run python ../scripts/seed.py --bulk
+	cd backend && PYTHONPATH=. uv run python ../scripts/simulate.py --days 60
 
 # 30 simulated days through the real services; needs an empty DB (make db-reset migrate first)
 simulate: .env
