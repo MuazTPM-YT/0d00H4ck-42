@@ -6,11 +6,12 @@ import sys
 from datetime import UTC, datetime, time, timedelta
 from decimal import Decimal
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 import app.models  # noqa: F401  registers every table
 from app.core.codes import next_code
+from app.core.dates import mill_today
 from app.core.db import SessionLocal
 from app.core.enums import Source, Stage, Unit
 from app.core.security import hash_password
@@ -19,6 +20,7 @@ from app.modules.analytics.models import Insight, InsightStatus, Severity
 from app.modules.auth.models import Role, User
 from app.modules.dispatch.models import Dispatch, DispatchRoll, DispatchStatus
 from app.modules.dispatch.service import open_delivery
+from app.modules.finance import service as finance
 from app.modules.finance.models import (
     Expense,
     ExpenseCategory,
@@ -31,6 +33,7 @@ from app.modules.finance.models import (
     WageRun,
     WageRunStatus,
 )
+from app.modules.finance.schemas import ExpenseIn
 from app.modules.inventory.models import (
     BatchStatus,
     ExpectedDelivery,
@@ -1060,9 +1063,34 @@ def seed_demo(db: Session) -> None:
         )
 
 
+# after the simulator: wage runs per month from its attendance and output, plus running costs,
+# all through the finance service, so month-end shows a real result instead of sales minus yarn
+def seed_books(db: Session, rng: random.Random) -> None:
+    accounts = db.scalar(select(User).where(User.role == Role.accounts))
+    start = db.scalar(select(func.min(Attendance.date)))
+    today = mill_today()
+    while start and start <= today:
+        nxt = (start.replace(day=1) + timedelta(days=32)).replace(day=1)
+        end = min(nxt - timedelta(days=1), today)
+        run = finance.create_wage_run(db, accounts, start, end)
+        if end < today.replace(day=1):  # an ended month: wages final and paid out
+            finance.set_wage_run_status(db, accounts, run["id"], WageRunStatus.final)
+            finance.set_wage_run_status(db, accounts, run["id"], WageRunStatus.paid)
+        for category, rupees in [("power", 380000), ("rent", 150000), ("maintenance", 60000)]:
+            day = min(start.replace(day=min(start.day + 4, 28)), today)
+            amount = int(rupees * rng.uniform(0.9, 1.1)) * 100
+            body = ExpenseIn(date=day, category=category, amount_paise=amount, note="Monthly bill")
+            finance.create_expense(db, accounts, body)
+        start = nxt
+
+
 def main() -> None:
     with SessionLocal() as db:
         seed_masters(db)
+        if "--books" in sys.argv:
+            seed_books(db, random.Random(11))
+            print("wage runs and running costs booked")
+            return
         if "--bulk" in sys.argv:
             seed_bulk_masters(db, random.Random(7))
             db.commit()
