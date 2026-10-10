@@ -36,5 +36,5 @@ test: .env
 	cd backend && uv run pytest
 
 lint: .env frontend/node_modules
-	cd backend && uv run ruff check . && uv run ruff format --check .
+	cd backend && uv run ruff check . ../scripts --config pyproject.toml && uv run ruff format --check . ../scripts --config pyproject.toml
 	cd frontend && npx tsc --noEmit
