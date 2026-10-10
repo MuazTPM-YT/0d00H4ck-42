@@ -171,6 +171,19 @@ def test_reserve_again_picks_up_new_stock(api, db, stocked):
     assert alloc["lines"][1]["mixed_lots"] is True  # 10 kg lot + 30 kg from the new one
 
 
+def test_to_buy_counts_free_stock_once_earliest_deadline_first(db, stocked, buyer):
+    fabric = plain_fabric(db)  # 100% Ne 40/1, order colour kept
+    w40 = stocked["w40"]  # 70 kg free
+    late = make_order(db, buyer, fabric, "Raw White", 250)  # 50 kg
+    late.deadline = date.today() + timedelta(days=40)
+    soon = make_order(db, buyer, fabric, "Raw White", 250)  # 50 kg
+    soon.deadline = date.today() + timedelta(days=10)
+    db.flush()
+    rows = {r["order_id"]: r for r in inv.to_buy(db) if r["yarn_item_id"] == w40.id}
+    assert (rows[soon.id]["free_cover_kg"], rows[soon.id]["to_buy_kg"]) == (D(50), D(0))
+    assert (rows[late.id]["free_cover_kg"], rows[late.id]["to_buy_kg"]) == (D(20), D(30))
+
+
 def test_order_role_checks(api, stocked):
     assert api(Role.qc, "POST", "/api/orders", json=order_body(stocked)).status_code == 403
     assert api(Role.store, "POST", "/api/orders", json=order_body(stocked)).status_code == 403

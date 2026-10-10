@@ -151,13 +151,22 @@ def issued_by_item(db: Session, order_id: int) -> dict[int, Decimal]:
 
 # net kg of one batch issued to one work order (issues minus returns)
 def issued_to_work_order(db: Session, work_order_id: int, batch_id: int) -> Decimal:
+    return _work_order_net(db, work_order_id, batch_id, (MoveReason.return_,))
+
+
+# kg of one batch still on the floor for one work order (issued - returned - consumed)
+def held_by_work_order(db: Session, work_order_id: int, batch_id: int) -> Decimal:
+    return _work_order_net(db, work_order_id, batch_id, (MoveReason.return_, MoveReason.consume))
+
+
+def _work_order_net(db: Session, work_order_id: int, batch_id: int, minus) -> Decimal:
     rows = db.execute(
         select(StockMove.reason, func.sum(StockMove.qty))
         .where(
             StockMove.ref_type == "work_order",
             StockMove.ref_id == work_order_id,
             StockMove.yarn_batch_id == batch_id,
-            StockMove.reason.in_([MoveReason.issue, MoveReason.return_]),
+            StockMove.reason.in_([MoveReason.issue, *minus]),
         )
         .group_by(StockMove.reason)
     ).all()
@@ -512,7 +521,7 @@ def return_to_store(
         raise NotFound(f"Work order {work_order_id} not found", field="work_order_id")
     batch = _lock_batch(db, yarn_batch_id)
     kg = qty(kg)
-    out = issued_to_work_order(db, wo.id, batch.id)
+    out = held_by_work_order(db, wo.id, batch.id)
     if kg > out:
         raise Conflict(
             f"{wo.code} holds only {out} kg of {batch.code}", field="kg", code="insufficient_stock"
@@ -685,20 +694,27 @@ def order_allocation(db: Session, order_id: int) -> dict:
     }
 
 
-# shortfall of confirmed orders, minus yarn already on order for them
+# what still has to be bought. Per order line: unreserved need, minus free stock (handed out
+# earliest deadline first, so one free kilo is never promised twice), minus yarn already on order.
 def to_buy(db: Session) -> list[dict]:
     rows = []
+    free_left: dict[int, Decimal] = {}
     orders = db.scalars(
-        select(Order).where(Order.status == OrderStatus.confirmed).order_by(Order.deadline)
+        select(Order)
+        .where(Order.status == OrderStatus.confirmed)
+        .order_by(Order.deadline, Order.id)
     ).all()
     for order in orders:
         for line in order_allocation(db, order.id)["lines"]:
             if line["kg_short"] <= 0:
                 continue
             item_id = line["yarn_item_id"]
-            on_order = ZERO
+            on_order, from_free = ZERO, ZERO
             supplier_id, rate = None, None
             if item_id:
+                free_left.setdefault(item_id, max(free_stock(db, item_id), ZERO))
+                from_free = min(line["kg_short"], free_left[item_id])
+                free_left[item_id] -= from_free
                 for d in db.scalars(
                     select(ExpectedDelivery).where(
                         ExpectedDelivery.order_id == order.id,
@@ -725,8 +741,9 @@ def to_buy(db: Session) -> list[dict]:
                     "yarn_item_id": item_id,
                     "label": f"{line['fibre']} {line['count']} {line['colour']}",
                     "short_kg": line["kg_short"],
+                    "free_cover_kg": qty(from_free),
                     "on_order_kg": qty(on_order),
-                    "to_buy_kg": qty(max(line["kg_short"] - on_order, ZERO)),
+                    "to_buy_kg": qty(max(line["kg_short"] - from_free - on_order, ZERO)),
                     "suggested_supplier_id": supplier_id,
                     "suggested_rate_paise_per_kg": rate,
                 }
@@ -970,7 +987,7 @@ def issue_plan(db: Session, work_order_code: str) -> dict:
     on_floor = [
         {"yarn_batch_id": b, "code": db.get(YarnBatch, b).code, "kg": k}
         for b in issued_ids
-        if (k := issued_to_work_order(db, wo.id, b)) > 0
+        if (k := held_by_work_order(db, wo.id, b)) > 0
     ]
     return {
         "work_order": {

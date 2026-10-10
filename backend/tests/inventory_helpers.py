@@ -26,6 +26,7 @@ KINDS = (
     LocationKind.quarantine,
     LocationKind.store,
     LocationKind.wip,
+    LocationKind.consumed,
 )
 
 

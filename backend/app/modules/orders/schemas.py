@@ -107,7 +107,8 @@ class ToBuyRow(BaseModel):
     deadline: date
     yarn_item_id: int | None
     label: str
-    short_kg: Decimal
+    short_kg: Decimal  # not reserved and not issued yet
+    free_cover_kg: Decimal  # free stock can cover this now: press Reserve
     on_order_kg: Decimal
     to_buy_kg: Decimal
     suggested_supplier_id: int | None

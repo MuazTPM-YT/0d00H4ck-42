@@ -249,6 +249,26 @@ def test_return_to_store_limited_to_what_the_work_order_holds(db, issuing, make_
     assert inv.batch_kg_at(db, b.id, LocationKind.wip) == D(0)
 
 
+def test_return_cannot_bring_back_yarn_already_consumed(db, issuing, make_user):
+    user = make_user(Role.store)
+    b, wo = issuing["batch"], issuing["wo"]
+    inv.issue_to_work_order(db, wo.id, b.id, D(30), user.id)
+    inv.move_yarn(
+        db,
+        b,
+        D(20),
+        LocationKind.wip,
+        LocationKind.consumed,
+        MoveReason.consume,
+        user.id,
+        ref=("work_order", wo.id),
+    )
+    assert inv.issue_plan(db, wo.code)["on_floor"][0]["kg"] == D(10)
+    with pytest.raises(AppError):
+        inv.return_to_store(db, wo.id, b.id, D(11), user.id)
+    inv.return_to_store(db, wo.id, b.id, D(10), user.id)
+
+
 def test_quarantined_batch_cannot_be_issued(db, issuing, make_user):
     user = make_user(Role.store)
     inv.quarantine_batch(db, issuing["batch"].id, user, "shade complaint")
