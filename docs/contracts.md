@@ -36,7 +36,7 @@ Rules every module follows. If your change breaks one, talk to the module owner 
 - **Live updates.** After commit, `events.publish(topic, {"type": ..., "id": ...})`. Topics:
   `stock`, `machines`, `orders`, `quality`, `dispatch`, `insights`. Frontend query keys start
   with the topic or module name, so `useSSE()` can invalidate them.
-- **Commits.** Odoo format, `[TAG] module: short message`, tags `[ADD] [FIX] [IMP] [REF] [REM]`.
+- **Commits.** Odoo format, `[TAG] module: short message`, tags `[ADD] [FIX] [IMP] [REF] [REM] [MRG]` (`[MRG]` = merge commit).
   Branch per feature, PR into `main`. Full rules in `CLAUDE.md`.
 
 ## Invariants
