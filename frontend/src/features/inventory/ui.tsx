@@ -45,7 +45,8 @@ export function ScanField({
 }) {
   const [value, setValue] = useState("");
   function onKeyDown(e: KeyboardEvent<HTMLInputElement>) {
-    if (e.key !== "Enter") return;
+    // scanners end a code with Enter, or with Tab when set up for spreadsheets
+    if (e.key !== "Enter" && !(e.key === "Tab" && value.trim())) return;
     e.preventDefault();
     const v = value.trim();
     if (v) onScan(v);
