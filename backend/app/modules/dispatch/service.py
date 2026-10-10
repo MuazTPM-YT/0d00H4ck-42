@@ -27,6 +27,7 @@ from app.modules.inventory.models import ItemKind, MoveReason, StockMove
 from app.modules.masters.models import Buyer, FabricType, Location, LocationKind
 from app.modules.orders import service as orders
 from app.modules.orders.models import Order, OrderStatus
+from app.modules.production.models import WorkOrder, WorkOrderStatus
 from app.modules.quality.models import Roll, RollStatus
 from app.modules.quality.service import ROLL_TRANSITIONS
 
@@ -420,6 +421,75 @@ def auto_draft(
     data = {"order_id": order.id, "band": pick.band, "roll_ids": [r.id for r in pick.rolls]}
     audit.record(db, user_id, "auto_draft", "dispatches", d.id, data=data)
     return d
+
+
+# what waits on the dispatch desk and the floor: open trucks with rolls to load or ready to
+# send, trucks whose rest needs another shade band (a supervisor's call), and passed rolls of
+# an open order with no truck at all (no single band covered it, so none was drafted)
+def open_truck_work(db: Session) -> list[dict]:
+    out = []
+    trucks = db.execute(
+        select(Dispatch, Order)
+        .join(Order, Order.id == Dispatch.order_id)
+        .where(Dispatch.status != DispatchStatus.confirmed, Order.status == OrderStatus.confirmed)
+        .order_by(Dispatch.id)
+    ).all()
+    with_truck = {o.id for _, o in trucks}
+    for d, order in trucks:
+        loaded = _loaded(db, d.id)
+        free = _free_rolls(db, order.id)
+        shipped, on_trucks = _order_metres(db, order.id)
+        need = order.qty_m - shipped - on_trucks
+        bands = {r.shade_band for r in loaded}
+        same = [r for r in free if not bands or r.shade_band in bands]
+        if loaded and need <= 0:
+            kind = "confirm"
+        elif same:
+            kind = "load"
+        elif free and bands and not _has_override(db, d.id):
+            kind = "shade"
+        else:
+            continue
+        out.append(
+            {
+                "kind": kind,
+                "dispatch_id": d.id,
+                "code": d.code,
+                "order_id": order.id,
+                "order_code": order.code,
+                "rolls": len(same) if kind == "load" else len(free),
+                "since": d.created_at,
+            }
+        )
+    # nothing left to make or check: the floor and QC are finished with the order
+    busy_jobs = select(WorkOrder.order_id).where(WorkOrder.status != WorkOrderStatus.done)
+    open_rolls = select(Roll.order_id).where(
+        Roll.status.in_([RollStatus.in_process, RollStatus.awaiting_qc, RollStatus.rework])
+    )
+    for order in db.scalars(
+        select(Order)
+        .where(
+            Order.status == OrderStatus.confirmed,
+            Order.id.not_in(with_truck or {0}),
+            Order.id.not_in(busy_jobs),
+            Order.id.not_in(open_rolls),
+        )
+        .order_by(Order.deadline, Order.id)
+    ):
+        free = _free_rolls(db, order.id)
+        if free:
+            out.append(
+                {
+                    "kind": "no_truck",
+                    "dispatch_id": None,
+                    "code": None,
+                    "order_id": order.id,
+                    "order_code": order.code,
+                    "rolls": len(free),
+                    "since": min(r.passed_at or r.created_at for r in free),
+                }
+            )
+    return out
 
 
 # rolls on the shelf: passed QC, not on any dispatch; optional order / shade band filter

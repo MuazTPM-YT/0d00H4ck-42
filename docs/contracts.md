@@ -134,7 +134,9 @@ caller. Status: **done** = implemented and tested, **stub** = raises `NotImpleme
 | `finance.order_cost(db, order_id)` | Ashil | done | yarn (FIFO GRN cost) + labour + machine + rework/reject vs revenue |
 | `finance.issue_invoice(db, user_id, dispatch, rolls)` | Ashil | done | `Invoice` + one line per roll; called only by dispatch confirm |
 | `analytics.delivery_estimate(db, order_id)` | Muaz | done | `{expected_at, status, slack_hours, stages, basis}`; status `on_track` / `at_risk` / `late`; 409 `not_forecastable` unless confirmed |
-| `analytics.attention_items(db, role)` | Muaz | done | up to 12 `{kind, severity, title, detail, href, entity_type, entity_id, since}`, worst first |
+| `analytics.attention_items(db, role)` | Muaz | done | up to 12 `{kind, severity, title, detail, href, entity_type, entity_id, since}`, worst first. Each role's inbox, shown on its home page: store = yarn to issue, lots to inspect, low stock; supervisor = machines stopped, jobs with no machine, shade calls; QC = rolls waiting; dispatch = trucks to start, load or send, rolls on the shelf; accounts = orders at risk or short, yarn to buy, overdue invoices, no wage run last month; owner = risk, quarantined lots, shade calls, low stock, overdue |
+| `dispatch.open_truck_work(db)` | Ashil | done | open trucks with rolls to load (`load`), loaded enough (`confirm`) or a rest in another shade band with no override (`shade`); finished orders with passed rolls and no truck (`no_truck`) |
+| `production.unplaced_jobs(db)` | Muaz | done | ready waiting jobs the planner could not place (no running or idle machine of the stage) |
 
 ## Floor rules the services enforce
 
