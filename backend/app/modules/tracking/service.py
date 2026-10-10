@@ -219,9 +219,24 @@ def stages(db: Session, order_ids: list[int]) -> list[dict]:
 
 # produced counts good fabric only, else produced minus the rest gives rejects away
 def public_view(db: Session, token: str) -> dict:
-    card = _card(db, order_by_token(db, token), internal=False)
+    order = order_by_token(db, token)
+    card = _card(db, order, internal=False)
     m = card["metres"]
-    return {**card, "metres": {**m, "produced": qty(m["produced"] - m["rejected"])}}
+    # only trucks that left; a draft or loading truck is still the mill's business
+    deliveries = [
+        {
+            "challan": d.code,
+            "left_at": d.confirmed_at,
+            "rolls": count,
+            "metres": qty(metres),
+            "vehicle_no": d.vehicle_no,
+            "driver": d.driver,
+        }
+        for d, count, metres in _dispatch_rows(db, order.id)
+        if d.status == DispatchStatus.confirmed
+    ]
+    produced = qty(m["produced"] - m["rejected"])
+    return {**card, "metres": {**m, "produced": produced}, "deliveries": deliveries}
 
 
 def order_view(db: Session, order_id: int) -> dict:
@@ -247,11 +262,15 @@ def order_view(db: Session, order_id: int) -> dict:
         .where(Invoice.order_id == order.id)
         .order_by(Invoice.id)
     ).all()
+    buyer = db.get(Buyer, order.buyer_id)
     return {
         **_card(db, order, internal=True),
         "order_id": order.id,
         "order_status": order.status,
-        "buyer_name": db.get(Buyer, order.buyer_id).name,
+        "buyer_name": buyer.name,
+        "buyer_contact": buyer.contact_name,
+        "buyer_phone": buyer.phone,
+        "buyer_email": buyer.email,
         "tracking_token": order.tracking_token,
         "rolls": [
             {

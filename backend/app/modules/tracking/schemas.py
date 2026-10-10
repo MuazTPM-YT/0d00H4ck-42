@@ -39,6 +39,16 @@ class TimelineEvent(BaseModel):
     title: str
 
 
+# one truck that left for the buyer; the challan number is what the buyer's gate signs
+class Delivery(BaseModel):
+    challan: str
+    left_at: datetime
+    rolls: int
+    metres: Decimal
+    vehicle_no: str | None
+    driver: str | None
+
+
 # what a buyer sees: no costs, no rates, no internal ids
 class TrackOut(BaseModel):
     order_code: str
@@ -53,6 +63,7 @@ class TrackOut(BaseModel):
     projected_finish: date | None
     risk: Risk | None
     timeline: list[TimelineEvent]
+    deliveries: list[Delivery] = []
 
 
 class RollRow(BaseModel):
@@ -89,6 +100,9 @@ class OrderView(TrackOut):
     order_id: int
     order_status: str
     buyer_name: str
+    buyer_contact: str | None
+    buyer_phone: str | None
+    buyer_email: str | None
     tracking_token: str
     rolls: list[RollRow]
     dispatches: list[DispatchRef]

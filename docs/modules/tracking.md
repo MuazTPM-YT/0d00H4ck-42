@@ -14,10 +14,15 @@ Owner: Ashil. Code: `backend/app/modules/tracking/`, `frontend/src/features/trac
   `analytics.delivery_estimate`. Until that function lands it shows "Estimate pending", but a
   deadline that has already passed is still flagged `late`.
 - **`/orders/[id]`:** the stage card, timeline, rolls, dispatches and invoices. The owner also
-  sees the cost and margin panel (finance).
+  sees the cost and margin panel (finance). The buyer link box has **Copy link**, **WhatsApp**
+  (opens `wa.me` with the buyer's phone and a ready message) and **Email** (opens the mail app
+  with the buyer's email, subject and message). The buyer's contact, phone and email come from
+  the buyer master and are only on the staff view, never on the public page.
 - **`/track/[token]`:** a public, read-only page. It shows the same card and a reduced timeline,
   and refreshes every minute. The buyer does not see rejected metres. Produced counts good
   fabric only, so the gap between the numbers does not reveal the rejects either.
+  A **Deliveries** section lists every truck that left: challan number, date and time, rolls,
+  metres, vehicle number and driver. Draft and loading trucks are not shown.
 
 ## Data flow
 

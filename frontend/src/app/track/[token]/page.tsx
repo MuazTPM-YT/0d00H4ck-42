@@ -7,7 +7,7 @@ import { useParams } from "next/navigation";
 import { EmptyState } from "@/components/layout/EmptyState";
 import { Skeleton } from "@/components/ui/skeleton";
 import { api } from "@/lib/api";
-import { StageCard, Timeline, type Track } from "@/features/tracking/StageCard";
+import { Deliveries, StageCard, Timeline, type Track } from "@/features/tracking/StageCard";
 
 // public buyer tracking page: no login, no app shell, no money. Owner: Ashil (tracking).
 export default function TrackPage() {
@@ -32,6 +32,7 @@ export default function TrackPage() {
       ) : (
         <>
           <StageCard t={track.data} />
+          <Deliveries items={track.data.deliveries ?? []} />
           <Timeline events={track.data.timeline} />
           <p className="text-xs text-muted-foreground">Updates every minute. Times in IST.</p>
         </>
