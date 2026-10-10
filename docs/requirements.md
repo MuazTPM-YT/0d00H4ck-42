@@ -13,7 +13,7 @@ UI/API/logic done, `done` = UI + API + DB + validation + test.
 |---|---|---|---|---|---|---|
 | R1 | Core | Record a yarn receipt (GRN): supplier, yarn type, colour, kg, unit cost, optional order | Ammaar | `/store/receive` | `receipts`, `yarn_batches`, `stock_moves` | done: QR scan, expected vs actual, quarantine on mismatch, tests |
 | R2 | Core | Live raw material stock per yarn type and colour | Ammaar | `/store/stock` | `stock_moves`, `yarn_items` | done: ledger sums, live via SSE `stock` |
-| R3 | Core | Low-stock warning against per-item reorder level, on the dashboard | Ammaar | `/store`, `/owner` | `yarn_items.reorder_level_kg` | partial: `/store` done (projected free vs reorder, live); `/owner` card needs Muaz to call `GET /api/inventory/stock/warnings` |
+| R3 | Core | Low-stock warning against per-item reorder level, on the dashboard | Ammaar | `/store`, `/owner` | `yarn_items.reorder_level_kg` | done: `/store` (projected free vs reorder, live); `/owner` via attention list (`analytics._low_stock`) |
 | R4 | Core | On a new order, show whether yarn covers it and the shortfall | Ammaar | `/orders/new` | `fabric_recipe`, `stock_moves` | done: live needed/free/short panel, to-buy list |
 | R5 | Expected | Reserve yarn so two orders cannot claim the same stock | Ammaar | `/orders`, `/orders/new` | `reservations` | done: row-locked, best-fit lot, concurrency test. `OrderYarnPanel` ready for `/orders/[id]` |
 
