@@ -36,8 +36,9 @@
 
 ## Commits
 
-- Caveman. Short. Simple words. No articles. Punchy. Subject ≤ 72 chars.
-  `ADD RETRY TO API CLIENT. BACKOFF CAP 30S.`
+- Odoo format, caveman terse: `[TAG] module: short message`. Subject ≤ 72 chars.
+  Tags: `[ADD]` new feature, `[FIX]` bug fix, `[IMP]` improvement, `[REF]` refactor, `[REM]` removal.
+  `[ADD] masters: supplier crud, gstin check`
 - One logical change per commit. Refactor and feature go in separate commits.
 - Body only when why isn't obvious from diff. Wrap at 72.
 - Commit when task done and checks pass, or when I ask. **Never push without asking.**

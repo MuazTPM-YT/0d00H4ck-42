@@ -1,0 +1,167 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+/*
+  Design tokens. Use these only: no one-off hex codes or pixel values in components.
+  Palette: indigo dye on cotton. One primary (indigo), cool cotton neutrals,
+  four semantic colours. Spacing = Tailwind's 4px scale (p-1 = 4px, p-4 = 16px).
+  Dark mode follows the OS setting.
+*/
+:root {
+  --radius: 0.5rem;
+
+  --background: #f4f6f9;
+  --foreground: #18213a;
+  --card: #ffffff;
+  --card-foreground: #18213a;
+  --popover: #ffffff;
+  --popover-foreground: #18213a;
+  --muted: #e9edf3;
+  --muted-foreground: #586377;
+  --border: #d9dfe8;
+  --input: #c7cfdc;
+
+  --primary: #2e4a86;
+  --primary-foreground: #ffffff;
+  --ring: #2e4a86;
+  --secondary: #e4e9f4;
+  --secondary-foreground: #22325a;
+  --accent: #e4e9f4;
+  --accent-foreground: #22325a;
+
+  --success: #1e7a4a;
+  --success-soft: #dcf1e5;
+  --warning: #9a5a06;
+  --warning-soft: #fbecd2;
+  --danger: #b42318;
+  --danger-soft: #fbe2df;
+  --info: #0b6f86;
+  --info-soft: #d9eff4;
+  --neutral: #4b5568;
+  --neutral-soft: #e6e9ef;
+  --destructive: var(--danger);
+
+  /* sidebar: the one bold surface, dyed indigo with a faint warp-and-weft texture */
+  --sidebar: #1c2b52;
+  --sidebar-foreground: #d5ddef;
+  --sidebar-muted: #8f9cbd;
+  --sidebar-active: rgb(255 255 255 / 0.12);
+  --sidebar-accent: #a9bdf0;
+  --sidebar-thread: rgb(255 255 255 / 0.035);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #0f1525;
+    --foreground: #e3e8f2;
+    --card: #161e33;
+    --card-foreground: #e3e8f2;
+    --popover: #161e33;
+    --popover-foreground: #e3e8f2;
+    --muted: #1d2640;
+    --muted-foreground: #9aa5bc;
+    --border: #2a3552;
+    --input: #36436a;
+
+    --primary: #8aa6e8;
+    --primary-foreground: #0f1525;
+    --ring: #8aa6e8;
+    --secondary: #222d4a;
+    --secondary-foreground: #d5ddef;
+    --accent: #222d4a;
+    --accent-foreground: #d5ddef;
+
+    --success: #5cc48d;
+    --success-soft: #133524;
+    --warning: #f0b75c;
+    --warning-soft: #3a2a0e;
+    --danger: #f2877d;
+    --danger-soft: #401b18;
+    --info: #5cc3da;
+    --info-soft: #0f3340;
+    --neutral: #aab3c5;
+    --neutral-soft: #252e45;
+
+    --sidebar: #0b1122;
+    --sidebar-foreground: #c9d2e6;
+    --sidebar-muted: #7d8aa8;
+    --sidebar-active: rgb(255 255 255 / 0.08);
+    --sidebar-accent: #8aa6e8;
+    --sidebar-thread: rgb(255 255 255 / 0.025);
+  }
+}
+
+@theme inline {
+  --font-sans: ui-sans-serif, system-ui, "Segoe UI", Roboto, "Noto Sans", "Helvetica Neue", Arial,
+    sans-serif;
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-ring: var(--ring);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+
+  --color-success: var(--success);
+  --color-success-soft: var(--success-soft);
+  --color-warning: var(--warning);
+  --color-warning-soft: var(--warning-soft);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+  --color-info: var(--info);
+  --color-info-soft: var(--info-soft);
+  --color-neutral: var(--neutral);
+  --color-neutral-soft: var(--neutral-soft);
+
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-muted: var(--sidebar-muted);
+  --color-sidebar-active: var(--sidebar-active);
+  --color-sidebar-accent: var(--sidebar-accent);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground antialiased;
+  }
+  /* figures line up in tables and stat blocks */
+  table,
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+@utility weave {
+  background-color: var(--sidebar);
+  background-image:
+    repeating-linear-gradient(0deg, var(--sidebar-thread) 0 1px, transparent 1px 4px),
+    repeating-linear-gradient(90deg, var(--sidebar-thread) 0 1px, transparent 1px 4px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

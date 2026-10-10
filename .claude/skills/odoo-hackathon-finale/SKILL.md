@@ -1,6 +1,6 @@
 ---
 name: odoo-hackathon-finale
-description: Judging criteria, build rules and delivery protocol for Team 42 at the Odoo x NMIT Bangalore Hackathon 2026 Grand Finale. Use this skill for EVERY request in this hackathon build, including planning, schema design, writing or reviewing code, UI work, git commits, README, demo video script and final presentation, even when the user does not mention Odoo, judging or the hackathon. Also use it whenever the user mentions the Textile Manufacturing System or Student Organization System problem statements, the evaluator, submission, or asks "is this good enough to win".
+description: Judging criteria, build rules and delivery protocol for Team 42 (HashMaps crew) at the Odoo x NMIT Bangalore Hackathon 2026 Grand Finale. Use this skill for EVERY request in this hackathon build, including planning, schema design, writing or reviewing code, UI work, git commits, README, demo video script and final presentation, even when the user does not mention Odoo, judging or the hackathon. Also use it whenever the user mentions the Textile Manufacturing System, Everest Textile Mills, yarn, looms, rolls, QC, dispatch, the evaluator, submission, or asks "is this good enough to win".
 ---
 
 # Odoo x NMIT Hackathon 2026: build to win
@@ -9,8 +9,8 @@ The goal is first place. The evaluator scores what they can see and verify: the 
 
 ## 1. Event facts (do not lose these)
 
-- Team Number 42. Leader: Mohammed Ashil. Members: Ammaar, Muaz Ismail Mohammed, Muhammed Razan.
-- Problem statements on offer: `Textile_Manufacturing_System` and `Student_Organization_System`. The team leader selects one. If the chosen PS (problem statement) text is not in context, ask for it before designing anything.
+- Team Number 42. Leader: Mohammed Ashil. Members: ammaartech (Ammaar), Muaz Ismail Mohammed, The Razan.
+- **Locked problem statement: `Textile_Manufacturing_System` (Everest Textile Mills).** Do not propose or build anything for the Student Organization PS. Before planning or building, read `references/textile_manufacturing.md` (requirements checklist, data model, Scene 1 design) and `references/differentiators.md` (agreed unique features and pitch).
 - Evaluator: Bhavya Mehta, GitHub `mebh-odoo` and `hackathon-odoo`. Both accounts must be added as collaborators on the repo by **10 Oct, 11:00 AM**. If this is not confirmed done, say so at the top of the reply.
 - Coding ends **11 Oct, 10:00 AM**. Video links due **11 Oct, 10:30 AM**. Presentations and valedictory **11 Oct, 1:00 PM**.
 - Prize stakes: ₹45,000 for the winner, plus possible fresher offers at 5 to 8 LPA (lakh per annum) for exceptional performers. Individual explainability matters for the offers, not only the team score.
@@ -128,13 +128,13 @@ Rules for Claude:
 
 ## 5. Problem statement handling
 
-Once the PS is chosen and pasted:
-1. Extract every explicit requirement into a numbered checklist in `docs/requirements.md`. Mark each as Core, Expected or Stretch.
+The PS is locked to Textile:
+1. Copy the checklist from `references/textile_manufacturing.md` into `docs/requirements.md`. The Core, Expected and Stretch labels are already set; adjust them if the team agrees a change.
 2. Map each requirement to a screen, an API endpoint and a table. Anything unmapped is a gap and must be called out.
 3. Build all Core items end to end (UI, API, DB, validation) before starting any Stretch item. A complete thin app beats a wide half-working one.
 4. Re-check the checklist at every major milestone and report status in one compact table.
 
-ERP-style features judges at Odoo expect for either PS, where the PS supports them: role-based access, record lifecycle states with allowed transitions, search and filters on lists, a dashboard with real aggregates, an audit or activity trail on key records, and at least one report or export (CSV or PDF).
+ERP-style features judges at Odoo expect, all of which the Textile PS supports: role-based access, record lifecycle states with allowed transitions, search and filters on lists, a dashboard with real aggregates, an audit or activity trail on key records, and at least one report or export (CSV or PDF).
 
 ## 6. Time plan (24 hours, 10 Oct 10:00 AM to 11 Oct 10:00 AM)
 

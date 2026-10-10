@@ -1,0 +1,47 @@
+[project]
+name = "everest-backend"
+version = "0.1.0"
+description = "Everest Textile Mills: yarn to dispatch, one ledger"
+requires-python = ">=3.11,<3.13"
+dependencies = [
+    "fastapi~=0.141.1",
+    "uvicorn[standard]~=0.54.0",
+    "sqlalchemy~=2.0.54",
+    "alembic~=1.20.0",
+    "pydantic~=2.13.5",
+    "pydantic-settings~=2.15.0",
+    "psycopg[binary]~=3.3.6",
+    "pyjwt~=2.15.0",
+    "bcrypt~=5.0.0",
+    "email-validator~=2.3.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest~=9.1.1",
+    "httpx~=0.28.1",
+    "ruff~=0.16.9",
+]
+
+[tool.uv]
+package = false
+# supply-chain guard: never resolve a release newer than this date
+exclude-newer = "2026-09-26T00:00:00Z"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM"]
+ignore = ["B008"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+# starlette 1.x nags about httpx2; TestClient still works on httpx 0.28
+filterwarnings = ["ignore:Using `httpx` with `starlette.testclient`"]
+
+[tool.ruff.lint.per-file-ignores]
+# generated migrations keep long SQL strings on one line
+"alembic/versions/*" = ["E501"]
