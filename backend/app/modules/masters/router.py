@@ -5,7 +5,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.core.db import Base, get_db
-from app.core.deps import get_current_user, require_roles
+from app.core.deps import get_current_user, hide_money, require_roles
 from app.core.pagination import Paged, PageDep
 from app.modules.auth.models import User
 from app.modules.masters import models as m
@@ -25,6 +25,7 @@ def crud(
     body: type[BaseModel],
     out: type[BaseModel],
     search: tuple[str, ...],
+    money: tuple[str, ...] = (),
 ) -> None:
     @router.get(f"/{path}", response_model=Paged[out], name=f"list_{path}")
     def list_(
@@ -32,13 +33,14 @@ def crud(
         q: Search = None,
         active: bool | None = None,
         db: Session = Depends(get_db),
-        _: User = Depends(get_current_user),
+        user: User = Depends(get_current_user),
     ):
-        return service.list_rows(db, model, page, q, search, active)
+        rows = service.list_rows(db, model, page, q, search, active)
+        return {**rows, "items": hide_money(out, rows["items"], user, money)}
 
     @router.get(f"/{path}/{{row_id}}", response_model=out, name=f"get_{path}")
-    def get(row_id: int, db: Session = Depends(get_db), _: User = Depends(get_current_user)):
-        return service.get_row(db, model, row_id)
+    def get(row_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+        return hide_money(out, [service.get_row(db, model, row_id)], user, money)[0]
 
     @router.post(f"/{path}", response_model=out, status_code=201, name=f"create_{path}")
     def create(data: body, db: Session = Depends(get_db), user: User = OwnerOnly):
@@ -53,8 +55,22 @@ crud("suppliers", m.Supplier, s.SupplierIn, s.SupplierOut, ("code", "name", "cit
 crud("buyers", m.Buyer, s.BuyerIn, s.BuyerOut, ("code", "name", "city", "gstin"))
 crud("yarn-items", m.YarnItem, s.YarnItemIn, s.YarnItemOut, ("fibre", "count", "colour"))
 crud("fabric-types", m.FabricType, s.FabricTypeIn, s.FabricTypeOut, ("code", "name"))
-crud("machines", m.Machine, s.MachineIn, s.MachineOut, ("code", "name", "type"))
-crud("workers", m.Worker, s.WorkerIn, s.WorkerOut, ("code", "name"))
+crud(
+    "machines",
+    m.Machine,
+    s.MachineIn,
+    s.MachineOut,
+    ("code", "name", "type"),
+    money=("hourly_cost_paise",),
+)
+crud(
+    "workers",
+    m.Worker,
+    s.WorkerIn,
+    s.WorkerOut,
+    ("code", "name"),
+    money=("daily_rate_paise", "piece_rate_paise_per_m"),
+)
 crud("shifts", m.Shift, s.ShiftIn, s.ShiftOut, ("code", "name"))
 
 
