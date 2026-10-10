@@ -115,13 +115,13 @@ export function IssuePanel() {
   );
 }
 
-// jobs on (or queued for) spinning and weaving take yarn; tap one instead of scanning its code
+// weaving jobs queued or running take yarn; tap one instead of scanning its code
 function YarnJobs({ onPick }: { onPick: (code: string) => void }) {
   const open = useOpenWorkOrders();
-  const jobs = (open.data ?? []).filter((w) => w.status !== "waiting" && w.stage !== "dyeing" && !w.roll_id);
+  const jobs = (open.data ?? []).filter((w) => w.status !== "waiting" && w.stage === "weaving" && !w.roll_id);
   if (open.isError) return <ErrorText error={open.error} />;
   if (!open.data) return null;
-  if (jobs.length === 0) return <p className="text-sm text-muted-foreground">No spinning or weaving job is queued or running.</p>;
+  if (jobs.length === 0) return <p className="text-sm text-muted-foreground">No weaving job is queued or running.</p>;
   return (
     <div className="grid gap-2">
       <p className="text-sm font-medium">Jobs that take yarn</p>

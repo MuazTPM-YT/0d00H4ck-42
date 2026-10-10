@@ -407,8 +407,13 @@ def _check_work_order_for_yarn(db: Session, work_order_id: int) -> WorkOrder:
     wo = db.get(WorkOrder, work_order_id)
     if not wo:
         raise NotFound(f"Work order {work_order_id} not found", field="work_order_id")
-    if wo.stage == Stage.dyeing:
-        raise Conflict("Dyeing work orders take fabric, not yarn", field="work_order_id")
+    # rolls take their yarn lineage from the weaving job; spinning and dyeing get none
+    if wo.stage != Stage.weaving or wo.roll_id:
+        raise Conflict(
+            f"{wo.code} is {wo.stage}; yarn is issued to the order's weaving job",
+            field="work_order_id",
+            code="not_weaving",
+        )
     if wo.status == WorkOrderStatus.done:
         raise Conflict(f"{wo.code} is already done", field="work_order_id")
     order = db.get(Order, wo.order_id)

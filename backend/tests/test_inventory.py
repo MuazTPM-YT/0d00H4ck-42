@@ -5,6 +5,7 @@ import pytest
 from sqlalchemy import select
 
 from app.core.audit import AuditLog
+from app.core.enums import Stage
 from app.core.errors import AppError
 from app.core.security import create_token
 from app.modules.analytics.service import attention_items
@@ -18,7 +19,7 @@ from app.modules.inventory.models import (
     ReservationStatus,
     YarnBatch,
 )
-from app.modules.masters.models import LocationKind
+from app.modules.masters.models import FabricTypeStage, LocationKind
 from app.modules.orders.models import Order, OrderStatus
 from app.modules.production.service import create_work_orders
 from tests.inventory_helpers import (
@@ -233,6 +234,25 @@ def test_issue_consumes_reservation_and_moves_to_wip(db, issuing, make_user):
     assert inv.batch_kg_at(db, b.id, LocationKind.wip) == D(60)
     alloc = inv.order_allocation(db, issuing["order"].id)["lines"][0]
     assert (alloc["kg_issued"], alloc["kg_reserved"], alloc["kg_short"]) == (60, 40, 0)
+
+
+# rolls draw yarn lineage from the weaving job; yarn sent to spinning would be counted twice
+def test_yarn_goes_only_to_the_weaving_job(db, setup, buyer, make_user):
+    fabric = plain_fabric(db, code="TDRILL")
+    fabric.stages[0].seq = 2
+    db.flush()
+    fabric.stages.insert(0, FabricTypeStage(seq=1, stage=Stage.spinning))
+    db.flush()
+    batch = make_batch(db, setup["sup"], setup["white40"], 300)
+    order = make_order(db, buyer, fabric, "Raw White", 500)
+    inv.reserve(db, order.id, None)
+    spin, weave = create_work_orders(db, order.id, None)
+    db.commit()
+    user = make_user(Role.store)
+    with pytest.raises(AppError) as refused:
+        inv.issue_to_work_order(db, spin.id, batch.id, D(10), user.id)
+    assert refused.value.code == "not_weaving"
+    inv.issue_to_work_order(db, weave.id, batch.id, D(10), user.id)
 
 
 def test_over_issue_needs_reason_and_never_takes_other_orders_yarn(db, issuing, make_user):

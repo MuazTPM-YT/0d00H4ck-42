@@ -7,6 +7,8 @@ Things the problem statement does not say, and what we chose. Change one only wi
   orders (sales) and the books. Owner can do everything.
 - **Route.** Every fabric is woven (rolls are born at weaving). Spinning and dyeing are optional
   stages per fabric type.
+- **Yarn issue.** Store issues yarn to the weaving job only. Rolls take their yarn lineage and cost
+  from it; spinning is tracked as machine time and kg, so issuing to it would count yarn twice.
 - **Dyed fabric.** A fabric with a dyeing stage is woven from `Raw White` yarn. The order colour
   applies at dyeing.
 - **Yarn requirement.** Fabric kg = metres × width_m × GSM / 1000. Yarn kg = fabric kg / (1 − loss%),
