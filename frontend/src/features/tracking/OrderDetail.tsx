@@ -27,7 +27,7 @@ type OrderView = Track & {
 };
 
 // one order: where it is, when it ships, and every roll, truck and invoice behind that answer
-export function OrderDetail({ id, costPanel }: { id: string; costPanel?: ReactNode }) {
+export function OrderDetail({ id, costPanel, yarnPanel }: { id: string; costPanel?: ReactNode; yarnPanel?: ReactNode }) {
   useSSE(["orders", "dispatch", "quality", "machines"]);
   const role = useMe().data?.role;
   const view = useQuery({ queryKey: ["orders", "view", id], queryFn: () => api<OrderView>(`/track/orders/${id}`) });
@@ -48,6 +48,7 @@ export function OrderDetail({ id, costPanel }: { id: string; costPanel?: ReactNo
       <div className="grid gap-6 lg:grid-cols-[1fr_20rem]">
         <div className="grid content-start gap-6">
           <StageCard t={o} />
+          {yarnPanel && <section className="rounded-lg border bg-card p-4">{yarnPanel}</section>}
           {costPanel}
           <Section title={`Rolls (${o.rolls.length})`} empty="No rolls woven yet.">
             {o.rolls.length > 0 && (

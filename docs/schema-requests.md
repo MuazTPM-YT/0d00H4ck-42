@@ -62,6 +62,7 @@ Do not edit `backend/alembic/versions/` yourself.
 - Requested by: Ammaar, 2026-10-10
 - Change: render `<OrderYarnPanel orderId={id} />` from `@/features/orders/OrderYarnPanel` on the order page
 - Why: R5. Shows needed / reserved / issued / short, lots and the mixed-lots warning, with "Reserve now"
+- Status: done in `feat/dispatch-finance` (Ashil)
 
 ### Shade override on dispatch
 - Requested by: Ashil, 2026-10-10
