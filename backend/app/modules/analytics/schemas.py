@@ -25,6 +25,17 @@ class InsightOut(BaseModel):
     created_at: datetime
 
 
+class AttentionItemOut(BaseModel):
+    kind: str
+    severity: Severity
+    title: str
+    detail: str | None
+    href: str
+    entity_type: str
+    entity_id: int
+    since: datetime | None
+
+
 class NoteIn(BaseModel):
     note: Note
 

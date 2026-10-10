@@ -7,6 +7,7 @@ from app.core.pagination import Paged, PageDep
 from app.modules.analytics import service
 from app.modules.analytics.models import InsightStatus, Severity
 from app.modules.analytics.schemas import (
+    AttentionItemOut,
     DeliveryEstimateOut,
     InsightOut,
     NoteIn,
@@ -64,6 +65,12 @@ def resolve(
 @router.post("/run", response_model=RunOut, dependencies=[Depends(require_roles(Role.supervisor))])
 def run_detectors(db: Session = Depends(get_db)):
     return service.run_detectors(db)
+
+
+# the role home's to-do list
+@router.get("/attention", response_model=list[AttentionItemOut])
+def attention(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    return service.attention_items(db, user.role)
 
 
 @router.get("/delivery", response_model=list[DeliveryEstimateOut], dependencies=[Planners])
