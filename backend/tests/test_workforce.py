@@ -93,3 +93,30 @@ def test_future_date_rejected_and_roles_enforced(client_as, floor):
     assert accounts.post("/api/workforce/crew", json={**body, "date": str(DAY)}).status_code == 403
     assert accounts.get("/api/workforce/attendance").status_code == 200
     assert client_as(Role.qc).get("/api/workforce/attendance").status_code == 403
+
+
+# wages already locked for a day: attendance and crew for that day can no longer change
+def test_days_in_a_final_wage_run_are_locked(db, floor):
+    from app.modules.finance.models import WageRun, WageRunStatus
+
+    run = WageRun(period_start=DAY, period_end=DAY, status=WageRunStatus.draft)
+    db.add(run)
+    db.commit()
+    service.assign_crew(db, crew(floor, floor.weaver, floor.loom1), None)  # draft: still open
+
+    run.status = WageRunStatus.final
+    db.commit()
+    with pytest.raises(Conflict) as locked:
+        service.assign_crew(db, crew(floor, floor.helper, floor.loom2), None)
+    assert locked.value.code == "wages_final"
+    db.rollback()
+    fix = AttendanceIn(
+        date=DAY,
+        shift_id=floor.shifts[0].id,
+        worker_id=floor.weaver.id,
+        status=AttendanceStatus.absent,
+        reason="Left early",
+    )
+    with pytest.raises(Conflict) as locked:
+        service.set_attendance(db, fix, None)
+    assert locked.value.code == "wages_final"
