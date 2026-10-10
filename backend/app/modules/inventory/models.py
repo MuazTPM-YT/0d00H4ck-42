@@ -15,10 +15,11 @@ from sqlalchemy import (
     UniqueConstraint,
     func,
 )
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.db import Base
 from app.core.enums import Source, Unit, str_enum
+from app.modules.masters.models import Supplier, YarnItem
 
 
 class ExpectedDeliveryStatus(StrEnum):
@@ -86,6 +87,10 @@ class ExpectedDelivery(Base):
         default=ExpectedDeliveryStatus.open,
     )
 
+    # read-only joins for display; no schema change
+    supplier: Mapped[Supplier] = relationship(viewonly=True, lazy="joined")
+    yarn_item: Mapped[YarnItem] = relationship(viewonly=True, lazy="joined")
+
 
 # GRN: one truck at the gate. Stock only moves when confirmed.
 class Receipt(Base):
@@ -109,6 +114,8 @@ class Receipt(Base):
         str_enum(ReceiptStatus, "receipt_status"), default=ReceiptStatus.draft
     )
     confirmed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    supplier: Mapped[Supplier] = relationship(viewonly=True, lazy="joined")
 
 
 # one supplier lot inside one receipt; missing label -> pending_identification, item unknown
@@ -136,6 +143,10 @@ class YarnBatch(Base):
     )
     order_id: Mapped[int | None] = mapped_column(ForeignKey("orders.id"), index=True)
     mismatch_notes: Mapped[str | None] = mapped_column(Text)
+
+    yarn_item: Mapped[YarnItem | None] = relationship(viewonly=True, lazy="joined")
+    supplier: Mapped[Supplier] = relationship(viewonly=True, lazy="joined")
+    receipt: Mapped[Receipt] = relationship(viewonly=True, lazy="joined")
 
 
 # append-only ledger. Stock at a location = moves in - moves out. Never updated, never deleted.
