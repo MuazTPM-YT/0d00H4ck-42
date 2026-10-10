@@ -2,127 +2,135 @@
 @import "tw-animate-css";
 
 /*
-  Design tokens. Use these only: no one-off hex codes or pixel values in components.
-  Apple-style: black is the primary, white the surface, one quiet grey scale, and Apple's
-  system colours for meaning (green done, orange attention, red stopped, blue moving).
-  Spacing = Tailwind's 4px scale on a 17px root. Light by default; data-theme="dark"
-  inverts: white becomes the primary on black.
+  Dither Ledger tokens (from the portfolio DESIGN.md). Use these only: no one-off hex codes.
+  Paper by default: warm off-white ground, near-black ink, one oxide accent ("ember"),
+  hairline rules instead of shadows and square corners. data-theme="dark" is the ink theme.
+  --accent stays a neutral wash (hover / selected rows); the ledger accent is --ember.
+  Status colours stay apart from the ember so a highlighted number never reads as "stopped".
 */
 :root {
-  /* native popups (select lists, date pickers, scrollbars) follow our theme, not the OS */
   color-scheme: light;
-  --radius: 1rem;
+  --radius: 0rem;
 
-  --background: #f5f5f7;
-  --foreground: #1d1d1f;
-  --card: #ffffff;
-  --card-foreground: #1d1d1f;
-  --popover: #ffffff;
-  --popover-foreground: #1d1d1f;
-  --muted: #f0f0f3;
-  --muted-foreground: #6e6e73;
-  --border: #e3e3e8;
-  --input: #d2d2d7;
+  --background: #f2eee4;
+  --foreground: #15140f;
+  --card: #f7f4ec;
+  --card-foreground: #15140f;
+  --popover: #f7f4ec;
+  --popover-foreground: #15140f;
+  --muted: #e8e2d4;
+  --muted-foreground: #5a5345;
+  --border: #d2cab6;
+  --input: #b9ae95;
+  --body: #33302a;
 
-  --primary: #1d1d1f;
-  --primary-foreground: #ffffff;
-  --ring: #0071e3;
-  --secondary: #e8e8ed;
-  --secondary-foreground: #1d1d1f;
-  --accent: #ececf0;
-  --accent-foreground: #1d1d1f;
+  --primary: #15140f;
+  --primary-foreground: #f2eee4;
+  --ring: #ae4024;
+  --secondary: #e8e2d4;
+  --secondary-foreground: #15140f;
+  --accent: #e4ddcc;
+  --accent-foreground: #15140f;
+  --ember: #ae4024;
+  --ember-soft: rgb(174 64 36 / 0.1);
 
-  --success: #157030;
-  --success-soft: #e3f5e8;
-  --warning: #b25000;
-  --warning-soft: #fff1e0;
-  --danger: #d70015;
-  --danger-soft: #ffe7e8;
-  --info: #0066cc;
-  --info-soft: #e5f1ff;
-  --neutral: #58585d;
-  --neutral-soft: #ececf0;
+  --success: #3c6a2a;
+  --success-soft: #e2e6cf;
+  --warning: #93560a;
+  --warning-soft: #f1e1bf;
+  --danger: #b11f1a;
+  --danger-soft: #f3d8cf;
+  --info: #2c5a86;
+  --info-soft: #dce3e6;
+  --neutral: #5a5345;
+  --neutral-soft: #e8e2d4;
   --destructive: var(--danger);
 
-  /* translucent chrome: content scrolls underneath sidebar and top bar */
-  --material: rgb(255 255 255 / 0.72);
-  --material-strong: rgb(246 246 248 / 0.86);
-  --material-edge: rgb(255 255 255 / 0.6);
-  --elev-1: 0 1px 2px rgb(0 0 0 / 0.04), 0 2px 12px rgb(0 0 0 / 0.04);
-  --elev-2: 0 2px 6px rgb(0 0 0 / 0.06), 0 16px 40px rgb(0 0 0 / 0.08);
+  --material: rgb(242 238 228 / 0.9);
+  --material-strong: rgb(232 226 212 / 0.94);
+  --material-edge: var(--border);
+  /* rules, never shadows: a card is a hairline, a raised layer is an ink line */
+  --elev-1: 0 0 0 1px var(--border);
+  --elev-2: 0 0 0 1px var(--foreground);
 
-  --sidebar: #f2f2f5;
-  --sidebar-foreground: #1d1d1f;
-  --sidebar-muted: #86868b;
-  --sidebar-active: #1d1d1f;
-  --sidebar-active-foreground: #ffffff;
-  --sidebar-hover: rgb(0 0 0 / 0.05);
-  --sidebar-accent: #1d1d1f;
+  --sidebar: #e8e2d4;
+  --sidebar-foreground: #15140f;
+  --sidebar-muted: #5a5345;
+  --sidebar-active: #15140f;
+  --sidebar-active-foreground: #f2eee4;
+  --sidebar-hover: rgb(21 20 15 / 0.06);
+  --sidebar-accent: #ae4024;
 
-  /* motion: strong ease-out for UI, iOS drawer curve for sheets */
-  --curve-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --curve-out: cubic-bezier(0.19, 1, 0.22, 1);
   --curve-in-out: cubic-bezier(0.77, 0, 0.175, 1);
   --curve-drawer: cubic-bezier(0.32, 0.72, 0, 1);
 }
 
-/* light for now; set data-theme="dark" on <html> to switch */
+/* ink: set data-theme="dark" on <html> */
 :root[data-theme="dark"] {
   color-scheme: dark;
   & {
-    --background: #000000;
-    --foreground: #f5f5f7;
-    --card: #1c1c1e;
-    --card-foreground: #f5f5f7;
-    --popover: #1c1c1e;
-    --popover-foreground: #f5f5f7;
-    --muted: #2c2c2e;
-    --muted-foreground: #98989d;
-    --border: #2f2f33;
-    --input: #48484a;
+    --background: #0e0d0a;
+    --foreground: #f2eee4;
+    --card: #15140f;
+    --card-foreground: #f2eee4;
+    --popover: #15140f;
+    --popover-foreground: #f2eee4;
+    --muted: #1d1b16;
+    --muted-foreground: #8e8777;
+    --border: #2b2821;
+    --input: #403b30;
+    --body: #b9b2a2;
 
-    --primary: #f5f5f7;
-    --primary-foreground: #000000;
-    --ring: #2997ff;
-    --secondary: #2c2c2e;
-    --secondary-foreground: #f5f5f7;
-    --accent: #2c2c2e;
-    --accent-foreground: #f5f5f7;
+    --primary: #f2eee4;
+    --primary-foreground: #0e0d0a;
+    --ring: #e5603a;
+    --secondary: #1d1b16;
+    --secondary-foreground: #f2eee4;
+    --accent: #23201a;
+    --accent-foreground: #f2eee4;
+    --ember: #e5603a;
+    --ember-soft: rgb(229 96 58 / 0.12);
 
-    --success: #30d158;
-    --success-soft: #0f2e18;
-    --warning: #ff9f0a;
-    --warning-soft: #33230a;
-    --danger: #ff453a;
-    --danger-soft: #3a1513;
-    --info: #64aaff;
-    --info-soft: #0e2440;
-    --neutral: #98989d;
-    --neutral-soft: #2c2c2e;
+    --success: #93c26d;
+    --success-soft: #1b2414;
+    --warning: #e3a447;
+    --warning-soft: #2a2012;
+    --danger: #ff5f4f;
+    --danger-soft: #2e1512;
+    --info: #86aedb;
+    --info-soft: #141d27;
+    --neutral: #8e8777;
+    --neutral-soft: #1d1b16;
 
-    --material: rgb(28 28 30 / 0.72);
-    --material-strong: rgb(22 22 24 / 0.86);
-    --material-edge: rgb(255 255 255 / 0.06);
-    --elev-1: 0 0 0 1px rgb(255 255 255 / 0.04);
-    --elev-2: 0 0 0 1px rgb(255 255 255 / 0.06), 0 16px 40px rgb(0 0 0 / 0.5);
+    --material: rgb(14 13 10 / 0.9);
+    --material-strong: rgb(21 20 15 / 0.94);
 
-    --sidebar: #0c0c0d;
-    --sidebar-foreground: #f5f5f7;
-    --sidebar-muted: #8e8e93;
-    --sidebar-active: #f5f5f7;
-    --sidebar-active-foreground: #000000;
-    --sidebar-hover: rgb(255 255 255 / 0.07);
-    --sidebar-accent: #f5f5f7;
+    --sidebar: #15140f;
+    --sidebar-foreground: #f2eee4;
+    --sidebar-muted: #8e8777;
+    --sidebar-active: #f2eee4;
+    --sidebar-active-foreground: #0e0d0a;
+    --sidebar-hover: rgb(242 238 228 / 0.06);
+    --sidebar-accent: #e5603a;
   }
 }
 
+/* fonts are real :root variables (not inline) so plain CSS rules below can use them too */
+@theme {
+  --font-sans: var(--font-manrope), "Manrope", system-ui, "Segoe UI", sans-serif;
+  --font-display: var(--font-cormorant), "Cormorant Garamond", Georgia, serif;
+  --font-mono: var(--font-plex-mono), "IBM Plex Mono", ui-monospace, Consolas, monospace;
+  --font-dot: var(--font-doto), "Doto", var(--font-plex-mono), monospace;
+}
+
 @theme inline {
-  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display",
-    "Segoe UI Variable Text", "Segoe UI", system-ui, Roboto, "Helvetica Neue", Arial, sans-serif;
-  --radius-sm: calc(var(--radius) - 6px);
-  --radius-md: calc(var(--radius) - 4px);
-  --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) + 4px);
-  --radius-2xl: calc(var(--radius) + 8px);
+  --radius-sm: 0px;
+  --radius-md: 0px;
+  --radius-lg: 0px;
+  --radius-xl: 0px;
+  --radius-2xl: 0px;
+  --radius-3xl: 0px;
 
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -134,6 +142,7 @@
   --color-muted-foreground: var(--muted-foreground);
   --color-border: var(--border);
   --color-input: var(--input);
+  --color-body: var(--body);
   --color-primary: var(--primary);
   --color-primary-foreground: var(--primary-foreground);
   --color-ring: var(--ring);
@@ -141,6 +150,8 @@
   --color-secondary-foreground: var(--secondary-foreground);
   --color-accent: var(--accent);
   --color-accent-foreground: var(--accent-foreground);
+  --color-ember: var(--ember);
+  --color-ember-soft: var(--ember-soft);
   --color-destructive: var(--destructive);
 
   --color-success: var(--success);
@@ -164,6 +175,10 @@
 
   --shadow-card: var(--elev-1);
   --shadow-raised: var(--elev-2);
+  --shadow-xs: none;
+  --shadow-sm: none;
+  --shadow-md: none;
+  --shadow-lg: none;
   --ease-out: var(--curve-out);
   --ease-in-out: var(--curve-in-out);
   --ease-drawer: var(--curve-drawer);
@@ -182,31 +197,50 @@
   }
   body {
     @apply bg-background text-foreground antialiased;
-    font-feature-settings: "kern", "ss01";
-    font-optical-sizing: auto;
-    letter-spacing: -0.006em;
-    line-height: 1.47;
+    font-family: var(--font-sans);
+    line-height: 1.55;
+    /* a faint Bayer stipple under everything: the paper the ledger is printed on */
+    background-image: radial-gradient(color-mix(in srgb, var(--foreground) 9%, transparent) 0.6px, transparent 0.9px);
+    background-size: 8px 8px;
   }
-  /* tracking is size-specific: big type tightens, small type stays open */
-  h1 {
-    letter-spacing: -0.022em;
-    line-height: 1.12;
+  /* serif display for page and section titles, like the ledger's headings */
+  h1,
+  h2 {
+    font-family: var(--font-display);
+    font-weight: 500;
+    letter-spacing: -0.012em;
+    line-height: 1.1;
+    text-wrap: balance;
   }
-  h2,
   h3 {
-    letter-spacing: -0.016em;
-    line-height: 1.2;
+    letter-spacing: -0.01em;
+    line-height: 1.25;
+  }
+  /* square corners everywhere; only status dots stay round */
+  *,
+  *::before,
+  *::after {
+    border-radius: 0 !important;
+  }
+  .dot {
+    border-radius: 9999px !important;
   }
   /* figures line up in tables and stat blocks */
   table,
   .tabular {
-    font-variant-numeric: tabular-nums;
+    font-variant-numeric: tabular-nums slashed-zero;
+  }
+  code,
+  kbd,
+  samp {
+    font-family: var(--font-mono);
   }
   ::selection {
-    background: color-mix(in srgb, var(--ring) 22%, transparent);
+    background: var(--ember);
+    color: var(--background);
   }
   :focus-visible {
-    outline: 3px solid color-mix(in srgb, var(--ring) 55%, transparent);
+    outline: 2px solid var(--ring);
     outline-offset: 2px;
   }
   /* native selects match inputs: same border, radius and an SF-style chevron */
@@ -214,7 +248,7 @@
     appearance: none;
     border-radius: var(--radius-md);
     background-color: var(--card);
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2386868b' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%235a5345' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
     background-repeat: no-repeat;
     background-position: right 0.75rem center;
     padding-right: 2.25rem !important;
@@ -381,3 +415,90 @@
 .animate-delay-1000 { animation-delay: 1s; }
 .animate-delay-1200 { animation-delay: 1.2s; }
 .animate-delay-1400 { animation-delay: 1.4s; }
+
+/* ───────── ledger type utilities (DESIGN.md §2) ───────── */
+@layer components {
+  /* mono micro-label with a short ember dash before it */
+  .eyebrow {
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--muted-foreground);
+    display: flex;
+    align-items: center;
+    gap: 0.8em;
+    line-height: 1.4;
+  }
+  .eyebrow::before {
+    content: "";
+    width: 26px;
+    height: 1px;
+    background: var(--ember);
+    flex: none;
+  }
+  .label {
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--muted-foreground);
+    line-height: 1.4;
+  }
+  .num {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums slashed-zero;
+    font-feature-settings: "zero" 1, "tnum" 1;
+  }
+  /* giant dotted numerals: stats only */
+  .dotnum {
+    font-family: var(--font-dot);
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    font-variant-numeric: tabular-nums;
+    line-height: 1;
+  }
+  /* a + registration mark where a rule meets an edge */
+  .reg {
+    position: absolute;
+    width: 11px;
+    height: 11px;
+    pointer-events: none;
+  }
+  .reg::before,
+  .reg::after {
+    content: "";
+    position: absolute;
+    background: var(--foreground);
+  }
+  .reg::before { left: 5px; top: 0; width: 1px; height: 11px; }
+  .reg::after { top: 5px; left: 0; height: 1px; width: 11px; }
+  /* halftone wash for whole-card links */
+  .dither-hover {
+    position: relative;
+    isolation: isolate;
+  }
+  .dither-hover::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    background-image: radial-gradient(var(--ember) 0.8px, transparent 1.1px);
+    background-size: 5px 5px;
+    opacity: 0;
+    transition: opacity 0.3s var(--curve-out);
+  }
+  @media (hover: hover) {
+    .dither-hover:hover::before { opacity: 0.25; }
+  }
+}
+
+/* small section titles set in the display serif need a size step up to read as titles */
+h2.text-base,
+h2.text-lg,
+h3.text-lg {
+  font-family: var(--font-display);
+  font-size: 1.45rem;
+  font-weight: 500;
+}
