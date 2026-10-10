@@ -27,7 +27,6 @@ from app.modules.inventory.models import (
 )
 from app.modules.masters.models import Location, LocationKind, Machine, YarnItem
 from app.modules.orders.models import Order, OrderStatus
-from app.modules.production import service as production
 from app.modules.production.models import WorkOrder, WorkOrderStatus
 
 BATCH_TRANSITIONS = {
@@ -1273,7 +1272,10 @@ def issue(db: Session, user: User, data) -> StockMove:
         idempotency_key=data.idempotency_key,
         reason=data.reason,
     )
-    # yarn on the floor can unblock a queued first-stage job
+    # yarn on the floor can unblock a queued first-stage job; late import: production imports
+    # quality, which imports this module
+    from app.modules.production import service as production
+
     started = production.pull_ready(db, user.id)
     db.commit()
     events.publish("stock", {"type": "issue", "id": move.yarn_batch_id})
