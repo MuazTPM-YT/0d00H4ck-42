@@ -166,13 +166,13 @@ Pure helpers in `app.core.units`: `qty`, `rupees_to_paise`, `line_amount_paise`,
 | `GET /api/dispatch/dispatches[/{id}]`, `/finished-stock`, `/corner-check` | dispatch, accounts, supervisor |
 | `POST /api/dispatch/dispatches`, `.../{id}/scan`, `PUT .../{id}/vehicle`, `DELETE .../{id}/rolls/{roll_id}`, `POST .../{id}/confirm` | dispatch |
 | `POST /api/dispatch/dispatches/{id}/shade-override` | supervisor |
-| `/api/finance/*` (invoices, payments, wage-runs, expenses, orders/{id}/cost, machine-production, month, month/records) | accounts |
-| `GET /api/analytics/insights[/{id}]`, `/attention`, `/briefing` | any logged in (insights filtered to the role's kinds) |
+| `/api/finance/*` (invoices, payments, wage-runs, expenses, orders/{id}/cost, order-costs, machine-production, month, month/records) | accounts |
+| `GET /api/analytics/insights[/{id}]` (`?q=` title search), `/insights/counts`, `/attention`, `/briefing` | any logged in (insights filtered to the role's kinds) |
 | `POST /api/analytics/insights/{id}/acknowledge`, `/resolve` | any logged in, own kinds |
 | `POST /api/analytics/run` | supervisor |
 | `GET /api/analytics/delivery`, `/orders/{id}/delivery-estimate` | accounts, supervisor |
 | `GET /api/track/{token}` | public |
-| `GET /api/track/orders/{id}` | accounts, dispatch |
+| `GET /api/track/orders/{id}`, `/track/stages?ids=` (stage for a page of orders) | accounts, dispatch |
 | `POST /api/track/orders/{id}/rotate-token` | accounts |
 
 Owner passes every role check. Full schema at http://localhost:8000/docs.
