@@ -21,10 +21,10 @@ UI/API/logic done, `done` = UI + API + DB + validation + test.
 
 | # | Label | Requirement | Owner | Screen | Tables | Status |
 |---|---|---|---|---|---|---|
-| R6 | Core | Machines with type and status (running, idle, breakdown, maintenance) | Muaz | `/masters/machines`, `/floor` | `machines`, `machine_events` | partial: machine master done |
-| R7 | Core | Assign an order stage to a machine; show which order is on which machine and progress | Muaz | `/floor/work-orders` | `work_orders`, `production_logs` | partial: `create_work_orders` done |
-| R8 | Core | Live floor board: each machine's job, status, output today. No reload. | Muaz | `/floor` | `machine_events`, `production_logs` | partial: SSE channel done |
-| R9 | Expected | Breakdowns with reason and downtime; shifts and workers on machines | Muaz | `/floor`, `/floor/crew` | `machine_events`, `crew_assignments` | schema |
+| R6 | Core | Machines with type and status (running, idle, breakdown, maintenance) | Muaz | `/masters/machines`, `/floor` | `machines`, `machine_events` | done |
+| R7 | Core | Assign an order stage to a machine; show which order is on which machine and progress | Muaz | `/floor/work-orders` | `work_orders`, `production_logs` | done |
+| R8 | Core | Live floor board: each machine's job, status, output today. No reload. | Muaz | `/floor` | `machine_events`, `production_logs` | done |
+| R9 | Expected | Breakdowns with reason and downtime; shifts and workers on machines | Muaz | `/floor`, `/floor/crew` | `machine_events`, `crew_assignments` | done |
 
 ## Scene 3: quality check
 
@@ -55,7 +55,7 @@ UI/API/logic done, `done` = UI + API + DB + validation + test.
 
 | # | Label | Requirement | Owner | Screen | Tables | Status |
 |---|---|---|---|---|---|---|
-| R20 | Core | Attendance per shift (Muaz) and wages from it (Ashil) | Muaz, Ashil | `/floor/crew`, `/finance/wages` | `attendance`, `wage_runs`, `wage_lines` | schema |
+| R20 | Core | Attendance per shift (Muaz) and wages from it (Ashil) | Muaz, Ashil | `/floor/crew`, `/finance/wages` | `attendance`, `wage_runs`, `wage_lines` | partial: attendance capture done (Muaz), wages todo (Ashil) |
 | R21 | Core | Cost per order: yarn + labour + machine, rule stated in the UI | Ashil | `/orders/[id]`, `/finance/month` | many | todo |
 | R22 | Core | Production per machine for a period | Muaz | `/owner` | `production_logs` | schema |
 | R23 | Core | Monthly profit: payments and invoices vs yarn bills and wages | Ashil | `/finance/month` | `invoices`, `payments`, `receipts`, `wage_lines`, `expenses` | schema |
