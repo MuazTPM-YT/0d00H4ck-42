@@ -41,8 +41,8 @@ Nothing is stored. Every request recomputes the stage from the rows.
 | The buyer never sees money or internal IDs | The public route uses `response_model=TrackOut`, which has no rate, cost, buyer or ID fields. FastAPI drops anything else. Test: `test_public_page_shows_stage_and_never_money`. |
 | The buyer never sees rejects | `TrackOut.metres` is `BuyerMetres`, which has no `rejected` field. `public_view` reports produced minus rejected. Only `OrderView` (staff) carries `rejected`. Test: `test_rejected_metres_only_for_staff`. |
 | The token is unguessable | `secrets.token_urlsafe(24)`: 192 random bits. |
-| The token is revocable | `POST /api/track/orders/{id}/rotate-token` (sales; owner passes) replaces it. The old link returns 404 at once. The change is audited. |
-| Only the office sees order internals | `/api/track/orders/{id}` requires sales, accounts or dispatch (owner passes). |
+| The token is revocable | `POST /api/track/orders/{id}/rotate-token` (accounts; owner passes) replaces it. The old link returns 404 at once. The change is audited. |
+| Only the office sees order internals | `/api/track/orders/{id}` requires accounts or dispatch (owner passes). |
 
 ## DSA
 

@@ -8,6 +8,11 @@ const qty = new Intl.NumberFormat("en-IN", { maximumFractionDigits: 3 });
 export const inr = (paise: number | null | undefined) =>
   paise === null || paise === undefined ? "—" : rupees.format(paise / 100);
 
+// whole rupees for wide money tables: ₹1,44,555
+const rupees0 = new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 });
+export const inr0 = (paise: number | null | undefined) =>
+  paise === null || paise === undefined ? "—" : rupees0.format(Math.round(paise / 100));
+
 // quantities travel as decimal strings ("12.500") to keep exact grams
 export const kg = (v: string | number | null | undefined) => (v === null || v === undefined ? "—" : `${qty.format(Number(v))} kg`);
 export const metres = (v: string | number | null | undefined) => (v === null || v === undefined ? "—" : `${qty.format(Number(v))} m`);

@@ -184,6 +184,23 @@ class MachineDay(BaseModel):
     qty: Decimal
 
 
+# one order's cost to date, for the month-end table
+class OrderCostRow(BaseModel):
+    order_id: int
+    order_code: str
+    buyer_name: str
+    status: str
+    qty_m: Decimal
+    passed_m: Decimal
+    yarn_paise: int
+    labour_paise: int
+    machine_paise: int
+    total_paise: int
+    invoiced_paise: int
+    margin_paise: int | None
+    cost_per_m_paise: int | None
+
+
 class MachineProduction(BaseModel):
     machine_id: int
     code: str

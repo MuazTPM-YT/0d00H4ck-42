@@ -7,7 +7,7 @@ production, which starts roll traceability.
 
 ## What it does
 
-1. **Expected delivery.** Store or sales records what a supplier is sending: yarn, kg, rate, date,
+1. **Expected delivery.** Store or the accounts desk records what a supplier is sending: yarn, kg, rate, date,
    optional order. This is a lightweight purchase order and the source of the unit cost.
 2. **Receive by scan.** The supplier label QR (format in `docs/assumptions.md`) is scanned into a
    text field. `POST /inventory/labels/check` compares it with the open delivery and writes

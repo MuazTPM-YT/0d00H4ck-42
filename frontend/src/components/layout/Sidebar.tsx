@@ -1,11 +1,12 @@
 "use client";
 
-import { LogOut, Moon, Sun } from "lucide-react";
+import { LogOut, Moon, Pause, Play, Sun } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import { SECTION } from "@/components/dither/motifs";
+import { setMotion, useMotion } from "@/components/dither/ticker";
 import { BrandMark } from "@/components/layout/BrandMark";
 import { ROLE_LABEL, type User, useLogout } from "@/lib/auth";
 import { cn } from "@/lib/utils";
@@ -46,6 +47,7 @@ export function Sidebar({ user, onNavigate }: { user: User; onNavigate?: () => v
   const pathname = usePathname();
   const logout = useLogout();
   const theme = useTheme();
+  const motion = useMotion();
 
   return (
     <div className="flex h-full bg-sidebar flex-col border-r border-border/70 text-sidebar-foreground">
@@ -105,16 +107,26 @@ export function Sidebar({ user, onNavigate }: { user: User; onNavigate?: () => v
           onClick={theme.toggle}
           aria-label={theme.ink ? "Switch to paper" : "Switch to ink"}
           title={theme.ink ? "Paper" : "Ink"}
-          className="pressable grid size-10 shrink-0 place-items-center text-sidebar-muted hover:bg-sidebar-hover hover:text-sidebar-foreground"
+          className="pressable grid size-9 shrink-0 place-items-center text-sidebar-muted hover:bg-sidebar-hover hover:text-sidebar-foreground"
         >
           {theme.ink ? <Sun className="size-[1.1rem]" aria-hidden /> : <Moon className="size-[1.1rem]" aria-hidden />}
+        </button>
+        <button
+          type="button"
+          onClick={() => setMotion(!motion)}
+          aria-pressed={motion}
+          aria-label={motion ? "Stop the moving pictures" : "Let the pictures move"}
+          title={motion ? "Motion on" : "Motion off"}
+          className="pressable grid size-9 shrink-0 place-items-center text-sidebar-muted hover:bg-sidebar-hover hover:text-sidebar-foreground"
+        >
+          {motion ? <Pause className="size-[1.05rem]" aria-hidden /> : <Play className="size-[1.05rem]" aria-hidden />}
         </button>
         <button
           type="button"
           onClick={() => logout.mutate()}
           aria-label="Log out"
           title="Log out"
-          className="pressable grid size-10 shrink-0 place-items-center text-sidebar-muted hover:bg-sidebar-hover hover:text-sidebar-foreground"
+          className="pressable grid size-9 shrink-0 place-items-center text-sidebar-muted hover:bg-sidebar-hover hover:text-sidebar-foreground"
         >
           <LogOut className="size-[1.15rem]" aria-hidden />
         </button>

@@ -1,3 +1,9 @@
+import pytest
+from alembic.config import Config
+from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
+
+from alembic import command
 from app.core.deps import COOKIE_NAME
 from app.modules.auth.models import Role
 from tests.conftest import PASSWORD
@@ -28,8 +34,10 @@ def test_wrong_password_is_401_in_error_shape(client, make_user):
 
 
 def test_inactive_user_cannot_log_in(client, make_user):
-    make_user(Role.sales, active=False)
-    res = client.post("/api/auth/login", json={"email": "sales@test.local", "password": PASSWORD})
+    make_user(Role.accounts, active=False)
+    res = client.post(
+        "/api/auth/login", json={"email": "accounts@test.local", "password": PASSWORD}
+    )
     assert res.status_code == 401
 
 
@@ -51,3 +59,40 @@ def test_owner_passes_every_role_check(client_as):
     owner = client_as(Role.owner)
     assert owner.get("/api/finance/invoices").status_code == 200
     assert owner.get("/api/workforce/attendance").status_code == 200
+
+
+# accounts is one desk: buyer orders and the books
+def test_accounts_takes_orders_and_keeps_books(client_as):
+    desk = client_as(Role.accounts)
+    assert desk.get("/api/orders/to-buy").status_code == 200
+    assert desk.get("/api/finance/invoices").status_code == 200
+    assert client_as(Role.store).get("/api/finance/invoices").status_code == 403
+
+
+# 0002 moves old sales users to accounts, then the check refuses "sales"
+def test_migration_merges_sales_into_accounts(engine):
+    cfg = Config("alembic.ini")
+    cfg.set_main_option("sqlalchemy.url", engine.url.render_as_string(hide_password=False))
+    command.downgrade(cfg, "0001")
+    try:
+        with engine.begin() as conn:
+            conn.execute(
+                text(
+                    "INSERT INTO users (name, email, password_hash, role) "
+                    "VALUES ('Old desk', 'old-sales@test.local', 'x', 'sales')"
+                )
+            )
+        command.upgrade(cfg, "head")
+        with engine.begin() as conn:
+            role = conn.scalar(text("SELECT role FROM users WHERE email = 'old-sales@test.local'"))
+            conn.execute(text("DELETE FROM users WHERE email = 'old-sales@test.local'"))
+        assert role == "accounts"
+        with pytest.raises(IntegrityError), engine.begin() as conn:
+            conn.execute(
+                text(
+                    "INSERT INTO users (name, email, password_hash, role) "
+                    "VALUES ('New desk', 'new-sales@test.local', 'x', 'sales')"
+                )
+            )
+    finally:
+        command.upgrade(cfg, "head")

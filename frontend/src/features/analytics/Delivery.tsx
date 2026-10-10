@@ -78,14 +78,14 @@ export function DeliveryBoard() {
   if (board.data?.length === 0)
     return (
       <EmptyState icon={CalendarCheck} title="No confirmed orders">
-        Forecasts appear when sales confirms an order.
+        Forecasts appear when the accounts desk confirms an order.
       </EmptyState>
     );
 
   return (
-    <div className="overflow-x-auto rounded-lg border bg-card">
-      <Table>
-        <TableHeader>
+    <div className="border border-border bg-card">
+      <Table containerClassName="scroll-panel max-h-[34rem]">
+        <TableHeader className="sticky top-0 z-10 bg-card">
           <TableRow>
             <TableHead>Order</TableHead>
             <TableHead>Deadline</TableHead>

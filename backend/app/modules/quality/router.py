@@ -8,14 +8,17 @@ from app.core.deps import get_current_user, require_roles
 from app.core.pagination import Paged, PageDep
 from app.modules.auth.models import Role, User
 from app.modules.quality import service
-from app.modules.quality.models import RollStatus
+from app.modules.quality.models import QcDecision, RollStatus
 from app.modules.quality.schemas import (
+    CheckOut,
     QcCheckIn,
     QcResultOut,
     QualitySummaryOut,
+    RollCode,
     RollDetailOut,
     RollOut,
     RollRowOut,
+    TraceOut,
 )
 
 router = APIRouter(prefix="/quality", tags=["quality"], dependencies=[Depends(get_current_user)])
@@ -27,9 +30,10 @@ def list_rolls(
     page: PageDep,
     status: RollStatus | None = None,
     order_id: int | None = None,
+    code: RollCode | None = None,
     db: Session = Depends(get_db),
 ):
-    return service.list_rolls(db, page, status, order_id)
+    return service.list_rolls(db, page, status, order_id, code)
 
 
 @router.get("/queue", response_model=Paged[RollRowOut])
@@ -50,3 +54,22 @@ def roll_detail(roll_id: int, db: Session = Depends(get_db)):
 @router.post("/rolls/{roll_id}/checks", response_model=QcResultOut, status_code=201)
 def decide(roll_id: int, body: QcCheckIn, db: Session = Depends(get_db), user: User = Inspector):
     return service.decide(db, roll_id, body, user.id)
+
+
+# roll genealogy: anyone who handles the roll can trace it back to its yarn
+@router.get("/rolls/{roll_id}/trace", response_model=TraceOut)
+def roll_trace(roll_id: int, db: Session = Depends(get_db)):
+    return service.roll_trace(db, roll_id)
+
+
+# every inspection, newest first, with the 4-point score
+@router.get("/checks", response_model=Paged[CheckOut])
+def list_checks(
+    page: PageDep,
+    decision: QcDecision | None = None,
+    order_id: int | None = None,
+    machine_id: int | None = None,
+    roll_id: int | None = None,
+    db: Session = Depends(get_db),
+):
+    return service.list_checks(db, page, decision, order_id, machine_id, roll_id)

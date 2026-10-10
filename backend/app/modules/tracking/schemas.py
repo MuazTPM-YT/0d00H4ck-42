@@ -96,3 +96,12 @@ class OrderView(TrackOut):
     rolls: list[RollRow]
     dispatches: list[DispatchRef]
     invoices: list[InvoiceRef]
+
+
+class StageRow(BaseModel):
+    order_id: int
+    stage: BuyerStage
+    production_stage: str | None
+    progress_pct: int | None
+    passed_m: Decimal
+    shipped_m: Decimal

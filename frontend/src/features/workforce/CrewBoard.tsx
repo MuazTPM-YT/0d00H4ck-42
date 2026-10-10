@@ -301,7 +301,7 @@ export function CrewBoard() {
         </div>
       ) : (
         <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)]">
-          <div className="grid min-w-0 gap-5" aria-label="Machines">
+          <div className="grid min-w-0 grid-cols-1 gap-5 lg:scroll-panel lg:max-h-[calc(100dvh-9.5rem)] lg:pr-2" aria-label="Machines">
             {selected && (
               <div className="flex items-center gap-3 border border-ember bg-card px-3 py-2" role="status">
                 <span className="min-w-0 flex-1 truncate text-sm">
@@ -348,7 +348,7 @@ export function CrewBoard() {
             )}
           </div>
 
-          <div className="grid min-w-0 gap-2">
+          <div className="grid min-w-0 grid-cols-1 gap-2">
             <AttendancePanel
               rows={found}
               filter={filter}

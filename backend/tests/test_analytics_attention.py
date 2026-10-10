@@ -114,10 +114,10 @@ def test_accounts_sees_unpaid_invoices_past_due(db, floor):
     assert items[0]["detail"] == "due 01 Oct, 9 days late"
 
 
-def test_sales_sees_orders_that_will_miss_the_deadline(db, floor):
+def test_accounts_sees_orders_that_will_miss_the_deadline(db, floor):
     floor.shirt_order.deadline = date(2026, 10, 9)
     db.commit()
-    items = service.attention_items(db, Role.sales, NOW)
+    items = service.attention_items(db, Role.accounts, NOW)
     assert titles(items) == ["SO-T1 will be late"]
     assert items[0]["href"] == f"/orders/{floor.shirt_order.id}"
 

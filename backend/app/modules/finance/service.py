@@ -702,6 +702,43 @@ def order_cost(db: Session, order_id: int) -> dict:
     }
 
 
+# --- every order worked or billed in a month, with its cost to date (scene 7)
+
+
+def order_costs(db: Session, month: str) -> list[dict]:
+    first, last = _month_dates(month)
+    a, b = _ist_bounds(first, last)
+    billed = select(Invoice.order_id).where(Invoice.issued_at >= a, Invoice.issued_at < b)
+    worked = (
+        select(WorkOrder.order_id)
+        .join(ProductionLog, ProductionLog.work_order_id == WorkOrder.id)
+        .where(ProductionLog.at >= a, ProductionLog.at < b)
+    )
+    orders = db.execute(
+        select(Order, Buyer.name)
+        .join(Buyer, Buyer.id == Order.buyer_id)
+        .where(Order.id.in_(billed.union(worked).scalar_subquery()))
+        .order_by(Order.code)
+    ).all()
+    rows = []
+    for order, buyer in orders:
+        c = order_cost(db, order.id)
+        rows.append(
+            {
+                "order_id": order.id,
+                "order_code": order.code,
+                "buyer_name": buyer,
+                "status": order.status,
+                "qty_m": order.qty_m,
+                "passed_m": c["passed_m"],
+                **{k: c[k] for k in ("yarn_paise", "labour_paise", "machine_paise")},
+                **{k: c[k] for k in ("total_paise", "invoiced_paise", "margin_paise")},
+                "cost_per_m_paise": c["cost_per_m_paise"],
+            }
+        )
+    return rows
+
+
 # --- machine production (R22) and the month (R23)
 
 

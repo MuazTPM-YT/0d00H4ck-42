@@ -97,16 +97,14 @@ function ChartTip({ active, payload, label, money }: { active?: boolean; payload
 // one ledger figure: mono label, big dotted numeral, a small print of where the number comes from
 function Stat({ icon: Icon, label, value, sub, motif, tone = "default" }: { icon: LucideIcon; label: string; value: string; sub: string; motif: MotifName; tone?: "default" | "good" | "bad" }) {
   return (
-    <Card className="flex flex-col gap-4 border-t-foreground">
-      <div className="flex items-start justify-between gap-3">
-        <span className="flex min-w-0 items-center gap-2 pt-1">
-          <Icon className="size-4 shrink-0 text-ember" aria-hidden />
-          <span className="label truncate">{label}</span>
-        </span>
-        {/* its own corner, never under the figure */}
-        <DitherPlate motif={motif} seed={label} className="pointer-events-none !h-14 !w-24 shrink-0 opacity-90" />
-      </div>
-      <div className="min-w-0">
+    <Card className="relative flex flex-col gap-4 overflow-hidden border-t-foreground">
+      {/* a faint print in the corner, under nothing that has to be read */}
+      <DitherPlate motif={motif} seed={label} className="pointer-events-none absolute! right-0 bottom-0 h-16! w-28! opacity-35 [mask-image:linear-gradient(to_left,#000,transparent)]" />
+      <span className="relative flex min-w-0 items-center gap-2">
+        <Icon className="size-4 shrink-0 text-ember" aria-hidden />
+        <span className="label">{label}</span>
+      </span>
+      <div className="relative min-w-0">
         <p className={cn("figure truncate text-[2.25rem]", tone === "good" && "text-success", tone === "bad" && "text-danger")}>{value}</p>
         <p className="mt-2 text-sm text-body">{sub}</p>
       </div>
@@ -202,7 +200,7 @@ export function OwnerDashboard() {
             role="radio"
             aria-checked={m === month}
             onClick={() => setPicked(m)}
-            className={cn("pressable h-10 border px-4 font-mono text-[0.74rem] font-medium tracking-[0.1em] uppercase", m === month ? "border-primary bg-primary text-primary-foreground" : "border-input bg-card text-foreground hover:border-ember hover:text-ember")}
+            className={cn("pressable h-10 border px-4 text-[0.88rem] font-medium", m === month ? "border-primary bg-primary text-primary-foreground" : "border-input bg-card text-foreground hover:border-foreground")}
           >
             {monthName(m)}
           </button>
