@@ -30,7 +30,7 @@ export function PageHeader({ title, description, actions }: { title: string; des
       <span className="reg -top-[6px] -left-[6px]" aria-hidden />
       <span className="reg -top-[6px] -right-[6px]" aria-hidden />
       {/* the print fades out to the left and, under the buttons, to the bottom: actions sit on clean paper */}
-      <div aria-hidden className="pointer-events-none absolute inset-y-0 right-0 w-[46%]" style={actions ? FADE_BOTH : FADE_LEFT}>
+      <div aria-hidden className="pointer-events-none absolute top-0 right-0 h-20 w-[46%] sm:bottom-0 sm:h-auto" style={actions ? FADE_BOTH : FADE_LEFT}>
         <DitherPlate motif={motif} seed={pathname} />
       </div>
       <div className="relative flex flex-col gap-5 py-7 sm:flex-row sm:items-end sm:justify-between">
