@@ -333,7 +333,10 @@ def test_dispatch_inbox_has_trucks_to_start_load_and_send(db, floor):
     assert "No truck for SO-T1" not in titles(service.attention_items(db, Role.dispatch, NOW))
     done_order(db, floor)  # made and checked: now it needs a truck
     assert "No truck for SO-T1" in titles(service.attention_items(db, Role.dispatch, NOW))
+    roll(db, floor, "R-T8", RollStatus.passed, passed_ago=timedelta(hours=1)).shade_band = "B"
+    db.commit()
     d = truck(db, floor)
+    # the empty truck's proposal is one band: one roll, the other band waits for the next truck
     assert "DN-T9: 1 roll to load" in titles(service.attention_items(db, Role.dispatch, NOW))
     floor.shirt_order.qty_m = Decimal(60)
     db.add(DispatchRoll(dispatch_id=d.id, roll_id=r.id))

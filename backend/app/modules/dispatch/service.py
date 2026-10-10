@@ -466,7 +466,10 @@ def open_truck_work(db: Session) -> list[dict]:
         shipped, on_trucks = _order_metres(db, order.id)
         need = order.qty_m - shipped - on_trucks
         bands = {r.shade_band for r in loaded}
-        same = [r for r in free if not bands or r.shade_band in bands]
+        same = [r for r in free if r.shade_band in bands]
+        if not loaded:  # empty truck: what its proposal would load, one band
+            pick = pick_rolls(free, qty(need))
+            same = pick.rolls if pick else []
         if loaded and need <= 0:
             kind = "confirm"
         elif same:
