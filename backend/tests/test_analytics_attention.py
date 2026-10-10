@@ -8,9 +8,10 @@ from app.core.enums import Source
 from app.modules.analytics import service
 from app.modules.analytics.models import Insight, Severity
 from app.modules.auth.models import Role
-from app.modules.dispatch.models import Dispatch, DispatchStatus
-from app.modules.finance.models import Invoice
+from app.modules.dispatch.models import Dispatch, DispatchRoll, DispatchStatus
+from app.modules.finance.models import Invoice, WageRun, WageRunStatus
 from app.modules.inventory import service as inventory
+from app.modules.inventory.models import BatchStatus
 from app.modules.masters.models import LocationKind, YarnItem
 from app.modules.orders.models import OrderStatus
 from app.modules.production.models import MachineEvent, MachineStatus, WorkOrderStatus
@@ -61,6 +62,11 @@ def roll(db, floor, code, status=RollStatus.awaiting_qc, ready_ago=None, passed_
 
 def titles(items) -> list[str]:
     return [i["title"] for i in items]
+
+
+# one kind of the role's list; the same fixture also raises other real hand-offs
+def of_kind(items, kind) -> list[dict]:
+    return [i for i in items if i["kind"] == kind]
 
 
 def test_supervisor_sees_stopped_and_long_idle_machines(db, floor):
@@ -126,7 +132,7 @@ def test_accounts_sees_unpaid_invoices_past_due(db, floor):
         )
     )
     db.commit()
-    items = service.attention_items(db, Role.accounts, NOW)
+    items = of_kind(service.attention_items(db, Role.accounts, NOW), "overdue_invoice")
     assert titles(items) == ["INV-T1 overdue"]
     assert items[0]["detail"] == "due 01 Oct, 9 days late"
     invoice_id = db.scalar(select(Invoice.id).where(Invoice.code == "INV-T1"))
@@ -136,7 +142,7 @@ def test_accounts_sees_unpaid_invoices_past_due(db, floor):
 def test_accounts_sees_orders_that_will_miss_the_deadline(db, floor):
     floor.shirt_order.deadline = date(2026, 10, 9)
     db.commit()
-    items = service.attention_items(db, Role.accounts, NOW)
+    items = of_kind(service.attention_items(db, Role.accounts, NOW), "delivery_risk")
     assert titles(items) == ["SO-T1 will be late"]
     assert items[0]["href"] == f"/orders/{floor.shirt_order.id}"
 
@@ -145,7 +151,7 @@ def test_accounts_sees_orders_that_will_miss_the_deadline(db, floor):
 def test_store_sees_yarn_below_reorder_level(db, floor):
     db.get(YarnItem, floor.batches[0].yarn_item_id).reorder_level_kg = Decimal(100)
     db.commit()
-    items = service.attention_items(db, Role.store, NOW)
+    items = of_kind(service.attention_items(db, Role.store, NOW), "low_stock")
     assert titles(items) == ["Cotton Ne 40/1 Raw White below reorder level"]
     assert items[0]["severity"] == Severity.critical
     assert items[0]["href"] == "/store/stock"
@@ -278,3 +284,79 @@ def test_briefing_starts_with_the_most_urgent_item(client_as, db, floor):
         "(60 min: Warp beam snapped). Then LM-T2 idle."
     )
     assert client_as(Role.qc).get("/api/analytics/briefing").json()["text"].startswith("Nothing")
+
+
+# --- role inboxes: each hand-off lands with the person who has to act on it
+
+
+def done_order(db, floor):
+    floor.shirt_weave.status = WorkOrderStatus.done
+    db.commit()
+
+
+def truck(db, floor, code="DN-T9"):
+    d = Dispatch(
+        code=code,
+        order_id=floor.shirt_order.id,
+        buyer_id=floor.shirt_order.buyer_id,
+        status=DispatchStatus.draft,
+    )
+    db.add(d)
+    db.commit()
+    return d
+
+
+def test_store_inbox_has_yarn_to_issue_and_lots_to_inspect(db, floor):
+    floor.batches[1].status = BatchStatus.inspection
+    db.commit()
+    got = titles(service.attention_items(db, Role.store, NOW))
+    assert f"Issue yarn to {floor.shirt_weave.code}" in got
+    assert "Inspect YB-T2" in got
+
+
+def test_only_the_owner_is_told_about_quarantined_lots(db, floor):
+    floor.batches[1].status = BatchStatus.quarantined
+    db.commit()
+    assert "YB-T2 in quarantine" in titles(service.attention_items(db, Role.owner, NOW))
+    assert "YB-T2 in quarantine" not in titles(service.attention_items(db, Role.store, NOW))
+
+
+# yarn on the floor but no loom running or idle: the planner cannot place it, a person must
+def test_supervisor_is_told_about_a_job_with_no_machine(db, floor):
+    floor.issue(floor.shirt_weave, floor.batches[0], 50)
+    got = titles(service.attention_items(db, Role.supervisor, NOW))
+    assert f"{floor.shirt_weave.code} has no machine" in got
+
+
+def test_dispatch_inbox_has_trucks_to_start_load_and_send(db, floor):
+    r = roll(db, floor, "R-T5", RollStatus.passed, passed_ago=timedelta(hours=2))
+    assert "No truck for SO-T1" not in titles(service.attention_items(db, Role.dispatch, NOW))
+    done_order(db, floor)  # made and checked: now it needs a truck
+    assert "No truck for SO-T1" in titles(service.attention_items(db, Role.dispatch, NOW))
+    d = truck(db, floor)
+    assert "DN-T9: 1 roll to load" in titles(service.attention_items(db, Role.dispatch, NOW))
+    floor.shirt_order.qty_m = Decimal(60)
+    db.add(DispatchRoll(dispatch_id=d.id, roll_id=r.id))
+    db.commit()
+    assert "DN-T9 is loaded" in titles(service.attention_items(db, Role.dispatch, NOW))
+
+
+# the rest of the order is another shade band: the truck waits on a supervisor's override
+def test_supervisor_is_told_a_truck_needs_a_shade_call(db, floor):
+    a = roll(db, floor, "R-T6", RollStatus.passed, passed_ago=timedelta(hours=2))
+    b = roll(db, floor, "R-T7", RollStatus.passed, passed_ago=timedelta(hours=1))
+    b.shade_band = "B"
+    d = truck(db, floor)
+    db.add(DispatchRoll(dispatch_id=d.id, roll_id=a.id))
+    db.commit()
+    assert "DN-T9 needs a shade call" in titles(service.attention_items(db, Role.supervisor, NOW))
+    assert "DN-T9 needs a shade call" in titles(service.attention_items(db, Role.owner, NOW))
+
+
+def test_accounts_is_told_when_last_month_has_no_wage_run(db, floor):
+    assert "No wage run for September" in titles(service.attention_items(db, Role.accounts, NOW))
+    sept = date(2026, 9, 30)
+    db.add(WageRun(period_start=date(2026, 9, 1), period_end=sept, status=WageRunStatus.final))
+    db.commit()
+    got = titles(service.attention_items(db, Role.accounts, NOW))
+    assert "No wage run for September" not in got

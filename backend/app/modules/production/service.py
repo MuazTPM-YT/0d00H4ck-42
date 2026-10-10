@@ -1287,6 +1287,17 @@ def plan_waiting(db: Session, user_id: int | None) -> list[WorkOrder]:
     return planned
 
 
+# ready jobs the planner could not place: no running or idle machine of their stage
+def unplaced_jobs(db: Session) -> list[WorkOrder]:
+    waiting = db.scalars(
+        select(WorkOrder)
+        .join(Order, Order.id == WorkOrder.order_id)
+        .where(WorkOrder.status == WorkOrderStatus.waiting, Order.status == OrderStatus.confirmed)
+        .order_by(Order.deadline, WorkOrder.id)
+    )
+    return [wo for wo in waiting if _ready_to_plan(db, wo)]
+
+
 # after any floor change: queue what became ready, then start whatever a free machine can take
 def advance(db: Session, user_id: int | None, at: datetime | None = None) -> list[WorkOrder]:
     plan_waiting(db, user_id)
