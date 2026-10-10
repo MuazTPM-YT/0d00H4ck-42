@@ -1,8 +1,21 @@
+"use client"
+
 import * as React from "react"
 import { cn } from "@/lib/utils"
+import { acceptsNumericEdit } from "@/lib/validation"
+import { DateInput } from "./date-input"
+import { TimeInput } from "./time-input"
 
 // 44px square fields: hairline at rest, ember line when focused, red when invalid
-function Input({ className, type, ...props }: React.ComponentProps<"input">) {
+function Input({ className, type, onChange, onKeyDown, onPaste, ...props }: React.ComponentProps<"input">) {
+  const unsigned = (type === "number" && !(Number(props.min) < 0)) || props.inputMode === "decimal" || props.inputMode === "numeric"
+  const integer = props.inputMode === "numeric"
+  const accepted = React.useRef(String(props.value ?? props.defaultValue ?? ""))
+  React.useEffect(() => {
+    if (props.value !== undefined) accepted.current = String(props.value)
+  }, [props.value])
+  if (type === "date" || type === "month") return <DateInput {...props} type={type} className={className} onChange={onChange} onKeyDown={onKeyDown} onPaste={onPaste} />
+  if (type === "time") return <TimeInput {...props} className={className} onChange={onChange} onKeyDown={onKeyDown} onPaste={onPaste} />
   return (
     <input
       type={type}
@@ -16,6 +29,22 @@ function Input({ className, type, ...props }: React.ComponentProps<"input">) {
         className
       )}
       {...props}
+      onKeyDown={(event) => {
+        onKeyDown?.(event)
+        if (unsigned && !event.ctrlKey && !event.metaKey && ["-", "+", "e", "E"].includes(event.key)) event.preventDefault()
+      }}
+      onPaste={(event) => {
+        onPaste?.(event)
+        if (unsigned && !acceptsNumericEdit(event.clipboardData.getData("text"), integer)) event.preventDefault()
+      }}
+      onChange={(event) => {
+        if (unsigned && !acceptsNumericEdit(event.target.value, integer)) {
+          event.target.value = props.value !== undefined ? String(props.value) : accepted.current
+          return
+        }
+        accepted.current = event.target.value
+        onChange?.(event)
+      }}
     />
   )
 }

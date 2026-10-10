@@ -198,6 +198,7 @@
     @apply bg-background text-foreground antialiased;
     font-family: var(--font-sans);
     line-height: 1.55;
+    overflow-wrap: anywhere;
     /* a faint Bayer stipple under everything: the paper the ledger is printed on */
     background-image: radial-gradient(color-mix(in srgb, var(--foreground) 9%, transparent) 0.6px, transparent 0.9px);
     background-size: 8px 8px;
@@ -263,6 +264,8 @@
   }
   /* native selects match inputs: same border, radius and an SF-style chevron */
   select {
+    min-width: 0;
+    max-width: 100%;
     appearance: none;
     border-radius: var(--radius-md);
     background-color: var(--card);

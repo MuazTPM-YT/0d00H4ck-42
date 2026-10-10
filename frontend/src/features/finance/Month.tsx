@@ -1,5 +1,7 @@
 "use client";
 
+import { Select } from "@/components/ui/select";
+
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, Plus } from "lucide-react";
 import Link from "next/link";
@@ -43,7 +45,7 @@ export function Month() {
         description="Money in, money out and the result, on invoiced and on cash basis."
         actions={
           <>
-            <Input aria-label="Month" type="month" value={month} max={thisMonth()} onChange={(e) => e.target.value && setMonth(e.target.value)} className="w-40" />
+            <Input aria-label="Month" type="month" value={month} max={thisMonth()} onChange={(e) => e.target.value && e.target.checkValidity() && setMonth(e.target.value)} className="w-40" />
             <Button onClick={() => setAdding(true)}><Plus /> Expense</Button>
           </>
         }
@@ -158,7 +160,7 @@ function ExpenseForm({ onDone }: { onDone: () => void }) {
     if (!form.checkValidity()) return;
     const f = new FormData(form);
     const paise = rupeesToPaise(String(f.get("amount")));
-    if (!paise) return setErrors({ amount_paise: "Enter rupees above zero, e.g. 1850 or 1850.50" });
+    if (!paise || paise > 10 ** 12) return setErrors({ amount_paise: "Enter rupees above 0, up to 10,000,000,000 with at most 2 decimals" });
     save.mutate({ date: f.get("date"), category: f.get("category"), amount_paise: paise, note: String(f.get("note") ?? "").trim() || null });
   }
   return (
@@ -170,10 +172,10 @@ function ExpenseForm({ onDone }: { onDone: () => void }) {
         <Input id="date" name="date" type="date" required max={new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" })} aria-invalid={!!errors.date} />
       </FormField>
       <FormField name="category" label="Category" required error={errors.category}>
-        <select id="category" name="category" required className={SELECT} defaultValue="">
+        <Select id="category" name="category" required className={SELECT} defaultValue="">
           <option value="" disabled>Choose</option>
           {CATEGORIES.map((c) => <option key={c} value={c}>{humanize(c)}</option>)}
-        </select>
+        </Select>
       </FormField>
       <FormField name="amount" label="Amount (₹)" required error={errors.amount_paise}>
         <Input id="amount" name="amount" inputMode="decimal" required aria-invalid={!!errors.amount_paise} />

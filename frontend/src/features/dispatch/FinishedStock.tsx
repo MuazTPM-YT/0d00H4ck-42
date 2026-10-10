@@ -57,7 +57,7 @@ export function FinishedStock() {
       ) : (
         <div className="grid gap-4 lg:grid-cols-2">
           {shelf.data.map((g) => (
-            <section key={g.order_id} className={cn("flex flex-col border border-border bg-card", !g.order_open && "border-warning")}>
+            <section key={g.order_id} className={cn("flex min-w-0 flex-col border border-border bg-card", !g.order_open && "border-warning")}>
               <div className="flex flex-wrap items-start justify-between gap-2 border-b border-border px-4 py-3">
                 <div>
                   <h2 className="text-base">{g.order_code} · {g.buyer_name}</h2>

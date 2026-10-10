@@ -28,7 +28,8 @@ export function rupeesToPaise(input: string): number | null {
   const clean = input.replace(/[,₹\s]/g, "");
   if (!/^\d+(\.\d{1,2})?$/.test(clean)) return null;
   const [whole, frac = ""] = clean.split(".");
-  return Number(whole) * 100 + Number(frac.padEnd(2, "0"));
+  const paise = Number(whole) * 100 + Number(frac.padEnd(2, "0"));
+  return Number.isSafeInteger(paise) && paise <= 10 ** 14 ? paise : null;
 }
 
 export const paiseToRupees = (paise: number | null | undefined) =>

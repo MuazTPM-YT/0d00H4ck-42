@@ -1,5 +1,7 @@
 "use client";
 
+import { Select } from "@/components/ui/select";
+
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CheckCircle2 } from "lucide-react";
 import Link from "next/link";
@@ -13,15 +15,15 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { api, ApiError } from "@/lib/api";
 import { kg, rupeesToPaise } from "@/lib/format";
 import { useSSE } from "@/lib/useSSE";
+import { millDate, validDate, validQuantity } from "@/lib/validation";
 
 import { selectClass, useMaster, type NamedOption } from "@/features/inventory/ui";
 
 import { OrderYarnPanel } from "./OrderYarnPanel";
 import type { Order, YarnLine } from "./types";
 
-const METRES_RE = /^\d+(\.\d{1,3})?$/;
 // IST tomorrow; UTC gave today before 5:30 am, which the server rejects
-const tomorrow = () => new Date(Date.now() + 86_400_000).toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
+const tomorrow = () => millDate(1);
 
 // wait until typing pauses before asking the server
 function useDebounced<T>(value: T, ms = 300): T {
@@ -45,7 +47,7 @@ export function NewOrderForm() {
   const set = (k: keyof typeof v, value: string) => setV((p) => ({ ...p, [k]: value }));
 
   const previewInput = useDebounced({ fabric: v.fabric_type_id, colour: v.colour.trim(), qty: v.qty_m });
-  const previewReady = !!previewInput.fabric && !!previewInput.colour && METRES_RE.test(previewInput.qty) && Number(previewInput.qty) > 0;
+  const previewReady = !!previewInput.fabric && !!previewInput.colour && previewInput.colour.length <= 40 && validQuantity(previewInput.qty, 1_000_000);
   const preview = useQuery({
     queryKey: ["stock", "requirement-preview", previewInput],
     queryFn: () =>
@@ -80,11 +82,12 @@ export function NewOrderForm() {
     const errs: Record<string, string> = {};
     if (!v.buyer_id) errs.buyer_id = "Pick the buyer";
     if (!v.fabric_type_id) errs.fabric_type_id = "Pick the fabric";
-    if (!v.colour.trim()) errs.colour = "Colour is required";
-    if (!METRES_RE.test(v.qty_m) || Number(v.qty_m) <= 0) errs.qty_m = "Metres above 0, up to 3 decimals";
+    if (!v.colour.trim() || v.colour.trim().length > 40) errs.colour = "Colour is required, up to 40 characters";
+    if (!validQuantity(v.qty_m, 1_000_000)) errs.qty_m = "Enter 0.001 to 1,000,000 metres, up to 3 decimals";
     const paise = rupeesToPaise(v.rate);
     if (!paise) errs.rate = "Rupees per metre above 0, e.g. 185 or 185.50";
     if (!v.deadline || v.deadline < tomorrow()) errs.deadline = "Deadline must be after today";
+    else if (!validDate(v.deadline, tomorrow(), millDate(730))) errs.deadline = "Pick a valid deadline within two years";
     setErrors(errs);
     if (Object.keys(errs).length) return;
     save.mutate({
@@ -121,16 +124,16 @@ export function NewOrderForm() {
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
         <form noValidate onSubmit={(e: FormEvent) => { e.preventDefault(); submit(true); }} className="grid content-start gap-4 rounded-lg border bg-card p-4">
           <FormField name="buyer_id" label="Buyer" error={errors.buyer_id} required>
-            <select id="buyer_id" value={v.buyer_id} onChange={(e) => set("buyer_id", e.target.value)} className={selectClass} {...a11y("buyer_id")}>
+            <Select id="buyer_id" value={v.buyer_id} onChange={(e) => set("buyer_id", e.target.value)} className={selectClass} {...a11y("buyer_id")}>
               <option value="">Choose…</option>
               {buyers.data?.items.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
-            </select>
+            </Select>
           </FormField>
           <FormField name="fabric_type_id" label="Fabric" error={errors.fabric_type_id} required>
-            <select id="fabric_type_id" value={v.fabric_type_id} onChange={(e) => set("fabric_type_id", e.target.value)} className={selectClass} {...a11y("fabric_type_id")}>
+            <Select id="fabric_type_id" value={v.fabric_type_id} onChange={(e) => set("fabric_type_id", e.target.value)} className={selectClass} {...a11y("fabric_type_id")}>
               <option value="">Choose…</option>
               {fabrics.data?.items.map((f) => <option key={f.id} value={f.id}>{`${f.code} · ${f.name}`}</option>)}
-            </select>
+            </Select>
           </FormField>
           <div className="grid gap-4 sm:grid-cols-2">
             <FormField name="colour" label="Colour" error={errors.colour} required>
@@ -143,7 +146,7 @@ export function NewOrderForm() {
               <Input id="rate" inputMode="decimal" value={v.rate} onChange={(e) => set("rate", e.target.value)} {...a11y("rate")} />
             </FormField>
             <FormField name="deadline" label="Deadline" error={errors.deadline} required>
-              <Input id="deadline" type="date" min={tomorrow()} value={v.deadline} onChange={(e) => set("deadline", e.target.value)} {...a11y("deadline")} />
+              <Input id="deadline" type="date" min={tomorrow()} max={millDate(730)} value={v.deadline} onChange={(e) => set("deadline", e.target.value)} {...a11y("deadline")} />
             </FormField>
           </div>
           {errors.form && <p role="alert" className="text-sm text-danger">{errors.form}</p>}

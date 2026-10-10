@@ -1,5 +1,7 @@
 "use client";
 
+import { Select } from "@/components/ui/select";
+
 import { AlertTriangle, Cog, Search, UserMinus, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
@@ -22,7 +24,7 @@ const STAGE_ORDER = ["spinning", "weaving", "dyeing"];
 
 // typing in a field or a dialog is open: leave "/" and Esc alone
 const busyTarget = (el: EventTarget | null) =>
-  el instanceof HTMLElement && (el.isContentEditable || ["INPUT", "SELECT", "TEXTAREA"].includes(el.tagName) || !!el.closest("[role=dialog]"));
+  el instanceof HTMLElement && (el.isContentEditable || ["INPUT", "SELECT", "TEXTAREA"].includes(el.tagName) || !!el.closest("[role=dialog], [role=combobox], [role=listbox]"));
 
 // one machine: who is on it now, who was earlier, and how to put someone on
 function MachineCard({
@@ -120,7 +122,7 @@ function MachineCard({
               if (workerId) put(Number(workerId));
             }}
           >
-            <select aria-label={`Worker for ${machine.code}`} value={workerId} onChange={(e) => setWorkerId(e.target.value)} className={cn(compactSelect, "flex-1")}>
+            <Select aria-label={`Worker for ${machine.code}`} value={workerId} onChange={(e) => setWorkerId(e.target.value)} className={cn(compactSelect, "flex-1")}>
               <option value="">Add a worker…</option>
               {groups.map(([label, rows]) =>
                 rows.length ? (
@@ -134,7 +136,7 @@ function MachineCard({
                   </optgroup>
                 ) : null,
               )}
-            </select>
+            </Select>
             <Button type="submit" size="sm" variant="outline" disabled={!workerId || assign.isPending}>
               {roster.find((r) => r.worker.id === Number(workerId))?.crew ? "Move" : "Assign"}
             </Button>
@@ -272,10 +274,10 @@ export function CrewBoard() {
           </p>
         </div>
         <FormField name="day" label="Date">
-          <Input id="day" type="date" max={todayIST()} value={day} onChange={(e) => e.target.value && setPicked({ date: e.target.value, shift: shiftId })} className="h-14 w-44" />
+          <Input id="day" type="date" max={todayIST()} value={day} onChange={(e) => e.target.value && e.target.checkValidity() && setPicked({ date: e.target.value, shift: shiftId })} className="h-14 w-44" />
         </FormField>
         <FormField name="shift" label="Shift">
-          <select id="shift" value={shiftId} onChange={(e) => setPicked({ date: day, shift: Number(e.target.value) })} className={cn(selectClass, "h-14 w-52")}>
+          <Select id="shift" value={shiftId} onChange={(e) => setPicked({ date: day, shift: Number(e.target.value) })} className={cn(selectClass, "h-14 w-52")}>
             {shiftId === 0 && (
               <option value={0} disabled>
                 Pick a shift
@@ -286,7 +288,7 @@ export function CrewBoard() {
                 {s.name} ({s.start_time.slice(0, 5)}–{s.end_time.slice(0, 5)})
               </option>
             ))}
-          </select>
+          </Select>
         </FormField>
       </div>
 

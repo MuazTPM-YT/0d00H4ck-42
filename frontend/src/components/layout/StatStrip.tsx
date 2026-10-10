@@ -27,11 +27,11 @@ export function StatStrip({ stats, className }: { stats: Stat[]; className?: str
         const body = (
           <>
             <span className={cn("label flex min-w-0 items-center gap-2", s.pressed && "text-primary-foreground/80")}>{s.label}</span>
-            <span className={cn("figure text-[1.6rem]", !s.pressed && s.tone && TONE[s.tone])}>{s.value}</span>
-            {s.sub && <span className={cn("truncate text-[0.8rem]", s.pressed ? "text-primary-foreground/80" : "text-muted-foreground")}>{s.sub}</span>}
+            <span className={cn("figure min-w-0 text-[1.4rem] [overflow-wrap:anywhere] sm:text-[1.6rem]", !s.pressed && s.tone && TONE[s.tone])}>{s.value}</span>
+            {s.sub && <span className={cn("text-[0.8rem] [overflow-wrap:anywhere]", s.pressed ? "text-primary-foreground/80" : "text-muted-foreground")}>{s.sub}</span>}
           </>
         );
-        const cell = "grid min-w-0 content-start gap-1 border-r border-b border-border px-4 py-3 text-left";
+        const cell = "grid min-w-0 content-start gap-1 border-r border-b border-border px-3 py-3 text-left [overflow-wrap:anywhere] sm:px-4";
         if (s.href)
           return (
             <Link key={s.key} href={s.href} className={cn(cell, "hover:bg-accent")}>
