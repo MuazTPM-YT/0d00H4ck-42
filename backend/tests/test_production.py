@@ -303,6 +303,47 @@ def test_rework_work_order_returns_roll_to_qc(db, floor):
     assert result["status"] == RollStatus.awaiting_qc
 
 
+# dyeing closing early would strand every roll still coming off the loom
+def test_dyeing_cannot_finish_while_rolls_still_need_it(db, floor):
+    weave = run_on(db, floor, floor.dyed_weave, floor.loom1)
+    floor.issue(weave, floor.batches[0], 50)
+    dye = run_on(db, floor, floor.dyed_dye, floor.jigger)
+    roll = cut(db, floor, weave, 40)
+    with pytest.raises(Conflict) as open_weave:
+        service.finish_work_order(db, dye.id, None)
+    assert open_weave.value.code == "stage_still_feeding"
+
+    service.finish_work_order(db, weave.id, None)
+    with pytest.raises(Conflict) as waiting:
+        service.finish_work_order(db, dye.id, None)
+    assert waiting.value.code == "stage_still_feeding"
+
+    service.process_roll(db, roll["id"], RollProcessIn(work_order_id=dye.id), None)
+    assert service.finish_work_order(db, dye.id, None).status == WorkOrderStatus.done
+
+
+# rework job is one roll: done once that roll is back in QC, so a second rework opens fresh
+def test_rework_job_closes_itself_and_a_second_rework_gets_a_new_job(db, floor):
+    wo = run_on(db, floor, floor.shirt_weave, floor.loom1)
+    floor.issue(wo, floor.batches[0], 50)
+    roll = db.get(Roll, cut(db, floor, wo, 40)["id"])
+    roll.status = RollStatus.rework
+    db.commit()
+    first = service.create_rework_work_order(db, roll.id, Stage.weaving, None)
+    db.commit()
+    run_on(db, floor, first, floor.loom2)
+    service.process_roll(db, roll.id, RollProcessIn(work_order_id=first.id), None)
+    db.refresh(first)
+    assert first.status == WorkOrderStatus.done and first.finished_at is not None
+    assert service.machine_status(db, floor.loom2.id) == MachineStatus.idle
+
+    db.refresh(roll)
+    roll.status = RollStatus.rework  # QC sends it back again
+    db.commit()
+    second = service.create_rework_work_order(db, roll.id, Stage.weaving, None)
+    assert second.id != first.id and second.status == WorkOrderStatus.waiting
+
+
 def test_finish_consumes_yarn_left_on_the_floor(db, floor):
     wo = run_on(db, floor, floor.shirt_weave, floor.loom1)
     floor.issue(wo, floor.batches[0], 50)

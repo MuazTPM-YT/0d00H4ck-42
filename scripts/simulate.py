@@ -406,7 +406,7 @@ class Mill:
             if result["status"] == RollStatus.awaiting_qc:
                 self.qc_due.append((at + timedelta(hours=self.rng.randint(2, 8)), roll.id))
         if wo.roll_id:
-            finished = todo[0].status != RollStatus.rework
+            finished = False  # a rework job closes itself once its roll is back in QC
         else:
             weaving_open = self.db.scalar(
                 select(func.count()).where(
