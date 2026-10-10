@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { ScanLine } from "lucide-react";
 import { type KeyboardEvent, useState } from "react";
 
+import { CameraScan } from "@/components/scan/CameraScan";
 import { Input } from "@/components/ui/input";
 import { api, type Paged } from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -27,7 +28,7 @@ export function useMaster<T extends Option>(path: "suppliers" | "buyers" | "yarn
 export type YarnItemOption = { id: number; fibre: string; count: string; colour: string; reorder_level_kg: string };
 export type NamedOption = { id: number; code: string; name: string };
 
-// USB / Bluetooth scanners type the code and press Enter; people can type too
+// USB / Bluetooth scanners type the code and press Enter; people can type, or read it with the camera
 export function ScanField({
   id,
   label,
@@ -56,23 +57,26 @@ export function ScanField({
       <label htmlFor={id} className="text-sm font-medium">
         {label}
       </label>
-      <div className="relative">
-        <ScanLine className="pointer-events-none absolute top-1/2 left-3 size-5 -translate-y-1/2 text-muted-foreground" aria-hidden />
-        <Input
-          id={id}
-          value={value}
-          onChange={(e) => setValue(e.target.value)}
-          onKeyDown={onKeyDown}
-          placeholder={placeholder}
-          maxLength={300}
-          autoComplete="off"
-          spellCheck={false}
-          disabled={disabled}
-          autoFocus={autoFocus}
-          className="h-12 pl-11 text-base md:text-base"
-        />
+      <div className="flex gap-2">
+        <div className="relative min-w-0 flex-1">
+          <ScanLine className="pointer-events-none absolute top-1/2 left-3 size-5 -translate-y-1/2 text-muted-foreground" aria-hidden />
+          <Input
+            id={id}
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+            onKeyDown={onKeyDown}
+            placeholder={placeholder}
+            maxLength={300}
+            autoComplete="off"
+            spellCheck={false}
+            disabled={disabled}
+            autoFocus={autoFocus}
+            className="h-12 pl-11 text-base md:text-base"
+          />
+        </div>
+        <CameraScan onScan={onScan} label={`${label}: read with camera`} disabled={disabled} className="h-12" />
       </div>
-      <p className="text-xs text-muted-foreground">Scan, or type and press Enter.</p>
+      <p className="text-xs text-muted-foreground">Scan, type and press Enter, or use the camera.</p>
     </div>
   );
 }
