@@ -157,7 +157,7 @@ class BoardJob(BaseModel):
     planned: Decimal
     produced: Decimal
     unit: Unit
-    rework: bool
+    roll_id: int | None
 
 
 class BoardTile(BaseModel):

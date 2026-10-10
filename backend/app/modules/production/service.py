@@ -660,7 +660,7 @@ def board(db: Session, now: datetime | None = None) -> dict:
                     "planned": wo.planned_qty,
                     "produced": qty(produced.get(wo.id, 0)),
                     "unit": wo.unit,
-                    "rework": wo.roll_id is not None,
+                    "roll_id": wo.roll_id,
                 }
                 if wo
                 else None,
