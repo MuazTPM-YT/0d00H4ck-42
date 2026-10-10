@@ -61,9 +61,13 @@ function FieldError({ id, children }: { id: string; children?: string }) {
   );
 }
 
+// only a path on this site: "//evil.com" and "/\evil.com" also start with "/" but leave the mill
+const safeNext = (next: string | null) =>
+  next && /^\/(?![/\\])/.test(next) && next !== "/login" ? next : null;
+
 function LoginForm({ onRole }: { onRole: (role: Role | null) => void }) {
   const router = useRouter();
-  const next = useSearchParams().get("next");
+  const next = safeNext(useSearchParams().get("next"));
   const login = useLogin();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -76,7 +80,7 @@ function LoginForm({ onRole }: { onRole: (role: Role | null) => void }) {
     login.mutate(
       { email, password },
       {
-        onSuccess: ({ user }) => router.replace(next?.startsWith("/") && next !== "/login" ? next : roleHome(user.role)),
+        onSuccess: ({ user }) => router.replace(next ?? roleHome(user.role)),
         onError: (err) => setErrors({ [err instanceof ApiError && err.field ? err.field : "form"]: err.message }),
       },
     );
