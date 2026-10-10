@@ -98,14 +98,14 @@ export function MachineTile({ tile, now, onOpen }: { tile: BoardTile; now: numbe
                 </span>
               )}
             </span>
-            <span className="h-2 overflow-hidden border border-border bg-[radial-gradient(var(--input)_0.7px,transparent_1px)] bg-[size:4px_4px]" role="progressbar" aria-valuenow={done} aria-valuemin={0} aria-valuemax={100} aria-label={`${job.code} progress`}>
+            <span className="h-2 overflow-hidden border border-border bg-[radial-gradient(var(--input)_0.7px,transparent_1px)] bg-[size:4px_4px]" role="progressbar" aria-valuenow={done} aria-valuemin={0} aria-valuemax={100} aria-label={`${job.code} progress against its plan`}>
               <span className={cn("block h-full transition-[width] duration-500 ease-out", BAR[tile.status])} style={{ width: `${done}%` }} />
             </span>
             <span className="num flex min-w-0 items-baseline justify-between gap-2 text-[0.78rem] text-muted-foreground">
               <span className="min-w-0 truncate">
                 {fmt(job.produced)} / {fmt(job.planned)}
               </span>
-              <span className="shrink-0 font-medium text-foreground">{done}%</span>
+              <span className="shrink-0 font-medium text-foreground" title="Of the job's plan: the order plus the 5% allowance">{done}%</span>
             </span>
           </span>
         ) : (

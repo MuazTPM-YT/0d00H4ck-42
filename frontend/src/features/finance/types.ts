@@ -72,10 +72,12 @@ export type MonthView = {
   invoiced_paise: number;
   invoiced_ex_gst_paise: number;
   received_paise: number;
+  collected_of_invoiced_paise: number;
   yarn_bills_paise: number;
   wages_accrued_paise: number;
   wages_paid_paise: number;
   expenses_paise: number;
+  wage_runs: number;
   result_invoiced_paise: number;
   result_cash_paise: number;
   notes: string[];
@@ -88,6 +90,7 @@ export type MachineProduction = {
   machine_id: number;
   code: string;
   name: string;
+  type: "spinning" | "weaving" | "dyeing";
   unit: "kg" | "m";
   month_qty: string;
   days: { day: string; qty: string }[];

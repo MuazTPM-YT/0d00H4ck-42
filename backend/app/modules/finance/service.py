@@ -503,17 +503,22 @@ def list_expenses(db: Session, page: Page, month: str | None = None) -> dict:
 # --- shared services (contract: docs/contracts.md). Never commit; caller owns the transaction.
 
 
-# a final or paid wage run covers this day: attendance for it is paid out, keep it fixed
-def period_locked(db: Session, day: date) -> bool:
-    return bool(
-        db.scalar(
-            select(func.count()).where(
-                WageRun.status.in_([WageRunStatus.final, WageRunStatus.paid]),
-                WageRun.period_start <= day,
-                WageRun.period_end >= day,
-            )
+# the final or paid wage run covering this day, if any: the one payroll-lock rule
+def locking_run(db: Session, day: date) -> WageRun | None:
+    return db.scalar(
+        select(WageRun)
+        .where(
+            WageRun.status.in_([WageRunStatus.final, WageRunStatus.paid]),
+            WageRun.period_start <= day,
+            WageRun.period_end >= day,
         )
+        .limit(1)
     )
+
+
+# a final or paid wage run covers this day: attendance and output for it are paid out
+def period_locked(db: Session, day: date) -> bool:
+    return locking_run(db, day) is not None
 
 
 # invoice for one confirmed dispatch: one line per loaded roll at the order rate, GST on top
@@ -829,34 +834,54 @@ def order_costs(db: Session, month: str) -> list[dict]:
 # --- machine production (R22) and the month (R23)
 
 
+# R22: route output only (rework redoes metres already counted), hours from the same
+# function as the machine timeline, so the floor, the owner and month-end agree
 def machine_production(db: Session, month: str) -> list[dict]:
+    # late import: production imports quality, which imports dispatch, which imports this module
+    from app.modules.production.service import status_durations
+
     first, last = _month_dates(month)
     a, b = _ist_bounds(first, last)
     machines = db.scalars(
         select(Machine).where(Machine.active.is_(True)).order_by(Machine.code)
     ).all()
     ist_day = func.date(func.timezone("Asia/Kolkata", ProductionLog.at))
+    route_jobs = select(WorkOrder.id).where(WorkOrder.roll_id.is_(None))
     per_day = db.execute(
         select(ProductionLog.machine_id, ist_day, func.sum(ProductionLog.qty))
-        .where(ProductionLog.at >= a, ProductionLog.at < b)
+        .where(
+            ProductionLog.at >= a,
+            ProductionLog.at < b,
+            ProductionLog.work_order_id.in_(route_jobs),
+        )
         .group_by(ProductionLog.machine_id, ist_day)
         .order_by(ist_day)
     ).all()
     days: dict[int, list] = defaultdict(list)
     for machine_id, day, total in per_day:
         days[machine_id].append({"day": day, "qty": qty(total)})
-    hours: dict[int, dict] = defaultdict(lambda: defaultdict(Decimal))
-    for s in machine_spans(db, [m.id for m in machines], a, b):
-        hours[s.machine_id][s.status] += _hours(s.start, s.end)
+    end = min(b, datetime.now(UTC))
+    events: dict[int, list] = defaultdict(list)
+    for e in db.execute(
+        select(MachineEvent.machine_id, MachineEvent.at, MachineEvent.status)
+        .where(MachineEvent.machine_id.in_([m.id for m in machines] or [0]), MachineEvent.at < end)
+        .order_by(MachineEvent.machine_id, MachineEvent.at, MachineEvent.id)
+    ):
+        events[e.machine_id].append((e.at, e.status))
+    hours = {m.id: status_durations(events[m.id], a, end) if end > a else {} for m in machines}
     return [
         {
             "machine_id": m.id,
             "code": m.code,
             "name": m.name,
+            "type": m.type,
             "unit": m.output_unit,
             "month_qty": qty(sum((d["qty"] for d in days[m.id]), ZERO)),
             "days": days[m.id],
-            "hours": {st.value: hours[m.id][st].quantize(Decimal("0.1")) for st in MachineStatus},
+            "hours": {
+                st.value: (Decimal(hours[m.id].get(st.value, 0)) / 3600).quantize(Decimal("0.1"))
+                for st in MachineStatus
+            },
         }
         for m in machines
     ]
@@ -914,6 +939,19 @@ def month_view(db: Session, month: str) -> dict:
 
     accrued = wages([WageRunStatus.final, WageRunStatus.paid])
     paid_wages = wages([WageRunStatus.paid])
+    wage_runs = db.scalar(
+        select(func.count()).where(
+            WageRun.status.in_([WageRunStatus.final, WageRunStatus.paid]),
+            WageRun.period_end >= first,
+            WageRun.period_end <= last,
+        )
+    )
+    # of this month's own invoices, how much has come in so far (any day)
+    collected = db.scalar(
+        select(func.coalesce(func.sum(Payment.amount_paise), 0))
+        .join(Invoice, Invoice.id == Payment.invoice_id)
+        .where(Invoice.issued_at >= a, Invoice.issued_at < b)
+    )
     expenses = db.scalar(
         select(func.coalesce(func.sum(Expense.amount_paise), 0)).where(
             Expense.date >= first, Expense.date <= last
@@ -924,10 +962,12 @@ def month_view(db: Session, month: str) -> dict:
         "invoiced_paise": total,
         "invoiced_ex_gst_paise": subtotal,
         "received_paise": received,
+        "collected_of_invoiced_paise": collected,
         "yarn_bills_paise": bills,
         "wages_accrued_paise": accrued,
         "wages_paid_paise": paid_wages,
         "expenses_paise": expenses,
+        "wage_runs": wage_runs,
         "result_invoiced_paise": subtotal - bills - accrued - expenses,
         "result_cash_paise": received - bills - paid_wages - expenses,
         "notes": [

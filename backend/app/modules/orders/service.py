@@ -10,7 +10,7 @@ from app.core.enums import Stage
 from app.core.errors import Conflict, NotFound, Unprocessable
 from app.core.pagination import Page, paginate
 from app.core.states import check_transition
-from app.core.units import qty, yarn_kg_for_fabric
+from app.core.units import fully_shipped, qty, yarn_kg_for_fabric
 from app.modules.auth.models import User
 from app.modules.dispatch.models import Dispatch, DispatchRoll, DispatchStatus
 from app.modules.inventory import service as inventory
@@ -233,7 +233,7 @@ def close(db: Session, user: User, order_id: int, reason: str | None) -> Order:
     check_transition(ORDER_TRANSITIONS, order.status, OrderStatus.closed)
     _check_floor_idle(db, order)
     reason = reason.strip() if reason else None
-    if shipped_m(db, order.id) < order.qty_m and not reason:
+    if not fully_shipped(shipped_m(db, order.id), order.qty_m) and not reason:
         raise Unprocessable(
             f"{order.code} shipped less than its {qty(order.qty_m)} m. Say why it is closed short",
             field="reason",

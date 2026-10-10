@@ -117,6 +117,11 @@ function MonthCards({ v, onDrill }: { v: MonthView; onDrill: (k: MonthKind) => v
           <Result label="Result" paise={v.result_cash_paise} />
         </section>
       </div>
+      {v.wage_runs === 0 && (
+        <p role="status" className="border border-warning bg-warning-soft px-3 py-2 text-sm text-warning">
+          No final wage run ends in this month yet, so both results leave out labour. Make the run under Wages.
+        </p>
+      )}
       <ul className="list-disc pl-5 text-xs text-muted-foreground">
         <li>Invoices including GST: {inr(v.invoiced_paise)}.</li>
         {v.notes.map((n) => <li key={n}>{n}</li>)}
@@ -232,7 +237,7 @@ function OrderCosts({ month }: { month: string }) {
               <TableHead className="text-right">Machine</TableHead>
               <TableHead className="text-right">Total cost</TableHead>
               <TableHead className="text-right">Cost / m</TableHead>
-              <TableHead className="text-right">Invoiced</TableHead>
+              <TableHead className="text-right">Invoiced (lifetime)</TableHead>
               <TableHead className="text-right">Margin</TableHead>
             </TableRow>
           </TableHeader>

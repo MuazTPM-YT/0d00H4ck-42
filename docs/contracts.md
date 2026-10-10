@@ -123,7 +123,7 @@ caller. Status: **done** = implemented and tested, **stub** = raises `NotImpleme
 | `production.plan_waiting(db, user_id)`, `advance(db, user_id, at=None)` | Muaz | done | `plan_waiting` queues every ready waiting job on the least busy working machine of its stage, earliest deadline first; `advance` = plan, then pull. Run after every floor write, a yarn issue and a QC rework |
 | `production.release_order_jobs(db, order_id, user_id)` | Muaz | done | `int` queued jobs sent back to waiting; 409 if a job is running or paused. Called by order cancel |
 | `dispatch.order_fully_shipped(db, order_id)` | Ashil | done | `bool` shipped ≥ qty × 0.98; dispatch confirm then closes the order |
-| `finance.period_locked(db, day)` | Ashil | done | `bool` a final or paid wage run covers the day; attendance writes refuse it |
+| `finance.period_locked(db, day)`, `locking_run(db, day)` | Ashil | done | a final or paid wage run covers the day (`locking_run` returns it). The one payroll lock: `workforce.payroll_open` raises `wages_final` from it for attendance, crew and output writes |
 | `quality.roll_trace(db, roll_id)` | Razan | done | order, loom, shift, weaver, yarn batches + suppliers, QC attempts, events |
 | `tracking.order_stage(db, order_id)` | Ashil | done | derived buyer stage + metres per bucket |
 | `dispatch.email_driver(db, dispatch_id, user_id)` | Ashil | done | `"sent" \| "failed" \| "skipped"`; emails the driver their link (never the code), audit row, never raises on a mail error; caller commits |
@@ -153,7 +153,10 @@ The simulator, the live feed and people all go through these; none of them lives
 - QC: a third check cannot send a roll to rework again; rework only on a confirmed order.
 - Dispatch confirm closes the order once shipped ≥ 98 % of the ordered metres. Accounts closes short
   with a reason. Cancel is refused once anything has shipped or a job is on a machine.
-- Attendance for a day under a final wage run is locked.
+- Attendance, crew and output for a day under a final wage run are locked.
+- Production totals (floor board, machine timeline, month-end R22, owner dashboard) count route jobs
+  only; rework redoes metres already counted. Machine hours everywhere come from
+  `production.status_durations` (time before a machine's first report is off).
 
 Also callable: `workforce.current_shift(db, at)` → `(shift date, Shift)`, night shift belongs to
 the date it started; `workforce.crew_on_machine(db, machine_id, at)` → worker id or `None`.
@@ -163,7 +166,8 @@ Cross-module writes agreed by the team (decision 22): dispatch confirm sets `rol
 FG → DISP `stock_moves`; tracking rotates `orders.tracking_token`. All in the caller's
 transaction, all audited.
 
-Pure helpers in `app.core.units`: `qty`, `rupees_to_paise`, `line_amount_paise`,
+Pure helpers in `app.core.units`: `qty`, `fully_shipped(shipped_m, ordered_m)` (≥ `SHIPPED_SHARE`
+98 %, the one rule for close, buyer stage, forecast and corner check), `rupees_to_paise`, `line_amount_paise`,
 `yarn_kg_for_fabric(metres, width_cm, gsm, loss_pct)`. Yarn kg = metres × width_m × GSM / 1000 /
 (1 − loss% / 100).
 
