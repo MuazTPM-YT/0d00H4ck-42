@@ -273,8 +273,8 @@ export function ReceiveScreen() {
             <div className="grid gap-2 border-t pt-3">
               <h3 className="text-sm font-medium">Trucks not confirmed yet</h3>
               {drafts.data!.items.map((d) => (
-                <Button key={d.id} variant="outline" className="justify-between" onClick={() => setReceiptId(d.id)}>
-                  <span>{d.code} · {d.supplier_name}</span>
+                <Button key={d.id} variant="outline" className="w-full min-w-0 shrink justify-between" onClick={() => setReceiptId(d.id)}>
+                  <span className="min-w-0 truncate">{d.code} · {d.supplier_name}</span>
                   <span className="text-muted-foreground">{d.batches.length} lots</span>
                 </Button>
               ))}

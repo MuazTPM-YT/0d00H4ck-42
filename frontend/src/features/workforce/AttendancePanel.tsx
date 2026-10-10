@@ -95,7 +95,7 @@ export function AttendanceDialog({
         >
           <div className="grid grid-cols-3 gap-2" role="radiogroup" aria-label="Status">
             {ATTENDANCE.map((s) => (
-              <Button key={s} type="button" role="radio" aria-checked={status === s} variant={status === s ? "default" : "outline"} className="h-12" onClick={() => setStatus(s)}>
+              <Button key={s} type="button" role="radio" aria-checked={status === s} variant={status === s ? "default" : "outline"} className="h-12 min-w-0 px-2" onClick={() => setStatus(s)}>
                 {humanize(s)}
               </Button>
             ))}
