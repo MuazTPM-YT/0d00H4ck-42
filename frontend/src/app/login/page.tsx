@@ -140,7 +140,7 @@ function LoginForm({ onRole }: { onRole: (role: Role | null) => void }) {
         <button
           type="submit"
           disabled={login.isPending}
-          className="animate-element animate-delay-500 pressable w-full bg-primary py-4 font-mono text-[0.84rem] font-medium tracking-[0.14em] uppercase text-primary-foreground hover:bg-ember disabled:opacity-50"
+          className="animate-element animate-delay-500 pressable w-full bg-primary py-4 text-[1rem] font-semibold text-primary-foreground hover:bg-ember disabled:opacity-50"
         >
           {login.isPending ? "Signing in…" : "Sign in"}
         </button>
@@ -151,7 +151,7 @@ function LoginForm({ onRole }: { onRole: (role: Role | null) => void }) {
         <span className="label absolute bg-background px-4">Demo · tap who you are</span>
       </div>
 
-      <div className="animate-element animate-delay-700 grid grid-cols-2 gap-2 sm:grid-cols-3">
+      <div className="animate-element animate-delay-700 grid grid-cols-2 gap-2">
         {ROLES.map((role) => {
           const Icon = ROLE_ICON[role];
           const picked = email === `${role}@everest.local`;

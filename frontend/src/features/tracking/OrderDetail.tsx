@@ -2,6 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, Copy, Link2, RefreshCw } from "lucide-react";
+import Link from "next/link";
 import { type ReactNode, useState } from "react";
 
 import { EmptyState } from "@/components/layout/EmptyState";
@@ -9,6 +10,7 @@ import { PageHeader } from "@/components/layout/PageHeader";
 import { StatusBadge } from "@/components/layout/StatusBadge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { api } from "@/lib/api";
 import { useMe } from "@/lib/auth";
 import { date, dateTime, inr, metres } from "@/lib/format";
@@ -48,26 +50,38 @@ export function OrderDetail({ id, costPanel, yarnPanel }: { id: string; costPane
       <div className="grid gap-6 lg:grid-cols-[1fr_20rem]">
         <div className="grid content-start gap-6">
           <StageCard t={o} />
-          {yarnPanel && <section className="rounded-lg border bg-card p-4">{yarnPanel}</section>}
+          {yarnPanel && <section className="border border-border bg-card p-4">{yarnPanel}</section>}
           {costPanel}
           <Section title={`Rolls (${o.rolls.length})`} empty="No rolls woven yet.">
             {o.rolls.length > 0 && (
-              <table className="w-full text-sm">
-                <thead className="text-left text-muted-foreground">
-                  <tr><th className="px-4 py-2 font-normal">Roll</th><th className="font-normal">Status</th><th className="font-normal">Shade</th><th className="font-normal">Dispatch</th><th className="px-4 text-right font-normal">Metres</th></tr>
-                </thead>
-                <tbody>
+              <Table containerClassName="scroll-panel max-h-[28rem]">
+                <TableHeader className="sticky top-0 z-10 bg-card">
+                  <TableRow>
+                    <TableHead>Roll</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead>Shade</TableHead>
+                    <TableHead>Dispatch</TableHead>
+                    <TableHead className="text-right">Metres</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
                   {o.rolls.map((r) => (
-                    <tr key={r.id} className="border-t">
-                      <td className="px-4 py-2 font-medium">{r.code}</td>
-                      <td><StatusBadge status={r.status} /></td>
-                      <td>{r.shade_band ?? "—"}</td>
-                      <td>{r.dispatch_code ?? "—"}</td>
-                      <td className="px-4 text-right tabular">{metres(r.length_m)}</td>
-                    </tr>
+                    <TableRow key={r.id}>
+                      <TableCell>
+                        <Link href={`/qc/rolls/${r.id}`} className="num font-semibold hover:text-ember">
+                          {r.code}
+                        </Link>
+                      </TableCell>
+                      <TableCell>
+                        <StatusBadge status={r.status} />
+                      </TableCell>
+                      <TableCell>{r.shade_band ?? "—"}</TableCell>
+                      <TableCell>{r.dispatch_code ?? "—"}</TableCell>
+                      <TableCell className="tabular text-right">{metres(r.length_m)}</TableCell>
+                    </TableRow>
                   ))}
-                </tbody>
-              </table>
+                </TableBody>
+              </Table>
             )}
           </Section>
           <Section title="Dispatches" empty="Nothing shipped yet.">
@@ -110,8 +124,8 @@ export function OrderDetail({ id, costPanel, yarnPanel }: { id: string; costPane
 
 function Section({ title, empty, children }: { title: string; empty: string; children: ReactNode }) {
   return (
-    <section className="rounded-lg border bg-card">
-      <h2 className="border-b px-4 py-3 font-medium">{title}</h2>
+    <section className="border border-border bg-card">
+      <h2 className="border-b border-border px-4 py-3 text-base">{title}</h2>
       <div className="overflow-x-auto">{children || <p className="px-4 py-6 text-sm text-muted-foreground">{empty}</p>}</div>
     </section>
   );
@@ -127,7 +141,7 @@ function BuyerLink({ o, canRotate }: { o: OrderView; canRotate: boolean }) {
     onSuccess: () => qc.invalidateQueries({ queryKey: ["orders", "view"] }),
   });
   return (
-    <section className="grid gap-2 rounded-lg border bg-card p-4 text-sm">
+    <section className="grid gap-2 border border-border bg-card p-4 text-sm">
       <h2 className="flex items-center gap-2 font-medium"><Link2 className="size-4" aria-hidden /> Buyer tracking link</h2>
       <p className="break-all text-muted-foreground">{url}</p>
       <div className="flex flex-wrap gap-2">

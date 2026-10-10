@@ -83,9 +83,9 @@ export function DeliveryBoard() {
     );
 
   return (
-    <div className="overflow-x-auto rounded-lg border bg-card">
-      <Table>
-        <TableHeader>
+    <div className="border border-border bg-card">
+      <Table containerClassName="scroll-panel max-h-[34rem]">
+        <TableHeader className="sticky top-0 z-10 bg-card">
           <TableRow>
             <TableHead>Order</TableHead>
             <TableHead>Deadline</TableHead>

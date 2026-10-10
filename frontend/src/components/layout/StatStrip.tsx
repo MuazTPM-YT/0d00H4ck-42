@@ -1,3 +1,4 @@
+import Link from "next/link";
 import type { ReactNode } from "react";
 
 import { cn } from "@/lib/utils";
@@ -12,6 +13,8 @@ export type Stat = {
   pressed?: boolean;
   onPress?: () => void;
   disabled?: boolean;
+  // a stat that opens the list behind it
+  href?: string;
 };
 
 const TONE = { good: "text-success", bad: "text-danger", warn: "text-warning" };
@@ -23,12 +26,18 @@ export function StatStrip({ stats, className }: { stats: Stat[]; className?: str
       {stats.map((s) => {
         const body = (
           <>
-            <span className={cn("label flex items-center gap-2", s.pressed && "text-primary-foreground/80")}>{s.label}</span>
+            <span className={cn("label flex min-w-0 items-center gap-2", s.pressed && "text-primary-foreground/80")}>{s.label}</span>
             <span className={cn("figure text-[1.6rem]", !s.pressed && s.tone && TONE[s.tone])}>{s.value}</span>
             {s.sub && <span className={cn("truncate text-[0.8rem]", s.pressed ? "text-primary-foreground/80" : "text-muted-foreground")}>{s.sub}</span>}
           </>
         );
         const cell = "grid min-w-0 content-start gap-1 border-r border-b border-border px-4 py-3 text-left";
+        if (s.href)
+          return (
+            <Link key={s.key} href={s.href} className={cn(cell, "hover:bg-accent")}>
+              {body}
+            </Link>
+          );
         return s.onPress ? (
           <button
             key={s.key}

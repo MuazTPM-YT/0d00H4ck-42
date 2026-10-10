@@ -69,8 +69,8 @@ export function MachineTile({ tile, now, onOpen }: { tile: BoardTile; now: numbe
             <span className="h-2 overflow-hidden border border-border bg-[radial-gradient(var(--input)_0.7px,transparent_1px)] bg-[size:4px_4px]" role="progressbar" aria-valuenow={done} aria-valuemin={0} aria-valuemax={100} aria-label={`${job.code} progress`}>
               <span className={cn("block h-full transition-[width] duration-500 ease-out", BAR[tile.status])} style={{ width: `${done}%` }} />
             </span>
-            <span className="num truncate text-[0.78rem] text-muted-foreground">
-              {job.code} · {fmt(job.produced)} of {fmt(job.planned)} · {done}%
+            <span className="num truncate text-[0.78rem] text-muted-foreground" title={`${job.code} · ${fmt(job.produced)} of ${fmt(job.planned)}`}>
+              {done}% · {fmt(Number(job.produced).toFixed(0))} of {fmt(job.planned)}
             </span>
           </span>
         ) : (

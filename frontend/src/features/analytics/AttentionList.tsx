@@ -23,7 +23,7 @@ const EDGE: Record<AttentionItem["severity"], string> = {
 export function BriefingCard() {
   const briefing = useBriefing();
   return (
-    <section aria-label="Briefing" className="mb-6 flex gap-3 rounded-lg border bg-card p-4">
+    <section aria-label="Briefing" className="mb-6 flex gap-3 border border-border bg-card p-4">
       <Sparkles className="mt-0.5 size-5 shrink-0 text-primary" aria-hidden />
       {briefing.isPending ? (
         <Skeleton className="h-5 w-full max-w-xl" />
@@ -43,7 +43,7 @@ export function AttentionList({ title = "Needs attention" }: { title?: string })
   const [insightId, setInsightId] = useState<number | null>(null);
 
   return (
-    <section aria-labelledby="attention-title" className="grid gap-3">
+    <section aria-labelledby="attention-title" className="grid content-start gap-3">
       <h2 id="attention-title" className="text-base font-semibold">
         {title}
       </h2>
@@ -58,7 +58,7 @@ export function AttentionList({ title = "Needs attention" }: { title?: string })
           Nothing needs you right now.
         </EmptyState>
       ) : (
-        <ul className="grid gap-2">
+        <ul className="scroll-panel grid max-h-[34rem] content-start gap-2 pr-1">
           {attention.data.map((item) => {
             const body = (
               <>
@@ -71,7 +71,7 @@ export function AttentionList({ title = "Needs attention" }: { title?: string })
               </>
             );
             const row = cn(
-              "flex min-h-14 w-full items-center gap-3 rounded-lg border border-l-4 bg-card px-4 py-3 text-left hover:bg-accent",
+              "flex min-h-14 w-full items-center gap-3 border border-l-4 border-border bg-card px-4 py-3 text-left hover:bg-accent",
               EDGE[item.severity],
             );
             return (

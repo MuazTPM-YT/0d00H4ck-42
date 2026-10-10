@@ -1,13 +1,13 @@
 "use client";
 
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { type FormEvent, useState } from "react";
 
 import { FormField } from "@/components/layout/FormField";
 import { Button } from "@/components/ui/button";
 import { DialogFooter } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { api, ApiError } from "@/lib/api";
+import { api, ApiError, type Paged } from "@/lib/api";
 import { paiseToRupees, rupeesToPaise } from "@/lib/format";
 
 import { selectClass, useMaster, type NamedOption, type YarnItemOption } from "./ui";
@@ -28,12 +28,19 @@ export function DeliveryForm({ prefill = {}, onDone }: { prefill?: DeliveryPrefi
   const qc = useQueryClient();
   const suppliers = useMaster<NamedOption>("suppliers");
   const items = useMaster<YarnItemOption>("yarn-items");
+  // yarn can be bought for one order: approved lots are then reserved for it
+  const orders = useQuery({
+    queryKey: ["orders", "options", "confirmed"],
+    queryFn: () => api<Paged<{ id: number; code: string; buyer: { name: string } | null; colour: string }>>("/orders?status=confirmed&limit=200"),
+    enabled: !prefill.order_id,
+  });
   const [v, setV] = useState({
     supplier_id: prefill.supplier_id ? String(prefill.supplier_id) : "",
     yarn_item_id: prefill.yarn_item_id ? String(prefill.yarn_item_id) : "",
     expected_kg: prefill.expected_kg ?? "",
     rate: paiseToRupees(prefill.rate_paise_per_kg ?? null),
     expected_date: inDays(3),
+    order_id: prefill.order_id ? String(prefill.order_id) : "",
   });
   const [errors, setErrors] = useState<Record<string, string>>({});
   const set = (k: keyof typeof v, value: string) => setV((p) => ({ ...p, [k]: value }));
@@ -65,7 +72,7 @@ export function DeliveryForm({ prefill = {}, onDone }: { prefill?: DeliveryPrefi
       expected_kg: v.expected_kg,
       rate_paise_per_kg: paise,
       expected_date: v.expected_date,
-      order_id: prefill.order_id ?? null,
+      order_id: v.order_id ? Number(v.order_id) : null,
     });
   }
 
@@ -98,6 +105,16 @@ export function DeliveryForm({ prefill = {}, onDone }: { prefill?: DeliveryPrefi
           <Input id="rate" inputMode="decimal" value={v.rate} onChange={(e) => set("rate", e.target.value)} {...a11y("rate")} />
         </FormField>
       </div>
+      {!prefill.order_id && (
+        <FormField name="order_id" label="For order" error={errors.order_id} hint="Optional. Tagged yarn is reserved for that order once approved.">
+          <select id="order_id" value={v.order_id} onChange={(e) => set("order_id", e.target.value)} className={selectClass} {...a11y("order_id")}>
+            <option value="">General stock, no order</option>
+            {orders.data?.items.map((o) => (
+              <option key={o.id} value={o.id}>{`${o.code} · ${o.buyer?.name ?? ""} · ${o.colour}`}</option>
+            ))}
+          </select>
+        </FormField>
+      )}
       <FormField name="expected_date" label="Expected on" error={errors.expected_date} required>
         <Input id="expected_date" type="date" value={v.expected_date} onChange={(e) => set("expected_date", e.target.value)} {...a11y("expected_date")} />
       </FormField>

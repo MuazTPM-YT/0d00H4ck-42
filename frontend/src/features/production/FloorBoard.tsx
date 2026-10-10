@@ -34,8 +34,8 @@ function FloorStrip({ tiles, filter, onFilter }: { tiles: BoardTile[]; filter: M
       key: s,
       label: (
         <>
-          <span className={`dot size-2 ${STATUS_BAR[s]}`} aria-hidden />
-          {humanize(s)}
+          <span className={`dot size-2 shrink-0 ${STATUS_BAR[s]}`} aria-hidden />
+          <span className="truncate">{humanize(s)}</span>
         </>
       ),
       value: n,
