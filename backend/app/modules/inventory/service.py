@@ -1272,11 +1272,11 @@ def issue(db: Session, user: User, data) -> StockMove:
         idempotency_key=data.idempotency_key,
         reason=data.reason,
     )
-    # yarn on the floor can unblock a queued first-stage job; late import: production imports
+    # yarn on the floor puts the first-stage job on a machine; late import: production imports
     # quality, which imports this module
     from app.modules.production import service as production
 
-    started = production.pull_ready(db, user.id)
+    started = production.advance(db, user.id)
     db.commit()
     events.publish("stock", {"type": "issue", "id": move.yarn_batch_id})
     for wo in started:

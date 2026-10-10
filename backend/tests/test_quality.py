@@ -9,8 +9,8 @@ from app.modules.dispatch.models import Dispatch, DispatchRoll, DispatchStatus
 from app.modules.inventory.models import MoveReason, StockMove
 from app.modules.masters.models import Location, LocationKind
 from app.modules.production import service as production
-from app.modules.production.models import WorkOrder
-from app.modules.production.schemas import OutputIn, RollIn, RollProcessIn
+from app.modules.production.models import MachineStatus, WorkOrder, WorkOrderStatus
+from app.modules.production.schemas import MachineEventIn, OutputIn, RollIn, RollProcessIn
 from app.modules.quality import service
 from app.modules.quality.models import QcCheck, Roll, RollEvent, RollStatus
 from app.modules.quality.schemas import QcCheckIn
@@ -216,14 +216,15 @@ def test_rework_stage_must_be_on_the_route(db, floor, make_user):
 
 def test_checks_list_and_trace_follow_the_rework_loop(db, floor, client_as):
     roll = roll_waiting(db, floor, 40)
+    on = MachineEventIn(machine_id=floor.loom2.id, status=MachineStatus.idle)
+    production.report_machine_event(db, on, floor.supervisor.id)  # a free loom for the rework
     qc = client_as(Role.qc)
     url = f"/api/quality/rolls/{roll.id}/checks"
     defects = [{"type": "broken_pick", "count": 2, "points": 3}, {"type": "hole", "count": 1}]
     res = qc.post(url, json={"decision": "rework", "defects": defects})
     assert res.status_code == 201, res.text
     job = db.get(WorkOrder, res.json()["rework_work_order_id"])
-    production.queue_work_order(db, job.id, floor.loom2.id, floor.supervisor.id)
-    production.start_work_order(db, job.id, floor.supervisor.id)
+    assert (job.machine_id, job.status) == (floor.loom2.id, WorkOrderStatus.running)  # by itself
     production.process_roll(db, roll.id, RollProcessIn(work_order_id=job.id), None)
     body = {"decision": "pass", "shade_band": "A", "gsm": "115", "width_cm": "147"}
     assert qc.post(url, json=body).status_code == 201

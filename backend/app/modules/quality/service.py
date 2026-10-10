@@ -156,7 +156,7 @@ def _can_rework(db: Session, roll: Roll, previous_checks: int) -> None:
 def _decide(db: Session, roll_id: int, body: QcCheckIn, user_id: int, at: datetime | None) -> dict:
     # production and dispatch import this module for ROLL_TRANSITIONS, so import them late
     from app.modules.dispatch.service import auto_draft
-    from app.modules.production.service import create_rework_work_order
+    from app.modules.production.service import advance, create_rework_work_order
 
     roll = db.scalar(select(Roll).where(Roll.id == roll_id).with_for_update())
     if not roll:
@@ -223,6 +223,7 @@ def _decide(db: Session, roll_id: int, body: QcCheckIn, user_id: int, at: dateti
         )
         stage = body.rework_stage or fabric.stages[-1].stage
         rework_wo_id = create_rework_work_order(db, roll.id, stage, user_id).id
+        advance(db, user_id, at)  # the rework job goes straight onto a machine
     db.add(
         RollEvent(
             roll_id=roll.id,

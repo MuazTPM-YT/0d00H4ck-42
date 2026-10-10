@@ -688,6 +688,62 @@ def test_store_issuing_yarn_starts_the_queued_first_stage_job(db, floor):
     assert floor.shirt_weave.status == WorkOrderStatus.running
 
 
+# issued yarn is the hand-off: the job goes to the least busy working loom by itself;
+# a stage with no working machine waits for the supervisor
+def test_issued_yarn_puts_the_waiting_job_on_the_least_busy_loom(db, floor):
+    report(db, floor, floor.loom1, MachineStatus.idle)
+    report(db, floor, floor.loom2, MachineStatus.idle)
+    run_on(db, floor, floor.shirt_weave, floor.loom1)
+    assert floor.dyed_weave.status == WorkOrderStatus.waiting  # no yarn yet
+    floor.issue(floor.dyed_weave, floor.batches[1], 50)
+    service.advance(db, floor.supervisor.id)
+    db.commit()
+    assert floor.dyed_weave.machine_id == floor.loom2.id
+    assert floor.dyed_weave.status == WorkOrderStatus.running
+    assert floor.dyed_dye.status == WorkOrderStatus.waiting  # the jigger is off
+
+
+# weaving done: the dye job goes onto the free dye range by itself and starts on the rolls
+def test_dyeing_is_planned_once_weaving_is_done(db, floor):
+    report(db, floor, floor.jigger, MachineStatus.idle)
+    wo = run_on(db, floor, floor.dyed_weave, floor.loom1)
+    weave(db, floor, wo, floor.loom1, 60)
+    assert floor.dyed_dye.status == WorkOrderStatus.waiting  # weaving still running
+    log(db, floor, floor.loom1, wo.planned_qty - 60, work_order_id=wo.id)  # reaches plan
+    assert wo.status == WorkOrderStatus.done
+    assert floor.dyed_dye.machine_id == floor.jigger.id
+    assert floor.dyed_dye.status == WorkOrderStatus.running
+
+
+# a dye job whose order has no woven roll yet must not block the next job in the queue
+def test_a_dye_job_with_no_roll_yet_does_not_hold_up_the_next(db, floor, buyer, dyed_fabric):
+    report(db, floor, floor.jigger, MachineStatus.idle)
+    run_on(db, floor, floor.dyed_weave, floor.loom1)
+    service.queue_work_order(db, floor.dyed_dye.id, floor.jigger.id, floor.supervisor.id)
+    assert floor.dyed_dye.status == WorkOrderStatus.queued  # nothing to dye yet
+    other = Order(
+        code="SO-T3",
+        buyer_id=buyer.id,
+        fabric_type_id=dyed_fabric.id,
+        colour="Raw White",
+        qty_m=Decimal(100),
+        rate_paise_per_m=20000,
+        deadline=floor.dyed_order.deadline,
+        status=OrderStatus.confirmed,
+        confirmed_at=datetime.now(UTC),
+    )
+    db.add(other)
+    db.flush()
+    weave_wo, dye_wo = create_work_orders(db, other.id, None)
+    db.commit()
+    run_on(db, floor, weave_wo, floor.loom2)
+    service.queue_work_order(db, dye_wo.id, floor.jigger.id, floor.supervisor.id)
+    assert dye_wo.queue_position == 2
+    weave(db, floor, weave_wo, floor.loom2, 60)
+    assert dye_wo.status == WorkOrderStatus.running
+    assert floor.dyed_dye.status == WorkOrderStatus.queued
+
+
 # cancel never strands a loom: refused while a job runs, queued jobs go back to waiting
 def test_cancel_refused_while_a_job_runs(db, floor):
     from app.modules.orders import service as orders
