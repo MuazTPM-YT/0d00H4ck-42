@@ -87,12 +87,43 @@ def idle_text(f: dict) -> str:
     )
 
 
+def yield_text(f: dict) -> str:
+    whose = "its jobs" if f["key"] == "machine" else "this order"
+    return (
+        f"{f['issued_kg']} kg of yarn went to {f['name']}, but the {f['metres']} m woven in "
+        f"{whose} account for {f['expected_kg']} kg including normal process loss. "
+        f"{f['gap_kg']} kg ({f['gap_pct']}%, about Rs {f['value_rupees']}) is unaccounted, "
+        f"above the {f['tolerance_pct']}% tolerance. Check over-issues and floor waste."
+    )
+
+
+def impossible_text(f: dict) -> str:
+    if f["check"] == "output_in_downtime":
+        return (
+            f"{f['qty']} {f['unit']} of output on {f['machine']} is stamped "
+            f"{f['minutes_into_stop']} min into a {f['status']} ({f['reason']}), when the machine "
+            "was stopped. Usually a counter that uploaded late or a wrong time: confirm the log."
+        )
+    if f["check"] == "roll_too_long":
+        return (
+            f"{f['roll']} ({f['length_m']} m) brings the fabric cut from {f['work_order']} to "
+            f"{f['cut_total_m']} m, but only {f['logged_total_m']} m of output was logged on "
+            f"{f['machine']} for it by then. Check the roll length or the missing output."
+        )
+    return (
+        f"{f['batch']} came in at {f['kg']} kg, {f['ratio']}x what {f['supplier']} usually "
+        f"sends ({f['usual_kg']} kg over {f['receipts']} receipts). Check for a typing mistake."
+    )
+
+
 TEMPLATES: dict[str, Callable[[dict], str]] = {
     "supplier_defects": supplier_text,
     "defect_root_cause": root_cause_text,
     "machine_slowdown": slowdown_text,
     "breakdown_cluster": cluster_text,
     "shift_change_idle": idle_text,
+    "yarn_yield_gap": yield_text,
+    "impossible_data": impossible_text,
 }
 
 

@@ -1,10 +1,27 @@
 from datetime import UTC, date, datetime, time, timedelta
 from itertools import count
 
-from app.modules.analytics import detectors, explainer
-from app.modules.analytics.detectors import Breakdown, GateBatch, IdleSpell, MachineDays, QcRoll
+import pytest
+from sqlalchemy import select
+
+from app.modules.analytics import detectors, explainer, service
+from app.modules.analytics.detectors import (
+    Breakdown,
+    CutRoll,
+    Downtime,
+    GateBatch,
+    IdleSpell,
+    Lot,
+    MachineDays,
+    OutputLog,
+    QcRoll,
+    YieldJob,
+)
+from app.modules.analytics.models import Insight
 from app.modules.masters.models import Shift
+from app.modules.production.models import MachineEvent, MachineStatus, ProductionLog
 from app.modules.workforce.schemas import IST
+from tests.floor import build_floor
 
 NOW = datetime(2026, 10, 10, 9, 0, tzinfo=UTC)
 ids = count(1)
@@ -224,3 +241,112 @@ def test_even_handovers_are_silent():
         )
         == []
     )
+
+
+# --- yarn yield and impossible data
+
+
+def job(order_id, order, issued, expected=100.0, machine=(1, "LM-01")) -> YieldJob:
+    return YieldJob(
+        next(ids), "WO", order_id, order, *machine, 580.0, issued, expected, issued * 28500
+    )
+
+
+# SO-1: 216 kg issued for 200 kg of fabric -> 16 kg (8%) at Rs 285/kg = Rs 4560
+def test_yield_gap_fires_for_the_order_that_ate_extra_yarn():
+    found = detectors.yield_gaps([job(1, "SO-1", 108), job(1, "SO-1", 108), job(2, "SO-2", 100.3)])
+    by_entity = {(f["entity_type"], f["entity_id"]): f["facts"] for f in found}
+    order = by_entity["orders", 1]
+    assert (order["gap_kg"], order["gap_pct"], order["value_rupees"]) == (16.0, 8.0, 4560)
+    assert {"type": "orders", "id": 1, "code": "SO-1"} in order["records"]
+    assert ("orders", 2) not in by_entity
+    # the loom ran 3 jobs: 316.3 kg for 300 kg is 5.4%, so the machine view flags it too
+    assert by_entity["machines", 1]["gap_pct"] == 5.4
+    assert narratives_cite_only_facts(found)
+
+
+def test_yield_within_tolerance_is_silent():
+    assert (
+        detectors.yield_gaps([job(1, "SO-1", 102), job(2, "SO-2", 101), job(3, "SO-3", 100)]) == []
+    )
+
+
+def at(hh, mm=0) -> datetime:
+    return datetime(2026, 10, 1, hh, mm, tzinfo=UTC)
+
+
+def test_output_inside_a_breakdown_window_is_impossible():
+    down = Downtime(5, "LM-05", 900, "breakdown", "Take-up roller jam", at(10), at(13))
+    logs = [OutputLog(k, 5, t, 6.0, "m") for k, t in ((1, at(11, 50)), (2, at(13)), (3, at(9, 59)))]
+    logs.append(OutputLog(4, 6, at(11), 6.0, "m"))  # other machine
+    (found,) = detectors.logs_in_downtime([down], logs)
+    assert (found["entity_type"], found["entity_id"]) == ("production_logs", 1)
+    assert found["facts"]["minutes_into_stop"] == 110
+    assert narratives_cite_only_facts([found])
+
+
+def test_rolls_cut_beyond_logged_output_are_impossible():
+    def cut(total, logged):
+        return CutRoll(next(ids), "R-000009", 4, "WO-000004", "LM-02", at(10), 60.0, total, logged)
+
+    (found,) = detectors.rolls_too_long([cut(121.5, 120.0), cut(120.9, 120.0)])
+    assert found["facts"]["cut_total_m"] == 121.5
+    assert narratives_cite_only_facts([found])
+
+
+def test_receipt_far_from_supplier_usual_is_flagged():
+    lots = [Lot(next(ids), "YB", 1, "SLY", kg) for kg in (1000, 1000, 1500, 1000, 500, 15000)]
+    (found,) = detectors.odd_receipts(lots)
+    assert (found["facts"]["kg"], found["facts"]["usual_kg"], found["facts"]["ratio"]) == (
+        15000,
+        1000,
+        15,
+    )
+    assert narratives_cite_only_facts([found])
+    assert detectors.odd_receipts(lots[:5]) == []
+
+
+# --- end to end on the database: real loaders, real upsert
+
+
+@pytest.fixture
+def floor(db, buyer, dyed_fabric):
+    return build_floor(db, buyer, dyed_fabric)
+
+
+def test_detectors_find_a_late_counter_log_once(db, floor):
+    def event(status, ago, reason=None):
+        db.add(
+            MachineEvent(
+                machine_id=floor.loom1.id,
+                at=NOW - ago,
+                status=status,
+                reason=reason,
+                source="machine",
+            )
+        )
+
+    event(MachineStatus.breakdown, timedelta(hours=3), "Take-up roller jam")
+    event(MachineStatus.running, timedelta(hours=1))
+    db.add(
+        ProductionLog(
+            work_order_id=floor.shirt_weave.id,
+            machine_id=floor.loom1.id,
+            shift_id=floor.shifts[0].id,
+            qty=6,
+            unit="m",
+            at=NOW - timedelta(hours=2),
+        )
+    )
+    db.commit()
+
+    assert service.run_detectors(db, NOW)["created"] == 1
+    assert service.run_detectors(db, NOW) == {
+        "created": 0,
+        "updated": 0,
+        "unchanged": 1,
+        "skipped": 0,
+    }
+    insight = db.scalar(select(Insight))
+    assert (insight.kind, insight.entity_type) == ("impossible_data", "production_logs")
+    assert "60 min into a breakdown" in insight.narrative

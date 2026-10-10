@@ -1,18 +1,35 @@
+from bisect import bisect_right
 from collections import Counter, defaultdict
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from statistics import median
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.core.enums import Stage
+from app.core.units import yarn_kg_for_fabric
 from app.modules.analytics.models import Severity
-from app.modules.inventory.models import BatchStatus, ExpectedDelivery, Receipt, YarnBatch
+from app.modules.inventory.models import (
+    BatchStatus,
+    ExpectedDelivery,
+    ItemKind,
+    MoveReason,
+    Receipt,
+    StockMove,
+    YarnBatch,
+)
 from app.modules.masters.models import FabricType, Machine, Shift, Supplier, Worker
 from app.modules.orders.models import Order
-from app.modules.production.models import MachineEvent, MachineStatus, ProductionLog, WorkOrder
-from app.modules.production.service import status_durations
-from app.modules.quality.models import QcCheck, Roll, RollBatch
+from app.modules.production.models import (
+    MachineEvent,
+    MachineStatus,
+    ProductionLog,
+    WorkOrder,
+    WorkOrderStatus,
+)
+from app.modules.production.service import DOWNTIME, status_durations
+from app.modules.quality.models import QcCheck, Roll, RollBatch, RollEvent
 from app.modules.workforce.schemas import IST
 from app.modules.workforce.service import day_start
 
@@ -687,7 +704,372 @@ def detect_machines(db: Session, now: datetime) -> list[dict]:
     )
 
 
-DETECTORS = [detect_suppliers, detect_root_cause, detect_machines]
+# --- yarn yield: kg issued vs kg the woven fabric accounts for
+
+YIELD_TOLERANCE_PCT, YIELD_MIN_KG, YIELD_MACHINE_MIN_JOBS = 3.0, 5.0, 3
+
+
+@dataclass
+class YieldJob:
+    id: int
+    code: str
+    order_id: int
+    order: str
+    machine_id: int
+    machine: str
+    metres: float
+    issued_kg: float
+    expected_kg: float  # metres x width x GSM / 1000, plus the fabric's process loss
+    cost_paise: float  # value of the issued yarn at each batch's GRN cost
+
+
+def _gap(jobs: list[YieldJob], name: str, key: str) -> dict | None:
+    issued, expected = sum(j.issued_kg for j in jobs), sum(j.expected_kg for j in jobs)
+    gap = issued - expected
+    gap_pct = pct(gap, expected)
+    if gap_pct <= YIELD_TOLERANCE_PCT or gap < YIELD_MIN_KG:
+        return None
+    paise_per_kg = sum(j.cost_paise for j in jobs) / issued
+    return {
+        "key": key,
+        "name": name,
+        "jobs": len(jobs),
+        "metres": round(sum(j.metres for j in jobs), 1),
+        "issued_kg": round(issued, 1),
+        "expected_kg": round(expected, 1),
+        "gap_kg": round(gap, 1),
+        "gap_pct": gap_pct,
+        "tolerance_pct": YIELD_TOLERANCE_PCT,
+        "value_rupees": round(gap * paise_per_kg / 100),
+        "records": [{"type": "work_orders", "id": j.id, "code": j.code} for j in jobs],
+    }
+
+
+def yield_gaps(jobs: list[YieldJob]) -> list[dict]:
+    found = []
+    for (order_id, code), group in sorted(_group(jobs, lambda j: (j.order_id, j.order)).items()):
+        if facts := _gap(group, code, ""):
+            facts["records"].append({"type": "orders", "id": order_id, "code": code})
+            found.append((order_id, "orders", facts))
+    for (machine_id, code), group in sorted(
+        _group(jobs, lambda j: (j.machine_id, j.machine)).items()
+    ):
+        if len(group) >= YIELD_MACHINE_MIN_JOBS and (facts := _gap(group, code, "machine")):
+            found.append((machine_id, "machines", facts))
+    return [
+        finding(
+            "yarn_yield_gap",
+            Severity.critical if f["gap_pct"] >= 2 * YIELD_TOLERANCE_PCT else Severity.warn,
+            entity_type,
+            entity_id,
+            f"{f['name']}: {f['gap_kg']} kg yarn unaccounted ({f['gap_pct']}%)",
+            f,
+        )
+        for entity_id, entity_type, f in found
+    ]
+
+
+# finished weaving jobs only: a running job has yarn issued up front and rolls still to come
+def load_yield_jobs(db: Session, now: datetime) -> list[YieldJob]:
+    jobs = db.execute(
+        select(WorkOrder, Order.code, Machine.code, FabricType)
+        .join(Order, Order.id == WorkOrder.order_id)
+        .join(FabricType, FabricType.id == Order.fabric_type_id)
+        .join(Machine, Machine.id == WorkOrder.machine_id)
+        .where(
+            WorkOrder.stage == Stage.weaving,
+            WorkOrder.roll_id.is_(None),
+            WorkOrder.status == WorkOrderStatus.done,
+            WorkOrder.finished_at >= now - LOOKBACK,
+        )
+    ).all()
+    ids = [wo.id for wo, *_ in jobs]
+    sign = {MoveReason.issue: 1, MoveReason.return_: -1}
+    issued, cost = defaultdict(float), defaultdict(float)
+    for wo_id, reason, kg, paise in db.execute(
+        select(StockMove.ref_id, StockMove.reason, StockMove.qty, YarnBatch.unit_cost_paise_per_kg)
+        .join(YarnBatch, YarnBatch.id == StockMove.yarn_batch_id)
+        .where(
+            StockMove.item_kind == ItemKind.yarn,
+            StockMove.ref_type == "work_order",
+            StockMove.ref_id.in_(ids),
+            StockMove.reason.in_(sign),
+        )
+    ):
+        issued[wo_id] += sign[reason] * float(kg)
+        cost[wo_id] += sign[reason] * float(kg) * paise
+    metres = dict(
+        db.execute(
+            select(Roll.work_order_id, func.sum(Roll.length_m))
+            .where(Roll.work_order_id.in_(ids))
+            .group_by(Roll.work_order_id)
+        ).all()
+    )
+    return [
+        YieldJob(
+            wo.id,
+            wo.code,
+            wo.order_id,
+            order_code,
+            wo.machine_id,
+            machine_code,
+            float(metres.get(wo.id, 0)),
+            issued[wo.id],
+            float(
+                yarn_kg_for_fabric(
+                    metres.get(wo.id, 0), fabric.width_cm, fabric.gsm, fabric.process_loss_pct
+                )
+            ),
+            cost[wo.id],
+        )
+        for wo, order_code, machine_code, fabric in jobs
+        if issued[wo.id] > 0
+    ]
+
+
+def detect_yield(db: Session, now: datetime) -> list[dict]:
+    return yield_gaps(load_yield_jobs(db, now))
+
+
+# --- impossible data: rows that cannot all be true
+
+ROLL_SLACK_M, RECEIPT_FACTOR, RECEIPT_MIN_HISTORY = 1.0, 3.0, 5
+
+
+@dataclass
+class Downtime:
+    machine_id: int
+    machine: str
+    event_id: int
+    status: str
+    reason: str
+    start: datetime
+    end: datetime
+
+
+@dataclass
+class OutputLog:
+    id: int
+    machine_id: int
+    at: datetime
+    qty: float
+    unit: str
+
+
+# output stamped inside a breakdown or maintenance window: the machine was stopped then
+def logs_in_downtime(windows: list[Downtime], logs: list[OutputLog]) -> list[dict]:
+    by_machine = defaultdict(list)
+    for w in sorted(windows, key=lambda w: w.start):
+        by_machine[w.machine_id].append(w)
+    found = []
+    for log in logs:
+        mine = by_machine.get(log.machine_id, [])
+        i = bisect_right([w.start for w in mine], log.at) - 1
+        if i < 0 or not (mine[i].start <= log.at < mine[i].end):
+            continue
+        w = mine[i]
+        facts = {
+            "key": "",
+            "check": "output_in_downtime",
+            "machine": w.machine,
+            "qty": round(log.qty, 1),
+            "unit": log.unit,
+            "logged_at": log.at.isoformat(),
+            "status": w.status,
+            "reason": w.reason,
+            "down_from": w.start.isoformat(),
+            "down_to": w.end.isoformat(),
+            "minutes_into_stop": round((log.at - w.start).total_seconds() / 60),
+            "records": [
+                {"type": "machines", "id": w.machine_id, "code": w.machine},
+                {"type": "machine_events", "id": w.event_id, "code": w.reason},
+                {"type": "production_logs", "id": log.id, "code": f"{log.qty} {log.unit}"},
+            ],
+        }
+        found.append(
+            finding(
+                "impossible_data",
+                Severity.warn,
+                "production_logs",
+                log.id,
+                f"{w.machine}: output logged during {w.status}",
+                facts,
+            )
+        )
+    return found
+
+
+def load_downtime_and_logs(db: Session, now: datetime) -> tuple[list[Downtime], list[OutputLog]]:
+    since = now - LOOKBACK
+    codes = dict(db.execute(select(Machine.id, Machine.code)).all())
+    windows = []
+    for rows in _events_by_machine(db, since, now).values():
+        for e, nxt in zip(rows, [*rows[1:], None], strict=False):
+            if e.status in DOWNTIME:
+                end = nxt.at if nxt else now
+                windows.append(
+                    Downtime(e.machine_id, codes[e.machine_id], e.id, e.status, e.reason, e.at, end)
+                )
+    logs = [
+        OutputLog(i, m, at, float(q), u)
+        for i, m, at, q, u in db.execute(
+            select(
+                ProductionLog.id,
+                ProductionLog.machine_id,
+                ProductionLog.at,
+                ProductionLog.qty,
+                ProductionLog.unit,
+            ).where(ProductionLog.at >= since, ProductionLog.at < now)
+        )
+    ]
+    return windows, logs
+
+
+@dataclass
+class CutRoll:
+    id: int
+    code: str
+    work_order_id: int
+    work_order: str
+    machine: str
+    cut_at: datetime
+    length_m: float
+    cut_total_m: float  # metres cut from this job up to and including this roll
+    logged_total_m: float  # metres of output logged on this job up to the cut
+
+
+# a roll is cut from woven fabric, and woven fabric is logged output: rolls cut from a job
+# can never add up to more than the output logged on it by then
+def rolls_too_long(rolls: list[CutRoll]) -> list[dict]:
+    found = []
+    for r in rolls:
+        if r.cut_total_m <= r.logged_total_m + ROLL_SLACK_M:
+            continue
+        facts = {
+            "key": "",
+            "check": "roll_too_long",
+            "roll": r.code,
+            "work_order": r.work_order,
+            "machine": r.machine,
+            "length_m": round(r.length_m, 1),
+            "cut_total_m": round(r.cut_total_m, 1),
+            "logged_total_m": round(r.logged_total_m, 1),
+            "records": [
+                {"type": "rolls", "id": r.id, "code": r.code},
+                {"type": "work_orders", "id": r.work_order_id, "code": r.work_order},
+            ],
+        }
+        found.append(
+            finding(
+                "impossible_data",
+                Severity.warn,
+                "rolls",
+                r.id,
+                f"{r.code}: more metres cut than logged on {r.work_order}",
+                facts,
+            )
+        )
+    return found
+
+
+def load_cut_rolls(db: Session, now: datetime) -> list[CutRoll]:
+    rows = db.execute(
+        select(
+            Roll.id,
+            Roll.code,
+            Roll.work_order_id,
+            WorkOrder.code,
+            Machine.code,
+            RollEvent.at,
+            Roll.length_m,
+        )
+        .join(RollEvent, (RollEvent.roll_id == Roll.id) & (RollEvent.kind == "woven"))
+        .join(Machine, Machine.id == Roll.loom_machine_id)
+        .join(WorkOrder, WorkOrder.id == Roll.work_order_id)
+        .where(RollEvent.at >= now - LOOKBACK)
+        .order_by(Roll.work_order_id, RollEvent.at, Roll.id)
+    ).all()
+    logs = defaultdict(list)
+    for wo_id, at, amount in db.execute(
+        select(ProductionLog.work_order_id, ProductionLog.at, ProductionLog.qty)
+        .where(ProductionLog.work_order_id.in_({r[2] for r in rows}))
+        .order_by(ProductionLog.work_order_id, ProductionLog.at)
+    ):
+        logs[wo_id].append((at, float(amount)))
+    result, cut = [], defaultdict(float)
+    for rid, code, wo_id, wo_code, machine, cut_at, length in rows:
+        cut[wo_id] += float(length)
+        logged = sum(q for at, q in logs[wo_id] if at <= cut_at)
+        result.append(
+            CutRoll(rid, code, wo_id, wo_code, machine, cut_at, float(length), cut[wo_id], logged)
+        )
+    return result
+
+
+@dataclass
+class Lot:
+    id: int
+    code: str
+    supplier_id: int
+    supplier: str
+    kg: float
+
+
+# a receipt far outside what this supplier usually sends is often a typo (1500 typed as 15000)
+def odd_receipts(lots: list[Lot]) -> list[dict]:
+    found = []
+    for supplier, mine in sorted(_group(lots, lambda b: b.supplier).items()):
+        if len(mine) < RECEIPT_MIN_HISTORY:
+            continue
+        usual = median(b.kg for b in mine)
+        for b in mine:
+            if usual / RECEIPT_FACTOR <= b.kg <= usual * RECEIPT_FACTOR:
+                continue
+            facts = {
+                "key": "",
+                "check": "odd_receipt",
+                "batch": b.code,
+                "supplier": supplier,
+                "kg": round(b.kg, 1),
+                "usual_kg": round(usual, 1),
+                "receipts": len(mine),
+                "ratio": round(b.kg / usual, 1),
+                "records": [{"type": "yarn_batches", "id": b.id, "code": b.code}],
+            }
+            found.append(
+                finding(
+                    "impossible_data",
+                    Severity.info,
+                    "yarn_batches",
+                    b.id,
+                    f"{b.code}: {facts['kg']} kg from {supplier}, usually {facts['usual_kg']} kg",
+                    facts,
+                )
+            )
+    return found
+
+
+def load_lots(db: Session, now: datetime) -> list[Lot]:
+    return [
+        Lot(bid, code, sid, supplier, float(kg))
+        for bid, code, sid, supplier, kg in db.execute(
+            select(YarnBatch.id, YarnBatch.code, Supplier.id, Supplier.code, YarnBatch.received_kg)
+            .join(Supplier, Supplier.id == YarnBatch.supplier_id)
+            .join(Receipt, Receipt.id == YarnBatch.receipt_id)
+            .where(Receipt.confirmed_at >= now - LOOKBACK)
+        )
+    ]
+
+
+def detect_impossible(db: Session, now: datetime) -> list[dict]:
+    return (
+        logs_in_downtime(*load_downtime_and_logs(db, now))
+        + rolls_too_long(load_cut_rolls(db, now))
+        + odd_receipts(load_lots(db, now))
+    )
+
+
+DETECTORS = [detect_suppliers, detect_root_cause, detect_machines, detect_yield, detect_impossible]
 
 
 def find_all(db: Session, now: datetime) -> list[dict]:
