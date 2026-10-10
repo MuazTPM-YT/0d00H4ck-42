@@ -12,13 +12,13 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { api, ApiError, type Paged } from "@/lib/api";
-import { date, humanize, inr, kg } from "@/lib/format";
+import { date, humanize, inr, kg, paiseToRupees, rupeesToPaise } from "@/lib/format";
 import { useSSE } from "@/lib/useSSE";
 import { cn } from "@/lib/utils";
 
 import { BatchSheet } from "./BatchSheet";
 import { DeliveryForm } from "./DeliveryForm";
-import { type Batch, type Delivery, itemLabel, type LabelCheck, type Receipt } from "./types";
+import { type Batch, type Delivery, itemLabel, type LabelCheck, type Receipt, type SampleLabel } from "./types";
 import { ErrorText, ScanField, selectClass } from "./ui";
 
 const KG_RE = /^\d+(\.\d{1,3})?$/;
@@ -37,6 +37,8 @@ export function ReceiveScreen() {
   const [receiptId, setReceiptId] = useState<number | null>(null);
   const [deliveryId, setDeliveryId] = useState("");
   const [vehicle, setVehicle] = useState("");
+  // rupees per kg; only asked when no yarn request prices the truck
+  const [rate, setRate] = useState("");
   const [check, setCheck] = useState<{ payload: string; result: LabelCheck } | null>(null);
   const [weighed, setWeighed] = useState("");
   const [mode, setMode] = useState<"scan" | "missing" | "manual">("scan");
@@ -59,6 +61,10 @@ export function ReceiveScreen() {
     queryFn: () => api<Receipt>(`/inventory/receipts/${receiptId}`),
     enabled: receiptId !== null,
   });
+  const demo = useQuery({ queryKey: ["stock", "sample-labels"], queryFn: () => api<SampleLabel[]>("/inventory/sample-labels") });
+  const needRate = receiptId ? !receipt.data?.expected_delivery : !deliveryId;
+  // after each lot the cursor goes back to the scan box, so the next scan is never lost
+  const focusScan = () => requestAnimationFrame(() => document.getElementById("label-scan")?.focus());
 
   const fail = (e: Error) => setError(e instanceof ApiError && e.field === "vehicle_no" ? `Vehicle number: ${e.message}` : e.message);
 
@@ -76,8 +82,13 @@ export function ReceiveScreen() {
       setCheck({ payload, result });
       setWeighed(result.label.label_kg);
       if (result.delivery && !receiptId) setDeliveryId(String(result.delivery.id));
+      if (!result.delivery && !rate && result.suggested_rate_paise_per_kg) setRate(paiseToRupees(result.suggested_rate_paise_per_kg));
+      requestAnimationFrame(() => (document.getElementById("weighed") as HTMLInputElement | null)?.select());
     },
-    onError: fail,
+    onError: (e, payload) => {
+      setError(`${e.message} Scanned: "${payload}"`);
+      focusScan();
+    },
   });
 
   // the draft receipt is made on the first lot, so the store never fills a separate form
@@ -95,16 +106,22 @@ export function ReceiveScreen() {
 
   const addLine = useMutation({
     mutationFn: async (body: object) => {
+      const paise = needRate ? rupeesToPaise(rate) : null;
+      if (needRate && !paise) throw new ApiError(422, "validation_error", "No yarn request for this truck: enter the rate in ₹ per kg first", "rate");
       const id = await ensureReceipt();
-      return api<{ batch: Batch; created: boolean }>(`/inventory/receipts/${id}/lines`, { method: "POST", json: body });
+      return api<{ batch: Batch; created: boolean }>(`/inventory/receipts/${id}/lines`, { method: "POST", json: { ...body, rate_paise_per_kg: paise } });
     },
     onSuccess: (line) => {
       setLastLine(line);
       setCheck(null);
       setMode("scan");
       qc.invalidateQueries({ queryKey: ["stock"] });
+      focusScan();
     },
-    onError: fail,
+    onError: (e) => {
+      fail(e);
+      if (e instanceof ApiError && e.field === "rate") requestAnimationFrame(() => document.getElementById("rate")?.focus());
+    },
   });
 
   const confirm = useMutation({
@@ -114,6 +131,7 @@ export function ReceiveScreen() {
       setReceiptId(null);
       setDeliveryId("");
       setVehicle("");
+      setRate("");
       setLastLine(null);
       qc.invalidateQueries({ queryKey: ["stock"] });
     },
@@ -173,6 +191,11 @@ export function ReceiveScreen() {
               </FormField>
             </div>
           )}
+          {needRate && (
+            <FormField name="rate" label="Rate (₹ per kg)" required hint="No yarn request prices this truck. A scan fills in this supplier's last rate.">
+              <Input id="rate" inputMode="decimal" value={rate} onChange={(e) => setRate(e.target.value)} placeholder="e.g. 285" className="h-11 sm:max-w-[calc(50%-0.5rem)]" />
+            </FormField>
+          )}
 
           <div className="flex flex-wrap gap-2" role="tablist" aria-label="How to enter the lot">
             {(["scan", "manual", "missing"] as const).map((m) => (
@@ -182,7 +205,12 @@ export function ReceiveScreen() {
             ))}
           </div>
 
-          {mode === "scan" && <ScanField id="label-scan" label="Supplier label" placeholder="SUP=…;LOT=…;FIB=…;CNT=…;COL=…;KG=…" onScan={(v) => scan.mutate(v)} disabled={busy} autoFocus />}
+          {mode === "scan" && (
+            <>
+              <ScanField id="label-scan" label="Supplier label" placeholder="SUP=…;LOT=…;FIB=…;CNT=…;COL=…;KG=…" onScan={(v) => scan.mutate(v)} disabled={busy} autoFocus camera />
+              <DemoLabels labels={demo.data ?? []} disabled={busy} onPick={(payload) => scan.mutate(payload)} />
+            </>
+          )}
           {mode === "manual" && <ManualLine busy={busy} onAdd={(body) => addLine.mutate(body)} />}
           {mode === "missing" && <MissingLine busy={busy} onAdd={(body) => addLine.mutate(body)} />}
 
@@ -235,7 +263,7 @@ export function ReceiveScreen() {
           )}
           {r && (
             <Button size="lg" className="h-12" disabled={r.batches.length === 0 || confirm.isPending} onClick={() => confirm.mutate()}>
-              Confirm receipt ({r.batches.length} lots)
+              Confirm receipt ({r.batches.length} {r.batches.length === 1 ? "lot" : "lots"})
             </Button>
           )}
           <ErrorText error={receipt.error} />
@@ -270,6 +298,33 @@ export function ReceiveScreen() {
       </Dialog>
       <BatchSheet batchId={openBatch} onClose={() => setOpenBatch(null)} />
     </>
+  );
+}
+
+// demo: no real label in hand. One tap scans a ready-made label: a requested delivery if there is
+// one, else walk-in yarn from a known supplier (the truck then needs a rate)
+function DemoLabels({ labels, disabled, onPick }: { labels: SampleLabel[]; disabled: boolean; onPick: (payload: string) => void }) {
+  const shown = [...labels.filter((l) => l.kind === "match"), ...labels.filter((l) => l.kind === "walk_in"), ...labels.filter((l) => l.kind === "wrong_colour")].slice(0, 6);
+  if (!shown.length) return null;
+  return (
+    <details className="group border border-dashed border-border px-3 py-2">
+      <summary className="cursor-pointer text-sm font-medium text-muted-foreground select-none group-open:mb-2 group-open:text-foreground">No label in hand? Use a demo label</summary>
+      <ul className="grid gap-1.5 sm:grid-cols-2">
+        {shown.map((l) => (
+          <li key={l.payload}>
+            <button type="button" disabled={disabled} onClick={() => onPick(l.payload)} className={cn("pressable grid w-full gap-0.5 border border-border bg-card px-3 py-2 text-left text-sm hover:border-foreground disabled:opacity-50", l.kind === "wrong_colour" && "border-danger/50")}>
+              <span className="font-medium">{l.title}</span>
+              <span className="text-[0.8rem] text-muted-foreground">
+                {l.supplier} · {kg(l.kg)} · {l.kind === "match" ? "matches a request" : l.kind === "walk_in" ? "no request (walk-in)" : "wrong colour test"}
+              </span>
+            </button>
+          </li>
+        ))}
+      </ul>
+      <p className="mt-2 text-[0.8rem] text-muted-foreground">
+        Or print them from <Link href="/store/receive/labels" className="underline underline-offset-2">Sample labels</Link> and scan for real.
+      </p>
+    </details>
   );
 }
 

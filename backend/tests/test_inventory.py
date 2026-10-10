@@ -468,3 +468,24 @@ def test_batches_and_orders_can_be_row_locked(db, setup, buyer):
     locked = db.scalar(select(YarnBatch).where(YarnBatch.id == batch.id).with_for_update())
     assert locked.yarn_item.colour == "Raw White"
     assert db.scalar(select(Order).where(Order.id == order.id).with_for_update()).buyer is not None
+
+
+# demo: with no yarn request at all, a walk-in label still scans and lands as a lot
+def test_walk_in_label_needs_no_request(api, setup):
+    labels = api(Role.store, "GET", "/api/inventory/sample-labels").json()
+    walk_in = [lbl for lbl in labels if lbl["kind"] == "walk_in"]
+    assert len(walk_in) == 2 and all(lbl["delivery_id"] is None for lbl in walk_in)
+    payload = walk_in[0]["payload"]
+    check = api(Role.store, "POST", "/api/inventory/labels/check", json={"payload": payload})
+    assert check.status_code == 200 and check.json()["delivery"] is None
+    assert check.json()["suggested_rate_paise_per_kg"] is None  # never bought: nothing to offer
+    receipt = api(
+        Role.store, "POST", "/api/inventory/receipts", json={"supplier_id": setup["sup"].id}
+    )
+    rid = receipt.json()["id"]
+    assert add(api, rid, payload=payload, received_kg="500").json()["error"]["field"] == "rate"
+    line = add(api, rid, payload=payload, received_kg="500", rate_paise_per_kg=28500)
+    assert line.status_code == 200, line.text
+    assert line.json()["batch"]["status"] == "inspection"
+    again = api(Role.store, "POST", "/api/inventory/labels/check", json={"payload": payload})
+    assert again.json()["suggested_rate_paise_per_kg"] == 28500  # this supplier's last GRN rate

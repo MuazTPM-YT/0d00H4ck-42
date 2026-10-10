@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { ScanLine } from "lucide-react";
 import { type KeyboardEvent, useState } from "react";
 
+import { CameraScan } from "@/components/layout/CameraScan";
 import { Input } from "@/components/ui/input";
 import { api, type Paged } from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -35,6 +36,7 @@ export function ScanField({
   onScan,
   disabled,
   autoFocus,
+  camera,
 }: {
   id: string;
   label: string;
@@ -42,10 +44,13 @@ export function ScanField({
   onScan: (value: string) => void;
   disabled?: boolean;
   autoFocus?: boolean;
+  // QR labels only: offer the tablet camera next to the field
+  camera?: boolean;
 }) {
   const [value, setValue] = useState("");
   function onKeyDown(e: KeyboardEvent<HTMLInputElement>) {
-    if (e.key !== "Enter") return;
+    // scanners end a code with Enter, or with Tab when set up for spreadsheets
+    if (e.key !== "Enter" && !(e.key === "Tab" && value.trim())) return;
     e.preventDefault();
     const v = value.trim();
     if (v) onScan(v);
@@ -56,23 +61,26 @@ export function ScanField({
       <label htmlFor={id} className="text-sm font-medium">
         {label}
       </label>
-      <div className="relative">
-        <ScanLine className="pointer-events-none absolute top-1/2 left-3 size-5 -translate-y-1/2 text-muted-foreground" aria-hidden />
-        <Input
-          id={id}
-          value={value}
-          onChange={(e) => setValue(e.target.value)}
-          onKeyDown={onKeyDown}
-          placeholder={placeholder}
-          maxLength={300}
-          autoComplete="off"
-          spellCheck={false}
-          disabled={disabled}
-          autoFocus={autoFocus}
-          className="h-12 pl-11 text-base md:text-base"
-        />
+      <div className="flex gap-2">
+        <div className="relative flex-1">
+          <ScanLine className="pointer-events-none absolute top-1/2 left-3 size-5 -translate-y-1/2 text-muted-foreground" aria-hidden />
+          <Input
+            id={id}
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+            onKeyDown={onKeyDown}
+            placeholder={placeholder}
+            maxLength={300}
+            autoComplete="off"
+            spellCheck={false}
+            disabled={disabled}
+            autoFocus={autoFocus}
+            className="h-12 pl-11 text-base md:text-base"
+          />
+        </div>
+        {camera && <CameraScan onScan={onScan} disabled={disabled} />}
       </div>
-      <p className="text-xs text-muted-foreground">Scan, or type and press Enter.</p>
+      <p className="text-xs text-muted-foreground">{camera ? "Scan, use the camera, or type and press Enter." : "Scan, or type and press Enter."}</p>
     </div>
   );
 }
