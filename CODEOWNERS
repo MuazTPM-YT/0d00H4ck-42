@@ -1,0 +1,55 @@
+# One owner per module. Owner reviews every PR touching their paths.
+
+# Muaz: core, migrations, auth, masters, production, workforce, analytics, seed, simulator
+/backend/app/core/                    @MuazTPM-YT
+/backend/app/main.py                  @MuazTPM-YT
+/backend/app/models.py                @MuazTPM-YT
+/backend/alembic/                     @MuazTPM-YT
+/backend/app/modules/auth/            @MuazTPM-YT
+/backend/app/modules/masters/         @MuazTPM-YT
+/backend/app/modules/production/      @MuazTPM-YT
+/backend/app/modules/workforce/       @MuazTPM-YT
+/backend/app/modules/analytics/       @MuazTPM-YT
+/scripts/                             @MuazTPM-YT
+/frontend/src/nav.ts                  @MuazTPM-YT
+/frontend/src/middleware.ts           @MuazTPM-YT
+/frontend/src/lib/                    @MuazTPM-YT
+/frontend/src/features/masters/       @MuazTPM-YT
+/frontend/src/app/(app)/masters/      @MuazTPM-YT
+/frontend/src/features/production/    @MuazTPM-YT
+/frontend/src/app/(app)/floor/        @MuazTPM-YT
+/frontend/src/features/analytics/     @MuazTPM-YT
+/frontend/src/app/(app)/owner/        @MuazTPM-YT
+/frontend/src/app/(app)/insights/     @MuazTPM-YT
+
+# Ammaar: inventory, orders
+/backend/app/modules/inventory/       @ammaartech
+/backend/app/modules/orders/          @ammaartech
+/frontend/src/features/inventory/     @ammaartech
+/frontend/src/features/orders/        @ammaartech
+/frontend/src/app/(app)/store/        @ammaartech
+/frontend/src/app/(app)/orders/       @ammaartech
+
+# Razan: design system, quality
+/frontend/src/components/             @razancodes
+/frontend/src/app/globals.css         @razancodes
+/backend/app/modules/quality/         @razancodes
+/frontend/src/features/quality/       @razancodes
+/frontend/src/app/(app)/qc/           @razancodes
+
+# Ashil: tracking, dispatch, finance
+/backend/app/modules/tracking/        @Ashil07
+/backend/app/modules/dispatch/        @Ashil07
+/backend/app/modules/finance/         @Ashil07
+/frontend/src/features/tracking/      @Ashil07
+/frontend/src/features/dispatch/      @Ashil07
+/frontend/src/features/finance/       @Ashil07
+/frontend/src/app/track/              @Ashil07
+/frontend/src/app/(app)/dispatch/     @Ashil07
+/frontend/src/app/(app)/stock/        @Ashil07
+/frontend/src/app/(app)/finance/      @Ashil07
+
+# Order detail page (/orders/[id]) belongs to tracking. CODEOWNERS has no [ ] syntax,
+# so match any child folder of orders/, then give orders/new back to Ammaar. Last match wins.
+/frontend/src/app/(app)/orders/*/     @Ashil07
+/frontend/src/app/(app)/orders/new/   @ammaartech
