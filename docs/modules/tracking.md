@@ -23,6 +23,20 @@ Owner: Ashil. Code: `backend/app/modules/tracking/`, `frontend/src/features/trac
   fabric only, so the gap between the numbers does not reveal the rejects either.
   A **Deliveries** section lists every truck that left: challan number, date and time, rolls,
   metres, vehicle number and driver. Draft and loading trucks are not shown.
+- **Email on confirm.** When accounts confirms an order, the buyer gets an email with the order
+  summary and their tracking link (`tracking.email_link_later`). The order is saved and the
+  screen answers first; the email goes out afterwards (FastAPI `BackgroundTasks`, its own DB
+  session), so a slow or dead mail server never holds up confirm and never undoes it.
+  - Every try leaves an audit row: `link_email_sent`, `link_email_failed` (with a plain reason,
+    e.g. "Mail login refused" or "Cannot reach the mail server") or `link_email_skipped` (buyer
+    has no email address). The newest one shows in the buyer link box.
+  - **Send email / Resend email** (accounts, owner) sends the current link and waits for the
+    answer; use it after a failure or after **New link**.
+  - Sent with Python's `smtplib` over STARTTLS (Gmail: `smtp.gmail.com:587` and an app
+    password). The `SMTP_*`, `MAIL_FROM` and `WEB_URL` keys are in `.env.example`. A blank
+    `SMTP_HOST` turns mail off and the box says so; setting `SMTP_HOST` without the others stops
+    the server at startup and names the missing keys.
+  - `WEB_URL` must be an address the buyer can open (LAN IP or public URL), not `localhost`.
 
 ## Data flow
 

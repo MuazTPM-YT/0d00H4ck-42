@@ -117,6 +117,7 @@ caller. Status: **done** = implemented and tested, **stub** = raises `NotImpleme
 | `production.create_rework_work_order(db, roll_id, stage, user_id)` | Muaz | done | `WorkOrder` with `roll_id` set; roll must be `rework`; second call returns the open one. Processing the roll on that job sends it back to `awaiting_qc` |
 | `quality.roll_trace(db, roll_id)` | Razan | done | order, loom, shift, weaver, yarn batches + suppliers, QC attempts, events |
 | `tracking.order_stage(db, order_id)` | Ashil | done | derived buyer stage + metres per bucket |
+| `tracking.email_link(db, order_id, user_id)` | Ashil | done | `"sent" \| "failed" \| "skipped"`; emails the buyer their link, writes the audit row, never raises on a mail error; caller commits |
 | `dispatch.finished_stock(db, order_id=None, shade_band=None)` | Ashil | done | `list[Roll]` passed and not dispatched |
 | `dispatch.auto_draft(db, order_id, user_id, at=None)` | Ashil | done | draft `Dispatch` when one shade band of passed rolls covers what is left of the order and no truck is open, else `None`. Locks the order row. Called by `quality.decide` on pass |
 | `dispatch.corner_check(db, days=7)` | Ashil | done | rolls too long on shelf, order not open, or leftover of a shipped order |
@@ -178,6 +179,6 @@ Pure helpers in `app.core.units`: `qty`, `rupees_to_paise`, `line_amount_paise`,
 | `GET /api/analytics/delivery`, `/orders/{id}/delivery-estimate` | accounts, supervisor |
 | `GET /api/track/{token}` | public |
 | `GET /api/track/orders/{id}`, `/track/stages?ids=` (stage for a page of orders) | accounts, dispatch |
-| `POST /api/track/orders/{id}/rotate-token` | accounts |
+| `POST /api/track/orders/{id}/rotate-token`, `.../{id}/email-link` (resend the link email) | accounts |
 
 Owner passes every role check. Full schema at http://localhost:8000/docs.
