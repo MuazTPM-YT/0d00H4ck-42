@@ -449,6 +449,20 @@ def add_line(db: Session, user: User, receipt_id: int, data) -> dict:
     return {"batch": batch, "created": True, "comparison": comparison}
 
 
+# truck entered by mistake: draft lots never reached the ledger, so they go; the audit row stays
+def discard_receipt(db: Session, user: User, receipt_id: int, reason: str) -> None:
+    r = _draft_receipt(db, receipt_id)
+    batches = db.scalars(select(YarnBatch).where(YarnBatch.receipt_id == r.id)).all()
+    lots = [b.supplier_lot or b.code for b in batches]
+    audit.record(db, user.id, "discard", "receipts", r.id, reason=reason, data={"lots": lots})
+    for b in batches:
+        db.delete(b)
+    db.flush()
+    db.delete(r)
+    db.commit()
+    events.publish("stock", {"type": "receipt", "id": receipt_id})
+
+
 # truck done: every lot moves supplier -> inspection (or quarantine), bill stored, all or nothing
 def confirm_receipt(db: Session, user: User, receipt_id: int) -> dict:
     r = _draft_receipt(db, receipt_id)

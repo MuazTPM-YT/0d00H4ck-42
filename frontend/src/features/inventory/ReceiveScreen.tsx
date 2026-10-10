@@ -269,6 +269,18 @@ export function ReceiveScreen() {
               Confirm receipt ({r.batches.length} {r.batches.length === 1 ? "lot" : "lots"})
             </Button>
           )}
+          {r && (
+            <ReasonAction
+              label="Discard truck"
+              question={`Why is ${r.code} discarded? Its lots never reached stock.`}
+              url={`/inventory/receipts/${r.id}/discard`}
+              onDone={() => {
+                setReceiptId(null);
+                setLastLine(null);
+                qc.invalidateQueries({ queryKey: ["stock"] });
+              }}
+            />
+          )}
           <ErrorText error={receipt.error} />
 
           {!r && (drafts.data?.items.length ?? 0) > 0 && (

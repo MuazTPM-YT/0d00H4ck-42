@@ -15,6 +15,7 @@ from app.modules.inventory.labels import parse_label
 from app.modules.inventory.models import (
     BatchStatus,
     MoveReason,
+    Receipt,
     Reservation,
     ReservationStatus,
     YarnBatch,
@@ -442,6 +443,25 @@ def test_weight_variance_flagged_but_never_adjusted(api, delivery):
     assert batch["status"] == "inspection"
     assert batch["received_kg"] == "240.000"
     assert "label 250.000 kg, weighed 240" in batch["mismatch_notes"]
+
+
+# a truck entered by mistake: draft lots never touched stock, so discarding leaves no trace but
+# the audit row; a confirmed truck is in the ledger and can't be discarded
+def test_discard_draft_truck(api, db, delivery):
+    rid = new_receipt(api, delivery)
+    lot = add(api, rid, payload=label("D-1"), received_kg="250").json()["batch"]["id"]
+    url = f"/api/inventory/receipts/{rid}/discard"
+    assert api(Role.store, "POST", url, json={"reason": "  "}).status_code == 422
+    assert api(Role.store, "POST", url, json={"reason": "Wrong supplier picked"}).status_code == 204
+    assert db.get(YarnBatch, lot) is None and db.get(Receipt, rid) is None
+    note = db.scalar(select(AuditLog).where(AuditLog.action == "discard"))
+    assert note.reason == "Wrong supplier picked" and note.data["lots"] == ["D-1"]
+
+    rid = new_receipt(api, delivery)
+    add(api, rid, payload=label("D-2"), received_kg="250")
+    api(Role.store, "POST", f"/api/inventory/receipts/{rid}/confirm")
+    url = f"/api/inventory/receipts/{rid}/discard"
+    assert api(Role.store, "POST", url, json={"reason": "Too late"}).status_code == 409
 
 
 def test_partial_delivery_stays_open(api, delivery):
