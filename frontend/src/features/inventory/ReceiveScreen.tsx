@@ -7,6 +7,7 @@ import { type FormEvent, useState } from "react";
 
 import { FormField } from "@/components/layout/FormField";
 import { PageHeader } from "@/components/layout/PageHeader";
+import { ReasonAction } from "@/components/layout/ReasonAction";
 import { StatusBadge } from "@/components/layout/StatusBadge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -406,6 +407,7 @@ function MissingLine({ busy, onAdd }: { busy: boolean; onAdd: (body: object) => 
 }
 
 function DeliveryTable({ query }: { query: UseQueryResult<Paged<Delivery>> }) {
+  const qc = useQueryClient();
   if (query.isError) return <ErrorText error={query.error} />;
   if (query.isPending) return <p className="text-sm text-muted-foreground">Loading…</p>;
   if (query.data.total === 0) return <p className="text-sm text-muted-foreground">No open deliveries. Add one when a supplier confirms a dispatch.</p>;
@@ -421,6 +423,7 @@ function DeliveryTable({ query }: { query: UseQueryResult<Paged<Delivery>> }) {
             <th className="px-3 py-2 font-medium">Due</th>
             <th className="px-3 py-2 font-medium">For order</th>
             <th className="px-3 py-2 font-medium">Status</th>
+            <th className="px-3 py-2 font-medium"><span className="sr-only">Actions</span></th>
           </tr>
         </thead>
         <tbody>
@@ -433,6 +436,9 @@ function DeliveryTable({ query }: { query: UseQueryResult<Paged<Delivery>> }) {
               <td className="px-3 py-2">{date(d.expected_date)}</td>
               <td className="px-3 py-2">{d.order_code ?? "—"}</td>
               <td className="px-3 py-2"><StatusBadge status={d.status} /></td>
+              <td className="px-3 py-2">
+                <ReasonAction label="Cancel" question={`Why will ${d.supplier_name} not send this?`} url={`/inventory/expected-deliveries/${d.id}/cancel`} onDone={() => qc.invalidateQueries({ queryKey: ["stock"] })} />
+              </td>
             </tr>
           ))}
         </tbody>

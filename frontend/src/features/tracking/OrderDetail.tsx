@@ -7,6 +7,7 @@ import { type ReactNode, useState } from "react";
 
 import { EmptyState } from "@/components/layout/EmptyState";
 import { PageHeader } from "@/components/layout/PageHeader";
+import { ReasonAction } from "@/components/layout/ReasonAction";
 import { StatusBadge } from "@/components/layout/StatusBadge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -40,6 +41,7 @@ export function OrderDetail({ id, costPanel, yarnPanel }: { id: string; costPane
   useSSE(["orders", "dispatch", "quality", "machines"]);
   const role = useMe().data?.role;
   const view = useQuery({ queryKey: ["orders", "view", id], queryFn: () => api<OrderView>(`/track/orders/${id}`) });
+  const qc = useQueryClient();
 
   if (view.isPending) return <Skeleton className="h-96 w-full" />;
   if (view.isError) {
@@ -121,6 +123,13 @@ export function OrderDetail({ id, costPanel, yarnPanel }: { id: string; costPane
           </Section>
         </div>
         <div className="grid content-start gap-6">
+          {(role === "accounts" || role === "owner") && (o.order_status === "draft" || o.order_status === "confirmed") && (
+            <section className="grid gap-2 border border-border bg-card p-4">
+              <h2 className="text-base">Cancel order</h2>
+              <p className="text-sm text-muted-foreground">Frees reserved yarn and takes queued jobs off the machines. A job still running is finished on the floor first.</p>
+              <ReasonAction label="Cancel order" question="Why is this order cancelled?" url={`/orders/${o.order_id}/cancel`} onDone={() => qc.invalidateQueries({ queryKey: ["orders"] })} />
+            </section>
+          )}
           <BuyerLink o={o} canRotate={role === "accounts" || role === "owner"} />
           <Timeline events={o.timeline} />
         </div>
