@@ -153,6 +153,19 @@ def _timeline(db: Session, order: Order, internal: bool) -> list[dict]:
             label = f"{d.code} delivered" if internal else "Delivered"
             title = f"{label}, received by {d.received_by}"
             events.append({"at": d.delivered_at, "title": title})
+    cancel = db.scalar(
+        select(audit.AuditLog)
+        .where(
+            audit.AuditLog.entity_type == "orders",
+            audit.AuditLog.entity_id == order.id,
+            audit.AuditLog.action == "cancel",
+        )
+        .order_by(audit.AuditLog.id.desc())
+        .limit(1)
+    )
+    if cancel:
+        title = f"Order cancelled: {cancel.reason}" if internal else "Order cancelled"
+        events.append({"at": cancel.created_at, "title": title})
     return sorted(events, key=lambda e: e["at"])
 
 
