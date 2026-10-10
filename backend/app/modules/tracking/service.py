@@ -196,8 +196,11 @@ def order_stage(db: Session, order_id: int) -> dict:
 # --- routes
 
 
+# produced counts good fabric only, else produced minus the rest gives rejects away
 def public_view(db: Session, token: str) -> dict:
-    return _card(db, order_by_token(db, token), internal=False)
+    card = _card(db, order_by_token(db, token), internal=False)
+    m = card["metres"]
+    return {**card, "metres": {**m, "produced": qty(m["produced"] - m["rejected"])}}
 
 
 def order_view(db: Session, order_id: int) -> dict:

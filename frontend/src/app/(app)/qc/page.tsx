@@ -1,11 +1,5 @@
-import { Suspense } from "react";
-
-import { QcHome } from "@/features/quality/QcHome";
+import { QcPage } from "@/features/quality/QcPage";
 
 export default function Page() {
-  return (
-    <Suspense>
-      <QcHome />
-    </Suspense>
-  );
+  return <QcPage />;
 }

@@ -159,8 +159,8 @@ Pure helpers in `app.core.units`: `qty`, `rupees_to_paise`, `line_amount_paise`,
 | `GET /api/production/work-orders`, `/work-orders/open`, `/board`, `/machines/{id}/timeline` | any logged in |
 | `POST /api/production/work-orders/{id}/{queue,unqueue,start,move,finish}`, `PUT /api/production/machines/{id}/queue` | supervisor |
 | `POST /api/production/machine-events`, `/output`, `/rolls`, `/rolls/{id}/process` | supervisor (machine feeds log in as one) |
-| `GET /api/quality/rolls`, `/rolls/{id}` (trace), `/queue`, `/checks`, `/summary` | any logged in |
-| `POST /api/quality/rolls/{id}/inspect` | qc |
+| `GET /api/quality/rolls`, `/queue`, `/summary?days=`, `/checks`, `/rolls/{id}`, `/rolls/{id}/trace` | any logged in |
+| `POST /api/quality/rolls/{id}/checks` | qc |
 | `GET /api/workforce/attendance`, `/crew`, `/current-shift` | supervisor, accounts |
 | `PUT /api/workforce/attendance`, `POST /api/workforce/crew`, `POST /api/workforce/crew/{id}/end` | supervisor |
 | `GET /api/dispatch/dispatches[/{id}]`, `/finished-stock`, `/corner-check` | dispatch, accounts, supervisor |

@@ -30,10 +30,10 @@ UI/API/logic done, `done` = UI + API + DB + validation + test.
 
 | # | Label | Requirement | Owner | Screen | Tables | Status |
 |---|---|---|---|---|---|---|
-| R10 | Core | Each roll has a unique ID linked to order, machine, shift | Razan | `/qc/rolls/[id]` | `rolls` | done: roll page with order, loom, shift, weaver, yarn lots, history |
-| R11 | Core | QC per roll: pass, rework, reject, with defect type | Razan | `/qc/rolls/[id]` | `qc_checks` | done: `POST /api/quality/rolls/{id}/inspect`, 4-point score, ledger move, rework job, tests |
-| R12 | Core | Queue of rolls waiting for QC; pass/fail summary | Razan | `/qc` | `rolls`, `qc_checks` | done: queue oldest first, scan box, checks list, summary |
-| R13 | Expected | Defect analysis by machine and by order | Razan | `/qc`, `/insights` | `qc_checks`, `rolls` | done: `/qc` defect analysis by type, loom, order |
+| R10 | Core | Each roll has a unique ID linked to order, machine, shift | Razan | `/qc/rolls/[id]` | `rolls` | done: `GET /api/quality/rolls/{id}`, full trace at `/rolls/{id}/trace` (yarn lots, suppliers, events, rework jobs) |
+| R11 | Core | QC per roll: pass, rework, reject, with defect type | Razan | `/qc/rolls/[id]` | `qc_checks` | done: `quality.decide`, `POST /api/quality/rolls/{id}/checks`, 4-point score, ledger check, repeat-scan safe |
+| R12 | Core | Queue of rolls waiting for QC; pass/fail summary | Razan | `/qc` | `rolls`, `qc_checks` | done: `GET /api/quality/queue`, `/summary`, `/checks`, scan box |
+| R13 | Expected | Defect analysis by machine and by order | Razan | `/qc`, `/insights` | `qc_checks`, `rolls` | done on `/qc`: `GET /api/quality/summary` by type, loom and order |
 
 ## Scene 4: a buyer asks about their order
 

@@ -530,8 +530,11 @@ def process_roll(
             expected = RollStatus.in_process
         if roll.status != expected:
             raise Conflict(f"{roll.code} is {roll.status}")
+        # only processing events count: QC's rework event also names this job
         seen = select(RollEvent.id).where(
-            RollEvent.roll_id == roll.id, RollEvent.work_order_id == wo.id
+            RollEvent.roll_id == roll.id,
+            RollEvent.work_order_id == wo.id,
+            RollEvent.kind.in_(["dyed", "rework"]),
         )
         if db.scalar(seen):
             raise Conflict(f"{roll.code} already went through {wo.code}")

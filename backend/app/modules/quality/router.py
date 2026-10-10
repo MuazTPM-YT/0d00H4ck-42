@@ -11,12 +11,13 @@ from app.modules.quality import service
 from app.modules.quality.models import QcDecision, RollStatus
 from app.modules.quality.schemas import (
     CheckOut,
-    InspectIn,
-    InspectOut,
-    QueueRow,
+    QcCheckIn,
+    QcResultOut,
+    QualitySummaryOut,
     RollCode,
+    RollDetailOut,
     RollOut,
-    SummaryOut,
+    RollRowOut,
     TraceOut,
 )
 
@@ -35,22 +36,33 @@ def list_rolls(
     return service.list_rolls(db, page, status, order_id, code)
 
 
-# roll genealogy: anyone who handles the roll can trace it back to its yarn
-@router.get("/rolls/{roll_id}", response_model=TraceOut)
-def roll_trace(roll_id: int, db: Session = Depends(get_db)):
-    return service.roll_trace(db, roll_id)
-
-
-@router.post("/rolls/{roll_id}/inspect", response_model=InspectOut)
-def inspect(roll_id: int, body: InspectIn, db: Session = Depends(get_db), user: User = Inspector):
-    return service.inspect(db, roll_id, body, user)
-
-
-@router.get("/queue", response_model=Paged[QueueRow])
+@router.get("/queue", response_model=Paged[RollRowOut])
 def queue(page: PageDep, db: Session = Depends(get_db)):
     return service.queue(db, page)
 
 
+@router.get("/summary", response_model=QualitySummaryOut)
+def summary(days: Annotated[int, Query(ge=1, le=365)] = 30, db: Session = Depends(get_db)):
+    return service.summary(db, days)
+
+
+@router.get("/rolls/{roll_id}", response_model=RollDetailOut)
+def roll_detail(roll_id: int, db: Session = Depends(get_db)):
+    return service.roll_detail(db, roll_id)
+
+
+@router.post("/rolls/{roll_id}/checks", response_model=QcResultOut, status_code=201)
+def decide(roll_id: int, body: QcCheckIn, db: Session = Depends(get_db), user: User = Inspector):
+    return service.decide(db, roll_id, body, user.id)
+
+
+# roll genealogy: anyone who handles the roll can trace it back to its yarn
+@router.get("/rolls/{roll_id}/trace", response_model=TraceOut)
+def roll_trace(roll_id: int, db: Session = Depends(get_db)):
+    return service.roll_trace(db, roll_id)
+
+
+# every inspection, newest first, with the 4-point score
 @router.get("/checks", response_model=Paged[CheckOut])
 def list_checks(
     page: PageDep,
@@ -61,8 +73,3 @@ def list_checks(
     db: Session = Depends(get_db),
 ):
     return service.list_checks(db, page, decision, order_id, machine_id, roll_id)
-
-
-@router.get("/summary", response_model=SummaryOut)
-def summary(days: Annotated[int, Query(ge=1, le=365)] = 30, db: Session = Depends(get_db)):
-    return service.summary(db, days)
