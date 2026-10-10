@@ -130,6 +130,23 @@ def test_public_page_shows_stage_and_never_money(client, db):
         assert word not in text, word
 
 
+# rejects are staff business: buyer link never carries them, office view does
+def test_rejected_metres_only_for_staff(client_as, client, db):
+    mill = Mill(db)
+    o = mill.order(200)
+    w = mill.work_order(o)
+    mill.roll(w, 120)
+    mill.roll(w, 40, status=RollStatus.rejected)
+    db.commit()
+
+    public = client.get(f"/api/track/{o.tracking_token}").json()
+    assert "rejected" not in public["metres"]
+    assert "reject" not in json.dumps(public).lower()
+    assert public["metres"]["produced"] == "120.000"
+    staff = client_as(Role.sales).get(f"/api/track/orders/{o.id}").json()
+    assert staff["metres"]["rejected"] == "40.000"
+
+
 def test_bad_or_rotated_token_is_404(client_as, client, db):
     o = Mill(db).order()
     db.commit()
