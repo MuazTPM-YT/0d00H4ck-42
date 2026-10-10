@@ -220,6 +220,21 @@ def test_order_view_lists_rolls_and_roles(client_as, db):
     assert body["buyer_name"] == "Mill Buyer"
 
 
+# staff share the link on whatsapp or email; buyer contact never reaches the public page
+def test_order_view_carries_buyer_contact_for_sharing(client_as, client, db):
+    mill = Mill(db)
+    mill.buyer.contact_name, mill.buyer.phone = "Ravi", "+91 98450 10037"
+    mill.buyer.email = "ravi@millbuyer.example"
+    o = mill.order()
+    db.commit()
+    body = client_as(Role.accounts).get(f"/api/track/orders/{o.id}").json()
+    assert body["buyer_contact"] == "Ravi"
+    assert body["buyer_phone"] == "+91 98450 10037"
+    assert body["buyer_email"] == "ravi@millbuyer.example"
+    public = json.dumps(client.get(f"/api/track/{o.tracking_token}").json())
+    assert "98450" not in public and "ravi" not in public.lower()
+
+
 def test_late_when_forecast_lands_after_deadline(client, db):
     from datetime import date, timedelta
 
@@ -293,3 +308,48 @@ def test_list_and_card_agree(client_as, db):
     card = office.get(f"/api/track/orders/{short.id}").json()
     public = office.get(f"/api/track/{short.tracking_token}").json()
     assert row["stage"] == card["stage"] == public["stage"] == "short"
+
+
+# buyer sees every truck that left: challan, when, rolls, metres, vehicle, driver
+def test_buyer_link_lists_trucks_that_left(client, db):
+    from datetime import UTC, datetime
+
+    from app.modules.dispatch.models import Dispatch, DispatchRoll, DispatchStatus
+
+    mill = Mill(db)
+    o = mill.order(200)
+    w = mill.work_order(o)
+    gone = [mill.roll(w, 60, status=RollStatus.dispatched) for _ in range(2)]
+    waiting = mill.roll(w, 80)
+    left = Dispatch(
+        code="DN-T1",
+        order_id=o.id,
+        buyer_id=o.buyer_id,
+        vehicle_no="KA 05 MN 4321",
+        driver="Suresh Kumar",
+        status=DispatchStatus.confirmed,
+        confirmed_at=datetime(2026, 10, 9, 6, 30, tzinfo=UTC),
+        delivery_otp="482913",
+    )
+    draft = Dispatch(code="DN-T2", order_id=o.id, buyer_id=o.buyer_id)
+    db.add_all([left, draft])
+    db.flush()
+    db.add_all([DispatchRoll(dispatch_id=left.id, roll_id=r.id) for r in gone])
+    db.add(DispatchRoll(dispatch_id=draft.id, roll_id=waiting.id))
+    db.commit()
+
+    body = client.get(f"/api/track/{o.tracking_token}").json()
+    assert body["deliveries"] == [
+        {
+            "challan": "DN-T1",
+            "left_at": "2026-10-09T06:30:00Z",
+            "rolls": 2,
+            "metres": "120.000",
+            "vehicle_no": "KA 05 MN 4321",
+            "driver": "Suresh Kumar",
+            "delivered_at": None,
+            "received_by": None,
+            "code": "482913",
+            "code_locked": False,
+        }
+    ]

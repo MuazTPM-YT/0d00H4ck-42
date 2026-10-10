@@ -9,10 +9,11 @@ from sqlalchemy.orm import Session
 from app.core import events
 from app.core.config import get_settings
 from app.core.db import get_db
-from app.core.deps import get_current_user
+from app.core.deps import stream_user
 from app.core.errors import Unprocessable, install_error_handlers
 from app.modules.analytics.router import router as analytics
 from app.modules.auth.router import router as auth
+from app.modules.dispatch.router import delivery
 from app.modules.dispatch.router import router as dispatch
 from app.modules.finance.router import router as finance
 from app.modules.inventory.router import router as inventory
@@ -50,7 +51,7 @@ def health(db: Session = Depends(get_db)):
 
 
 # live updates: one SSE connection per browser tab, filtered by topic
-@system.get("/stream", dependencies=[Depends(get_current_user)])
+@system.get("/stream", dependencies=[Depends(stream_user, scope="function")])
 async def stream(topics: str = Query(..., description="comma list, e.g. stock,machines")):
     wanted = frozenset(t.strip() for t in topics.split(",") if t.strip())
     if not wanted or wanted - events.TOPICS:
@@ -75,6 +76,7 @@ for r in (
     quality,
     tracking,
     dispatch,
+    delivery,
     finance,
     analytics,
 ):

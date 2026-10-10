@@ -582,7 +582,7 @@ def test_cancelled_order_jobs_leave_the_floor(client_as, db, floor):
     db.commit()
     with pytest.raises(Conflict) as e:
         service.start_work_order(db, floor.shirt_weave.id, floor.supervisor.id)
-    assert e.value.code == "order_not_confirmed"
+    assert e.value.code == "order_not_open"
     with pytest.raises(Conflict):
         service.reorder_queue(db, floor.loom1.id, [floor.shirt_weave.id], floor.supervisor.id)
     tiles = {
@@ -686,3 +686,47 @@ def test_store_issuing_yarn_starts_the_queued_first_stage_job(db, floor):
     )
     inventory.issue(db, floor.supervisor, data)
     assert floor.shirt_weave.status == WorkOrderStatus.running
+
+
+# cancel never strands a loom: refused while a job runs, queued jobs go back to waiting
+def test_cancel_refused_while_a_job_runs(db, floor):
+    from app.modules.orders import service as orders
+
+    sup = floor.supervisor
+    run_on(db, floor, floor.dyed_weave, floor.loom1)
+    service.queue_work_order(db, floor.dyed_dye.id, floor.jigger.id, sup.id)
+    with pytest.raises(Conflict) as stopped:
+        orders.cancel_order(db, sup, floor.dyed_order.id, "Buyer pulled out")
+    assert stopped.value.code == "job_running"
+
+    service.finish_work_order(db, floor.dyed_weave.id, sup.id)
+    orders.cancel_order(db, sup, floor.dyed_order.id, "Buyer pulled out")
+    db.refresh(floor.dyed_dye)
+    assert floor.dyed_dye.status == WorkOrderStatus.waiting
+    assert floor.dyed_dye.machine_id is None and floor.dyed_dye.queue_position is None
+
+
+# jobs of an order that is no longer open cannot start, log output or cut rolls
+def test_jobs_of_a_cancelled_order_cannot_run(db, floor):
+    from app.modules.orders.models import OrderStatus
+
+    sup = floor.supervisor
+    run_on(db, floor, floor.shirt_weave, floor.loom1)
+    report(db, floor, floor.loom1, MachineStatus.idle)  # job pauses with the machine
+    floor.shirt_order.status = OrderStatus.cancelled
+    db.commit()
+
+    calls = [
+        lambda: service.start_work_order(db, floor.shirt_weave.id, sup.id),
+        lambda: service.log_output(
+            db, OutputIn(machine_id=floor.loom1.id, qty=Decimal(10)), sup.id
+        ),
+        lambda: service.cut_roll(
+            db, RollIn(work_order_id=floor.shirt_weave.id, length_m=Decimal(50)), None
+        ),
+    ]
+    for call in calls:
+        with pytest.raises(Conflict) as refused:
+            call()
+        assert refused.value.code == "order_not_open"
+        db.rollback()

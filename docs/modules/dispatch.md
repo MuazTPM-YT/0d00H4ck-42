@@ -10,15 +10,42 @@ screens `/stock/finished`, `/dispatch`, `/dispatch/[id]`. Requirements R16 to R1
 - **Corner check.** Lists rolls that have been on the shelf longer than N days (default 7), rolls
   whose order is no longer open, and leftovers from orders that are already fully shipped.
 - **Create dispatch.** For one confirmed order. The screen suggests which rolls to load.
+- **Auto draft.** When a QC pass means one shade band of passed rolls covers what is left of the
+  order, `auto_draft` opens a draft dispatch in the same transaction (audit action `auto_draft`).
+  No rolls are loaded and no vehicle is set: dispatch still scans every roll and confirms, so the
+  right-rolls check stays. Never a second open truck for the same order.
 - **Loading by scan.** Each roll is scanned (or typed) onto the truck. The server checks it and
   returns a running count, the metres loaded and the metres still to load.
 - **Confirm.** In one transaction:
   - every roll goes `passed` → `dispatched`;
   - a stock move FG → DISP is written for each roll;
-  - the invoice is created from exactly the loaded rolls.
+  - the invoice is created from exactly the loaded rolls;
+  - the order row is locked, and if shipped metres now reach the ordered metres the order
+    moves `confirmed → closed`.
+
+  A cancelled or closed order cannot load or confirm a truck, even one drafted earlier
+  (409 `order_not_open`).
 
   The screen then shows a printable delivery challan.
-- **Gone-out register.** Every dispatch, filterable by status, vehicle and date.
+- **Gone-out register.** Every dispatch, filterable by status, vehicle and date. A confirmed truck
+  shows "on the way" until it is delivered.
+- **Delivery by code.** Confirm also gives the truck a 6-digit code. Only the buyer link shows
+  it; staff screens and staff APIs never do. The clerk shares the driver link
+  (`/deliver/<token>`, no login) by WhatsApp or copy. At the gate the driver and buyer count the
+  rolls on the driver page, the buyer reads out the code, and the driver enters it with the name
+  of whoever received the rolls (plus an optional note, e.g. "2 rolls wet"). The right code sets
+  `delivered_at` and the trip is closed.
+  - 5 wrong codes lock it. The clerk presses **New code**, which shows a fresh code on the buyer
+    link and resets the tries.
+  - If the driver has no signal, they phone the office and the clerk types the code. The check
+    and the try limit are the same; the audit row records `via: office_phone`.
+  - The whole truck is accepted, with a note. Per-roll returns are not built.
+- **Driver link by email.** The vehicle form takes an optional driver email. When the truck
+  is confirmed, the driver gets the challan, the buyer's name and city, rolls and metres,
+  and the driver link (never the code), sent after the response like the buyer email
+  (`dispatch.email_driver_later`). The delivery panel shows sent, failed (with the reason)
+  or skipped (no address). The clerk can resend, or type a missing or wrong address there;
+  the truck itself stays locked, so only `driver_email` changes (audit `set_driver_email`).
 
 ## Data flow
 
@@ -50,6 +77,7 @@ POST /dispatch/dispatches/{id}/confirm
 | Stock never goes negative | Before writing FG → DISP, confirm checks from the ledger that the roll's metres really are at its location (409 `stock_mismatch`). |
 | Invoice equals what was loaded | Invoice lines are built inside the confirm transaction from the locked list of loaded rolls. Test: `test_confirm_makes_invoice_from_exactly_the_loaded_rolls`. |
 | Confirmed dispatch is final | Transition map: `draft → loading → confirmed` (and `loading → draft` when the last roll is taken off). Nothing leaves `confirmed`. |
+| Delivered only after the truck left, and always with a receiver's name | DB check `delivered_after_it_left`; driver page 404 and office 409 `not_left` before confirm |
 
 ## DSA
 
@@ -71,6 +99,23 @@ greedy is close to optimal.
 for exact metres and overshoot is expensive. Exact subset-sum DP over decimetres is
 O(n × need_dm). For 40 rolls and 3,000 m that is 40 × 30,000 = 1.2M cells, which is still fast.
 It was left out because greedy is easy to explain and the clerk can adjust the suggestion anyway.
+
+### Delivery cases
+
+| Case | What happens |
+|---|---|
+| Someone guesses codes on a driver link | 5 wrong tries, then 409 `otp_locked`. The dispatch row is locked (`FOR UPDATE`) while checking, so two guesses at once cannot both use the last try. Test: `test_last_try_cannot_be_spent_twice`. |
+| A clerk marks a delivery without the buyer | Staff never see the code: not in `DispatchDetail`, not in the order view. They can only issue a new one, and it goes to the buyer link. |
+| Code lost or locked | `POST .../new-code` (dispatch clerk): new code, tries back to 5, audit `delivery_code_reissued`. |
+| No signal at the buyer's gate | `POST .../deliver` (dispatch clerk) with the code read out on the phone. |
+| Two trucks for one order | Each has its own link and code, and a code only closes its own truck. The buyer link lists the codes by vehicle. |
+| Driver at the wrong buyer | That buyer does not have this truck's code. |
+| Driver link forwarded | The link alone changes nothing. It shows no money and no code. |
+| Driver taps submit twice | A delivered truck returns its delivered state and changes nothing. |
+| Truck not left yet | A draft or loading truck's link is 404; office actions return 409 `not_left`. |
+| Order cancelled while the truck is on the road | Delivery still records: the fabric arrived. |
+| Faked time | `delivered_at` is server time. |
+| Trucks confirmed before migration `0003` | Each got a link and a code, so they can be closed the same way. |
 
 ## Five likely evaluator questions
 

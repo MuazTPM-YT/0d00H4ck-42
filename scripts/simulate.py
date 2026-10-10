@@ -25,7 +25,7 @@ from app.core.states import check_transition
 from app.core.units import line_amount_paise, qty
 from app.modules.auth.models import Role, User
 from app.modules.dispatch.models import Dispatch, DispatchRoll, DispatchStatus
-from app.modules.dispatch.service import DISPATCH_TRANSITIONS
+from app.modules.dispatch.service import DISPATCH_TRANSITIONS, open_delivery
 from app.modules.finance.models import Invoice, InvoiceLine, InvoiceStatus, Payment, PaymentMode
 from app.modules.finance.service import INVOICE_TRANSITIONS
 from app.modules.inventory import service as inventory
@@ -723,20 +723,29 @@ def dispatch_ready(mill: Mill, t: datetime) -> None:
 
 def ship(mill: Mill, order: Order, rolls: list[Roll], t: datetime) -> None:
     db, rng = mill.db, mill.rng
-    d = Dispatch(
-        code=next_code(db, "DN"),
-        order_id=order.id,
-        buyer_id=order.buyer_id,
-        vehicle_no=f"KA-{rng.randint(1, 53):02d}-{rng.choice('ABCDEF')}-{rng.randint(1000, 9999)}",
-        driver=rng.choice(["Ravi", "Shankar", "Iqbal", "Manju"]),
-        status=DispatchStatus.draft,
+    vehicle = f"KA-{rng.randint(1, 53):02d}-{rng.choice('ABCDEF')}-{rng.randint(1000, 9999)}"
+    driver = rng.choice(["Ravi", "Shankar", "Iqbal", "Manju"])
+    # qc pass already drafted a truck for this order: load that one, not a second
+    d = db.scalar(
+        select(Dispatch)
+        .where(Dispatch.order_id == order.id, Dispatch.status == DispatchStatus.draft)
+        .order_by(Dispatch.id)
     )
-    db.add(d)
+    if d is None:
+        d = Dispatch(
+            code=next_code(db, "DN"),
+            order_id=order.id,
+            buyer_id=order.buyer_id,
+            status=DispatchStatus.draft,
+        )
+        db.add(d)
+    d.vehicle_no, d.driver = vehicle, driver
     db.flush()
     for new in (DispatchStatus.loading, DispatchStatus.confirmed):
         check_transition(DISPATCH_TRANSITIONS, d.status, new)
         d.status = new
     d.confirmed_at = t
+    open_delivery(d)
     audit.record(db, mill.user[Role.dispatch], "confirmed", "dispatches", d.id)
     for r in rolls:
         db.add(DispatchRoll(dispatch_id=d.id, roll_id=r.id))

@@ -15,6 +15,7 @@ from app.core.units import line_amount_paise, qty
 from app.modules.analytics.models import Insight, InsightStatus, Severity
 from app.modules.auth.models import Role, User
 from app.modules.dispatch.models import Dispatch, DispatchRoll, DispatchStatus
+from app.modules.dispatch.service import open_delivery
 from app.modules.finance.models import (
     Expense,
     ExpenseCategory,
@@ -674,6 +675,9 @@ def seed_demo(db: Session) -> None:
             if status == DispatchStatus.confirmed
             else None,
         )
+        # a truck out on the road: code on the buyer link, driver link ready
+        if status == DispatchStatus.confirmed:
+            open_delivery(d)
         db.add(d)
         db.flush()
         return d

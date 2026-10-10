@@ -12,10 +12,11 @@ const MEANING: Record<string, Meaning> = {
 
   queued: "info", running: "info", inspection: "info", in_process: "info", awaiting_qc: "info",
   loading: "info", active: "info", acknowledged: "info", partially_received: "info",
+  on_the_way: "info",
 
   confirmed: "success", approved: "success", passed: "success", pass: "success", done: "success",
   dispatched: "success", paid: "success", received: "success", present: "success",
-  final: "success", resolved: "success", consumed: "success",
+  final: "success", resolved: "success", consumed: "success", delivered: "success",
 
   paused: "warning", quarantined: "warning", rework: "warning", maintenance: "warning",
   part_paid: "warning", half_day: "warning", warn: "warning",

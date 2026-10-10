@@ -30,6 +30,19 @@ export type Track = {
   projected_finish: string | null;
   risk: "on_track" | "at_risk" | "late" | null;
   timeline: { at: string; title: string }[];
+  // trucks that left; only on the buyer link, which is also the only place the code shows
+  deliveries?: {
+    challan: string;
+    left_at: string;
+    rolls: number;
+    metres: string;
+    vehicle_no: string | null;
+    driver: string | null;
+    delivered_at: string | null;
+    received_by: string | null;
+    code: string | null;
+    code_locked: boolean;
+  }[];
 };
 
 // same 2% as the server: rolls never cut to the exact metre
@@ -167,5 +180,61 @@ export function Timeline({ events }: { events: Track["timeline"] }) {
         ))}
       </ol>
     </section>
+  );
+}
+
+// every truck that left for the buyer, with the challan number their gate will sign
+export function Deliveries({ items }: { items: NonNullable<Track["deliveries"]> }) {
+  if (items.length === 0) return null;
+  return (
+    <section className="rounded-lg border bg-card">
+      <h2 className="border-b px-4 py-3 font-medium">Deliveries ({items.length})</h2>
+      <ul className="divide-y text-sm">
+        {items.map((d) => (
+          <li key={d.challan} className="grid gap-2 px-4 py-3 sm:grid-cols-[1fr_auto]">
+            <div>
+              <div className="font-medium">Challan {d.challan}</div>
+              <div className="text-muted-foreground">
+                Left the mill {dateTime(d.left_at)}
+                {d.vehicle_no && ` · vehicle ${d.vehicle_no}`}
+                {d.driver && ` · driver ${d.driver}`}
+              </div>
+            </div>
+            <div className="tabular sm:text-right">{d.rolls} {d.rolls === 1 ? "roll" : "rolls"} · {metres(d.metres)}</div>
+            <DeliveryState d={d} />
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+// the code is the buyer's signature: hand it over only once the rolls are counted
+function DeliveryState({ d }: { d: NonNullable<Track["deliveries"]>[number] }) {
+  if (d.delivered_at) {
+    return (
+      <p className="flex items-center gap-2 bg-success-soft px-3 py-2 text-success sm:col-span-2">
+        <Check className="size-4 shrink-0" aria-hidden /> Delivered {dateTime(d.delivered_at)}
+        {d.received_by && `, received by ${d.received_by}`}
+      </p>
+    );
+  }
+  if (d.code_locked) {
+    return (
+      <p role="alert" className="bg-warning-soft px-3 py-2 text-warning sm:col-span-2">
+        Too many wrong codes were tried for this truck. Call your contact at the mill for a new code.
+      </p>
+    );
+  }
+  if (!d.code) return null;
+  return (
+    <div className="grid gap-1 bg-info-soft px-3 py-2 text-info sm:col-span-2">
+      <span>
+        Delivery code
+        {d.vehicle_no && ` for ${d.vehicle_no}`}:{" "}
+        <strong className="font-mono text-lg tracking-[0.2em] tabular">{d.code}</strong>
+      </span>
+      <span className="text-xs">Count the rolls first, then give this code to the driver. It marks the truck as delivered.</span>
+    </div>
   );
 }

@@ -14,10 +14,29 @@ Owner: Ashil. Code: `backend/app/modules/tracking/`, `frontend/src/features/trac
   `analytics.delivery_estimate`. Until that function lands it shows "Estimate pending", but a
   deadline that has already passed is still flagged `late`.
 - **`/orders/[id]`:** the stage card, timeline, rolls, dispatches and invoices. The owner also
-  sees the cost and margin panel (finance).
+  sees the cost and margin panel (finance). The buyer link box has **Copy link**, **WhatsApp**
+  (opens `wa.me` with the buyer's phone and a ready message) and **Email** (opens the mail app
+  with the buyer's email, subject and message). The buyer's contact, phone and email come from
+  the buyer master and are only on the staff view, never on the public page.
 - **`/track/[token]`:** a public, read-only page. It shows the same card and a reduced timeline,
   and refreshes every minute. The buyer does not see rejected metres. Produced counts good
   fabric only, so the gap between the numbers does not reveal the rejects either.
+  A **Deliveries** section lists every truck that left: challan number, date and time, rolls,
+  metres, vehicle number and driver. Draft and loading trucks are not shown.
+- **Email on confirm.** When accounts confirms an order, the buyer gets an email with the order
+  summary and their tracking link (`tracking.email_link_later`). The order is saved and the
+  screen answers first; the email goes out afterwards (FastAPI `BackgroundTasks`, its own DB
+  session), so a slow or dead mail server never holds up confirm and never undoes it.
+  - Every try leaves an audit row: `link_email_sent`, `link_email_failed` (with a plain reason,
+    e.g. "Mail login refused" or "Cannot reach the mail server") or `link_email_skipped` (buyer
+    has no email address). The newest one shows in the buyer link box.
+  - **Send email / Resend email** (accounts, owner) sends the current link and waits for the
+    answer; use it after a failure or after **New link**.
+  - Sent with Python's `smtplib` over STARTTLS (Gmail: `smtp.gmail.com:587` and an app
+    password). The `SMTP_*`, `MAIL_FROM` and `WEB_URL` keys are in `.env.example`. A blank
+    `SMTP_HOST` turns mail off and the box says so; setting `SMTP_HOST` without the others stops
+    the server at startup and names the missing keys.
+  - `WEB_URL` must be an address the buyer can open (LAN IP or public URL), not `localhost`.
 
 ## Data flow
 

@@ -42,6 +42,20 @@ class TimelineEvent(BaseModel):
     title: str
 
 
+# one truck that left for the buyer; the code is the buyer's signature, given on receipt
+class Delivery(BaseModel):
+    challan: str
+    left_at: datetime
+    rolls: int
+    metres: Decimal
+    vehicle_no: str | None
+    driver: str | None
+    delivered_at: datetime | None = None
+    received_by: str | None = None
+    code: str | None = None
+    code_locked: bool = False
+
+
 # what a buyer sees: no costs, no rates, no internal ids
 class TrackOut(BaseModel):
     order_code: str
@@ -56,6 +70,7 @@ class TrackOut(BaseModel):
     projected_finish: date | None
     risk: Risk | None
     timeline: list[TimelineEvent]
+    deliveries: list[Delivery] = []
 
 
 class RollRow(BaseModel):
@@ -73,6 +88,7 @@ class DispatchRef(BaseModel):
     status: str
     vehicle_no: str | None
     confirmed_at: datetime | None
+    delivered_at: datetime | None
     roll_count: int
     metres: Decimal
 
@@ -86,13 +102,26 @@ class InvoiceRef(BaseModel):
     due_date: date
 
 
+# last try at emailing the buyer their link: sent, failed (with why) or skipped (no address)
+class LinkEmail(BaseModel):
+    status: str
+    at: datetime
+    to: str | None
+    error: str | None
+
+
 # office view of one order: the buyer card plus the records behind it
 class OrderView(TrackOut):
     metres: Metres
     order_id: int
     order_status: str
     buyer_name: str
+    buyer_contact: str | None
+    buyer_phone: str | None
+    buyer_email: str | None
     tracking_token: str
+    mail_on: bool
+    link_email: LinkEmail | None
     rolls: list[RollRow]
     dispatches: list[DispatchRef]
     invoices: list[InvoiceRef]

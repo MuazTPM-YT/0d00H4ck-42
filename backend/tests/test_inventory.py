@@ -720,3 +720,23 @@ def test_untagged_yarn_on_order_counts_once(api, db, setup, buyer):
     assert (rows[b.id]["on_order_kg"], rows[b.id]["to_buy_kg"]) == (D(45), D(60))
     row = next(r for r in inv.stock_warnings(db) if r["yarn_item_id"] == setup["navy40"].id)
     assert (row["on_order_kg"], row["projected_free_kg"], row["level"]) == (150, -60, "short")
+
+
+# a Raw White job never gets Navy yarn, even with a reason typed: wrong yarn = wrong lineage
+def test_issue_refuses_yarn_the_order_does_not_use(db, setup, issuing, make_user):
+    user = make_user(Role.store)
+    navy = make_batch(db, setup["sup"], setup["navy40"], 100)
+    db.commit()
+    with pytest.raises(AppError) as e:
+        inv.issue_to_work_order(db, issuing["wo"].id, navy.id, D(10), user.id, reason="short")
+    assert e.value.status == 409 and e.value.code == "wrong_yarn"
+
+
+# a cancelled order's job takes no more yarn from the store
+def test_issue_refuses_a_cancelled_orders_job(db, issuing, make_user):
+    user = make_user(Role.store)
+    issuing["order"].status = OrderStatus.cancelled
+    db.commit()
+    with pytest.raises(AppError) as e:
+        inv.issue_to_work_order(db, issuing["wo"].id, issuing["batch"].id, D(10), user.id)
+    assert e.value.status == 409 and e.value.code == "order_not_open"

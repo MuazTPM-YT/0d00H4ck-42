@@ -67,7 +67,7 @@ UI/API/logic done, `done` = UI + API + DB + validation + test.
 | # | Label | Requirement | Owner | Status |
 |---|---|---|---|---|
 | R26 | Core | Roles: owner, store, supervisor, QC, dispatch, accounts (sales merged into accounts, migration `0002`). Server enforces per endpoint. | Muaz (auth), every owner for their routes | done: login, `require_roles` on every route, role menus, migration test |
-| R27 | Expected | Activity log on orders and rolls | Muaz (`audit_log`), every owner writes rows | partial: `audit.record` done, used by masters and work orders |
+| R27 | Expected | Activity log on orders and rolls | Muaz (`audit_log`), every owner writes rows | partial: every module writes `audit.record` in the same transaction as the change; shown on the batch sheet, no order activity screen yet |
 | — | Core | Masters: suppliers, buyers, yarn items, fabric types, machines, workers, shifts | Muaz | done: CRUD API, validation, screens, tests |
 
 ## Differentiators
@@ -81,3 +81,4 @@ Start only after the Core items above work. Detail in `.claude/skills/odoo-hacka
 | D3 | Roll genealogy and root cause (machine, shift, supplier) | Razan | done: `quality.roll_trace`, `/qc/rolls/[id]` |
 | D4 | True cost per order (FIFO yarn, labour, machine, rework) | Ashil | done: `finance.order_cost` |
 | D5 | AI layer: detectors + insights + briefings (local, no model yet) | Muaz | done: `docs/ai.md`, evaluated in `docs/ai-evaluation.md` |
+| D6 | Proof of delivery: driver link + buyer's one-time code closes each truck | Ashil | done: `/deliver/[token]`, code on `/track/[token]`, office phone path, lock after 5 tries, tests in `test_delivery.py` |

@@ -45,6 +45,7 @@ flowchart LR
 | No attendance or crew for a future date | Pydantic `PastDate` validator, 422 on `date` |
 | Manual entries leave a reason | `AttendanceIn.reason` required, stored in `audit_log` |
 | On a machine means present | crew assignment turns a manual `absent` into `present` |
+| A day inside a final or paid wage run is locked: no attendance or crew change | `_payroll_open`, 409 `wages_final` |
 
 ## DSA used and why
 

@@ -174,12 +174,13 @@ export function useDecide(rollId: number) {
   const qc = useQueryClient();
   const [errors, setErrors] = useState<Record<string, string>>({});
   const mutation = useMutation({
-    mutationFn: (body: CheckBody) => api<{ roll: { id: number; code: string; status: string }; rework_work_order_id: number | null }>(`/quality/rolls/${rollId}/checks`, { method: "POST", json: body }),
+    mutationFn: (body: CheckBody) => api<{ roll: { id: number; code: string; status: string }; rework_work_order_id: number | null; dispatch_code: string | null }>(`/quality/rolls/${rollId}/checks`, { method: "POST", json: body }),
     onMutate: () => setErrors({}),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["quality"] });
       qc.invalidateQueries({ queryKey: ["orders"] });
       qc.invalidateQueries({ queryKey: ["machines"] });
+      qc.invalidateQueries({ queryKey: ["dispatch"] });
     },
     onError: (err) => setErrors({ [err instanceof ApiError && err.field ? err.field : "form"]: err.message }),
   });

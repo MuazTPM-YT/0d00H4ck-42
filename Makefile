@@ -42,9 +42,10 @@ evaluate: .env
 	cd backend && PYTHONPATH=. uv run python ../scripts/evaluate_detectors.py
 
 # api on :8000, web on :3000 (web proxies /api to api). Ctrl+C stops both.
+# open live streams never end, so a code reload waits 3 s for them, not forever
 dev: .env frontend/node_modules
 	@trap 'kill 0' INT TERM; \
-	(cd backend && uv run uvicorn app.main:app --reload --port 8000) & \
+	(cd backend && uv run uvicorn app.main:app --reload --timeout-graceful-shutdown 3 --port 8000) & \
 	(cd frontend && npm run dev) & \
 	wait
 
@@ -52,7 +53,7 @@ dev: .env frontend/node_modules
 # camera (browsers allow it only on HTTPS). Self-signed: each tablet accepts the warning once.
 dev-https: .env frontend/node_modules
 	@trap 'kill 0' INT TERM; \
-	(cd backend && uv run uvicorn app.main:app --reload --port 8000) & \
+	(cd backend && uv run uvicorn app.main:app --reload --timeout-graceful-shutdown 3 --port 8000) & \
 	(cd frontend && npx next dev --port 3000 --experimental-https) & \
 	wait
 

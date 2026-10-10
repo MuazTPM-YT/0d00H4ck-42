@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from app.core import audit, events
 from app.core.errors import Conflict, NotFound, Unprocessable
 from app.core.pagination import Page, paginate
-from app.modules.finance import service as finance
+from app.modules.finance.models import WageRun, WageRunStatus
 from app.modules.masters.models import Machine, Shift, Worker
 from app.modules.workforce.models import (
     Attendance,
@@ -101,6 +101,24 @@ def list_crew(db: Session, on: date, shift_id: int) -> list[dict]:
     ]
 
 
+# wages for this day are final or paid: changing who worked would no longer match the payout
+def _payroll_open(db: Session, day: date) -> None:
+    run = db.scalar(
+        select(WageRun).where(
+            WageRun.period_start <= day,
+            WageRun.period_end >= day,
+            WageRun.status.in_([WageRunStatus.final, WageRunStatus.paid]),
+        )
+    )
+    if run:
+        raise Conflict(
+            f"Wages for {run.period_start} to {run.period_end} are {run.status}; "
+            "this day can no longer change",
+            field="date",
+            code="wages_final",
+        )
+
+
 def _active(db: Session, model, row_id: int, field: str):
     row = db.get(model, row_id)
     if not row or not getattr(row, "active", True):
@@ -144,16 +162,6 @@ def _close_earlier(db: Session, day: date, shift: Shift, user_id: int | None) ->
 
 
 # one placement, bounded by the shift's own window; attendance follows. Caller commits.
-# a final wage run has paid these days; attendance under it cannot change
-def _check_open_period(db: Session, day: date) -> None:
-    if finance.period_locked(db, day):
-        raise Conflict(
-            f"Wages for {day.isoformat()} are final. Attendance for that day is locked",
-            field="date",
-            code="period_locked",
-        )
-
-
 def _place(
     db: Session,
     day: date,
@@ -163,7 +171,7 @@ def _place(
     user_id: int | None,
     at: datetime,
 ) -> CrewAssignment:
-    _check_open_period(db, day)
+    _payroll_open(db, day)
     start, end = shift_window(day, shift)
     # a past shift is a record of the whole shift; a later one begins when it begins
     from_at, to_at = (start, end) if at >= end else (max(at, start), None)
@@ -302,7 +310,7 @@ def end_crew(
 
 # manual entry for staff off the machines, and corrections; reason goes in the audit row
 def set_attendance(db: Session, body: AttendanceIn, user_id: int) -> Attendance:
-    _check_open_period(db, body.date)
+    _payroll_open(db, body.date)
     shift = _active(db, Shift, body.shift_id, "shift_id")
     _active(db, Worker, body.worker_id, "worker_id")
     if body.status == AttendanceStatus.absent and _on_shift(db, body.date, shift, body.worker_id):

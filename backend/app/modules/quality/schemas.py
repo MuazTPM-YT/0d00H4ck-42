@@ -94,6 +94,8 @@ class QcResultOut(BaseModel):
     check: QcCheckOut
     roll: RollOut
     rework_work_order_id: int | None = None
+    # draft truck opened because this pass covered the order
+    dispatch_code: str | None = None
 
 
 # one roll with the names a QC inspector needs, no extra lookups

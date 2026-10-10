@@ -2,7 +2,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, StringConstraints
+from pydantic import BaseModel, ConfigDict, EmailStr, StringConstraints
 
 from app.core.types import Name, Note
 from app.modules.dispatch.models import DispatchStatus
@@ -18,6 +18,11 @@ RollCode = Annotated[
     str, StringConstraints(strip_whitespace=True, to_upper=True, min_length=1, max_length=20)
 ]
 ScanKey = Annotated[str, StringConstraints(strip_whitespace=True, min_length=8, max_length=100)]
+Otp = Annotated[str, StringConstraints(strip_whitespace=True, pattern=r"^\d{6}$")]
+Receiver = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=80)]
+DeliveryNote = Annotated[
+    str | None, StringConstraints(strip_whitespace=True, min_length=1, max_length=500)
+]
 
 
 class DispatchOut(BaseModel):
@@ -29,9 +34,11 @@ class DispatchOut(BaseModel):
     buyer_id: int
     vehicle_no: str | None
     driver: str | None
+    driver_email: str | None
     status: DispatchStatus
     confirmed_at: datetime | None
     created_at: datetime
+    delivered_at: datetime | None
 
 
 # gone-out register row: dispatch + who, what and how much
@@ -48,11 +55,26 @@ class DispatchCreate(BaseModel):
     order_id: int
     vehicle_no: VehicleNo | None = None
     driver: Name | None = None
+    driver_email: EmailStr | None = None
 
 
 class VehicleIn(BaseModel):
     vehicle_no: VehicleNo
     driver: Name | None = None
+    driver_email: EmailStr | None = None
+
+
+# resend the driver link, optionally to a corrected address (the truck itself is locked)
+class DriverEmailIn(BaseModel):
+    driver_email: EmailStr | None = None
+
+
+# newest try at emailing the driver link
+class MailTry(BaseModel):
+    status: str
+    at: datetime
+    to: str | None
+    error: str | None
 
 
 class ScanIn(BaseModel):
@@ -135,6 +157,47 @@ class DispatchDetail(DispatchOut):
     candidates: list[LoadedRoll]
     invoice_id: int | None
     invoice_code: str | None
+    # driver link key once the truck has left; the code itself never reaches staff
+    delivery_token: str | None
+    received_by: str | None
+    delivery_note: str | None
+    has_code: bool
+    tries_left: int
+    mail_on: bool
+    driver_mail: MailTry | None
+
+
+# buyer's code, read off the buyer link; the office path takes the same body
+class DeliverIn(BaseModel):
+    otp: Otp
+    received_by: Receiver
+    note: DeliveryNote | None = None
+
+
+class DeliveryRoll(BaseModel):
+    code: str
+    length_m: Decimal
+
+
+# driver page: what is on the truck and where it goes; no money, no code
+class DeliveryOut(BaseModel):
+    challan: str
+    order_code: str
+    buyer_name: str
+    buyer_city: str | None
+    fabric: str
+    colour: str
+    vehicle_no: str | None
+    driver: str | None
+    left_at: datetime
+    rolls: list[DeliveryRoll]
+    roll_count: int
+    metres: Decimal
+    delivered_at: datetime | None
+    received_by: str | None
+    delivery_note: str | None
+    tries_left: int
+    has_code: bool
 
 
 class ScanResult(BaseModel):

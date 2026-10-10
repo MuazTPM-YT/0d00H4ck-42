@@ -174,7 +174,7 @@ def _check_floor_idle(db: Session, order: Order) -> None:
         .limit(1)
     )
     if busy:
-        raise Conflict(f"Finish or stop {busy.code} first", field="status")
+        raise Conflict(f"Finish or stop {busy.code} first", field="status", code="job_running")
 
 
 def cancel_order(db: Session, user: User, order_id: int, reason: str) -> Order:

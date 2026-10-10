@@ -17,7 +17,8 @@ Rules every module follows. If your change breaks one, talk to the module owner 
   guard). Strip strings, reject empty, positive quantities, real ranges. In a validator, raise
   `FieldError(field, message)` to point at one field.
 - **Roles.** Every route has `Depends(get_current_user)` or `Depends(require_roles(...))`. Owner
-  is admin and passes every `require_roles` check. `/api/track/{token}` is the only public route.
+  is admin and passes every `require_roles` check. Public routes, each opened by an unguessable
+  token: `/api/track/{token}` (buyer) and `/api/deliver/{token}` (driver).
 - **Status changes.** Always `check_transition(MAP, current, new)` from `app.core.states`. Off the
   map = 409 `illegal_transition`. Maps live at the top of each `service.py` and are copied below.
 - **Codes.** `next_code(db, prefix)` from `app.core.codes`, in the same transaction. Format
@@ -112,6 +113,7 @@ caller. Status: **done** = implemented and tested, **stub** = raises `NotImpleme
 | `production.create_work_orders(db, order_id, user_id)` | Muaz | done | `list[WorkOrder]`, one `waiting` per route stage, metre stages planned at qty × 1.05 (process allowance); second call returns the same set |
 | `production.machine_status(db, machine_id)` | Muaz | done | `MachineStatus`, latest event or `off` |
 | `production.order_progress(db, order_id)` | Muaz | done | `{stage: {planned, produced, unit}}` |
+| `production.unqueue_order(db, order_id, user_id)` | Muaz | done | `int` queued jobs of a cancelled order sent back to `waiting`; caller has checked nothing runs |
 | `production.create_rework_work_order(db, roll_id, stage, user_id)` | Muaz | done | `WorkOrder` with `roll_id` set; roll must be `rework`; second call returns the open one. Processing the roll on that job sends it back to `awaiting_qc` |
 | `inventory.reserve_short_orders(db, user_id)` | Ammaar | done | `list[Reservation]` for every short confirmed order, earliest deadline first. Runs after approve, release, quarantine, return, cancel, close |
 | `inventory.first_stage_work_order(db, order_id)` | Ammaar | done | the order's first route job, the only job that takes yarn |
@@ -123,7 +125,10 @@ caller. Status: **done** = implemented and tested, **stub** = raises `NotImpleme
 | `finance.period_locked(db, day)` | Ashil | done | `bool` a final or paid wage run covers the day; attendance writes refuse it |
 | `quality.roll_trace(db, roll_id)` | Razan | done | order, loom, shift, weaver, yarn batches + suppliers, QC attempts, events |
 | `tracking.order_stage(db, order_id)` | Ashil | done | derived buyer stage + metres per bucket |
+| `dispatch.email_driver(db, dispatch_id, user_id)` | Ashil | done | `"sent" \| "failed" \| "skipped"`; emails the driver their link (never the code), audit row, never raises on a mail error; caller commits |
+| `tracking.email_link(db, order_id, user_id)` | Ashil | done | `"sent" \| "failed" \| "skipped"`; emails the buyer their link, writes the audit row, never raises on a mail error; caller commits |
 | `dispatch.finished_stock(db, order_id=None, shade_band=None)` | Ashil | done | `list[Roll]` passed and not dispatched |
+| `dispatch.auto_draft(db, order_id, user_id, at=None)` | Ashil | done | draft `Dispatch` when one shade band of passed rolls covers what is left of the order and no truck is open, else `None`. Locks the order row. Called by `quality.decide` on pass |
 | `dispatch.corner_check(db, days=7)` | Ashil | done | rolls too long on shelf, order not open, or leftover of a shipped order |
 | `finance.order_cost(db, order_id)` | Ashil | done | yarn (FIFO GRN cost) + labour + machine + rework/reject vs revenue |
 | `finance.issue_invoice(db, user_id, dispatch, rolls)` | Ashil | done | `Invoice` + one line per roll; called only by dispatch confirm |
@@ -164,9 +169,9 @@ Pure helpers in `app.core.units`: `qty`, `rupees_to_paise`, `line_amount_paise`,
 | `POST /api/auth/login`, `POST /api/auth/logout` | public |
 | `GET /api/auth/me` | any logged in |
 | `GET /api/health` | public |
-| `GET /api/stream?topics=...` | any logged in |
+| `GET /api/stream?topics=...` | any logged in (login checked on a session that closes before streaming, so an open tab holds no DB connection) |
 | `GET /api/masters/{suppliers,buyers,yarn-items,fabric-types,machines,workers,shifts}[/{id}]` | any logged in |
-| `POST`, `PUT` on the same paths | owner |
+| `POST`, `PUT` on the same paths | owner (409 `in_use`: a machine with open jobs keeps its type and stays active; a fabric with confirmed orders keeps route, recipe and spec) |
 | `GET /api/masters/locations` | any logged in |
 | `GET /api/inventory/{stock,stock/warnings,batches,batches/{id},expected-deliveries,receipts,receipts/{id},qr.svg}` | any logged in |
 | `POST /api/inventory/batches/{id}/{approve,quarantine,reject,identify}` | store |
@@ -189,6 +194,8 @@ Pure helpers in `app.core.units`: `qty`, `rupees_to_paise`, `line_amount_paise`,
 | `GET /api/dispatch/dispatches[/{id}]`, `/finished-stock`, `/corner-check` | dispatch, accounts, supervisor |
 | `POST /api/dispatch/dispatches`, `.../{id}/scan`, `PUT .../{id}/vehicle`, `DELETE .../{id}/rolls/{roll_id}`, `POST .../{id}/confirm` | dispatch |
 | `POST /api/dispatch/dispatches/{id}/shade-override` | supervisor |
+| `POST /api/dispatch/dispatches/{id}/deliver` (code read out on the phone), `.../{id}/new-code`, `.../{id}/email-driver` | dispatch |
+| `GET`, `POST /api/deliver/{token}` (driver link; POST needs the buyer's 6-digit code) | public |
 | `/api/finance/*` (invoices, payments, wage-runs, expenses, orders/{id}/cost, order-costs, machine-production, month, month/records) | accounts |
 | `GET /api/analytics/insights[/{id}]` (`?q=` title search), `/insights/counts`, `/attention`, `/briefing` | any logged in (insights filtered to the role's kinds) |
 | `POST /api/analytics/insights/{id}/acknowledge`, `/resolve` | any logged in, own kinds |
@@ -196,6 +203,6 @@ Pure helpers in `app.core.units`: `qty`, `rupees_to_paise`, `line_amount_paise`,
 | `GET /api/analytics/delivery`, `/orders/{id}/delivery-estimate` | accounts, supervisor |
 | `GET /api/track/{token}` | public |
 | `GET /api/track/orders/{id}`, `/track/stages?ids=` (stage for a page of orders) | accounts, dispatch |
-| `POST /api/track/orders/{id}/rotate-token` | accounts |
+| `POST /api/track/orders/{id}/rotate-token`, `.../{id}/email-link` (resend the link email) | accounts |
 
 Owner passes every role check. Full schema at http://localhost:8000/docs.

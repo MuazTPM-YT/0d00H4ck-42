@@ -99,6 +99,17 @@ def _lock_work_order(db: Session, work_order_id: int) -> WorkOrder:
     return wo
 
 
+# a cancelled or closed order takes no more work: no start, no output, no new rolls
+def _require_open_order(db: Session, wo: WorkOrder) -> None:
+    order = db.get(Order, wo.order_id)
+    if order.status != OrderStatus.confirmed:
+        raise Conflict(
+            f"Order {order.code} is {order.status}; {wo.code} cannot run",
+            field="work_order_id",
+            code="order_not_open",
+        )
+
+
 def _on_machine(db: Session, machine_id: int, status: WorkOrderStatus) -> WorkOrder | None:
     return db.scalar(
         select(WorkOrder)
@@ -364,18 +375,14 @@ def _start(
     db: Session, wo: WorkOrder, user_id: int | None, at: datetime | None, source: Source
 ) -> WorkOrder:
     check_transition(WORK_ORDER_TRANSITIONS, wo.status, WorkOrderStatus.running)
-    order = db.get(Order, wo.order_id)
-    if order.status != OrderStatus.confirmed:
-        raise Conflict(
-            f"Order {order.code} is {order.status}, not confirmed", code="order_not_confirmed"
-        )
+    _require_open_order(db, wo)
     machine = _usable_machine(db, wo.machine_id, wo.stage)
     others = [j for j in _active_jobs(db, machine.id) if j.id != wo.id]
     # rework pre-empts the route job on its machine; anything else waits for a free machine
     if others and not (wo.roll_id and all(j.roll_id is None for j in others)):
         raise _busy(machine, others[0])
     if wo.roll_id is None and wo.status == WorkOrderStatus.queued:
-        _check_stage_start(db, wo, order)
+        _check_stage_start(db, wo, db.get(Order, wo.order_id))
     for job in others:
         if job.status == WorkOrderStatus.running:
             roll_code = db.scalar(select(Roll.code).where(Roll.id == wo.roll_id))
@@ -578,6 +585,7 @@ def log_output(db: Session, body: OutputIn, user_id: int, at: datetime | None = 
                 raise Conflict(f"No work order is running on {machine.code}", "machine_id")
         if wo.status not in ACTIVE:
             raise Conflict(f"{wo.code} is {wo.status}, output needs a started job", "work_order_id")
+        _require_open_order(db, wo)
         if not _order_issued(db, wo.order_id):
             raise _no_yarn(db, wo.order_id)
         log = _add_log(
@@ -773,6 +781,7 @@ def _cut(
 def cut_roll(db: Session, body: RollIn, user_id: int | None, at: datetime | None = None) -> dict:
     def work():
         wo = _lock_work_order(db, body.work_order_id)
+        _require_open_order(db, wo)
         roll = _cut(
             db, wo, body.length_m, user_id, _now(at), body.source, body.shift_id, body.weaver_id
         )
@@ -839,6 +848,7 @@ def process_roll(
         if not roll:
             raise NotFound(f"Roll {roll_id} not found")
         wo = _lock_work_order(db, body.work_order_id)
+        _require_open_order(db, wo)
         _process(db, roll, wo, user_id, at, body.source)
         _settle(db, wo.order_id, user_id, at, body.source)
         pull_ready(db, user_id, at)

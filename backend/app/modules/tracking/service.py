@@ -4,13 +4,16 @@ from decimal import Decimal
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.core import audit
+from app.core import audit, events, mail
+from app.core.config import get_settings
+from app.core.db import SessionLocal
 from app.core.enums import Unit
 from app.core.errors import NotFound
 from app.core.units import qty
 from app.modules.analytics import service as analytics
 from app.modules.auth.models import User
 from app.modules.dispatch.models import Dispatch, DispatchRoll, DispatchStatus
+from app.modules.dispatch.service import OTP_TRIES
 from app.modules.finance.models import Invoice, Payment
 from app.modules.inventory import service as inventory
 from app.modules.masters.models import Buyer, FabricType
@@ -200,6 +203,10 @@ def _timeline(db: Session, order: Order, internal: bool) -> list[dict]:
         if d.status == DispatchStatus.confirmed:
             label = f"{d.code} on {d.vehicle_no}" if internal else "Dispatched"
             events.append({"at": d.confirmed_at, "title": f"{label}: {count} rolls, {metres} m"})
+        if d.delivered_at:
+            label = f"{d.code} delivered" if internal else "Delivered"
+            title = f"{label}, received by {d.received_by}"
+            events.append({"at": d.delivered_at, "title": title})
     return sorted(events, key=lambda e: e["at"])
 
 
@@ -270,9 +277,29 @@ def stages(db: Session, order_ids: list[int]) -> list[dict]:
 
 # produced counts good fabric only, else produced minus the rest gives rejects away
 def public_view(db: Session, token: str) -> dict:
-    card = _card(db, order_by_token(db, token), internal=False)
+    order = order_by_token(db, token)
+    card = _card(db, order, internal=False)
     m = card["metres"]
-    return {**card, "metres": {**m, "produced": qty(m["produced"] - m["rejected"])}}
+    # only trucks that left; a draft or loading truck is still the mill's business.
+    # the code shows here only, while the truck is on the way and the code still works
+    deliveries = [
+        {
+            "challan": d.code,
+            "left_at": d.confirmed_at,
+            "rolls": count,
+            "metres": qty(metres),
+            "vehicle_no": d.vehicle_no,
+            "driver": d.driver,
+            "delivered_at": d.delivered_at,
+            "received_by": d.received_by,
+            "code": None if d.delivered_at or d.otp_tries >= OTP_TRIES else d.delivery_otp,
+            "code_locked": not d.delivered_at and d.otp_tries >= OTP_TRIES,
+        }
+        for d, count, metres in _dispatch_rows(db, order.id)
+        if d.status == DispatchStatus.confirmed
+    ]
+    produced = qty(m["produced"] - m["rejected"])
+    return {**card, "metres": {**m, "produced": produced}, "deliveries": deliveries}
 
 
 def order_view(db: Session, order_id: int) -> dict:
@@ -298,11 +325,17 @@ def order_view(db: Session, order_id: int) -> dict:
         .where(Invoice.order_id == order.id)
         .order_by(Invoice.id)
     ).all()
+    buyer = db.get(Buyer, order.buyer_id)
     return {
         **_card(db, order, internal=True),
+        "mail_on": mail.enabled(),
+        "link_email": mail.last_attempt(db, "link", ("orders", order.id)),
         "order_id": order.id,
         "order_status": order.status,
-        "buyer_name": db.get(Buyer, order.buyer_id).name,
+        "buyer_name": buyer.name,
+        "buyer_contact": buyer.contact_name,
+        "buyer_phone": buyer.phone,
+        "buyer_email": buyer.email,
         "tracking_token": order.tracking_token,
         "rolls": [
             {
@@ -322,6 +355,7 @@ def order_view(db: Session, order_id: int) -> dict:
                 "status": d.status,
                 "vehicle_no": d.vehicle_no,
                 "confirmed_at": d.confirmed_at,
+                "delivered_at": d.delivered_at,
                 "roll_count": count,
                 "metres": qty(metres),
             }
@@ -350,3 +384,53 @@ def rotate_token(db: Session, user: User, order_id: int) -> dict:
     audit.record(db, user.id, "rotate_tracking_token", "orders", order.id)
     db.commit()
     return order_view(db, order.id)
+
+
+# --- buyer link email
+
+
+def _link_message(db: Session, order: Order) -> mail.Letter:
+    buyer = db.get(Buyer, order.buyer_id)
+    fabric = db.get(FabricType, order.fabric_type_id)
+    url = f"{get_settings().web_url.rstrip('/')}/track/{order.tracking_token}"
+    body = (
+        f"Hello {buyer.contact_name or buyer.name},\n\n"
+        f"Your order {order.code} is confirmed: {fabric.name}, {order.colour}, "
+        f"{order.qty_m.normalize():,f} m, due {order.deadline:%d %b %Y}.\n\n"
+        "Follow it from yarn to your gate here, any time, no login needed:\n"
+        f"{url}\n\n"
+        "When a truck leaves, this page also shows its delivery code. Give the code to the "
+        "driver only after you have counted the rolls.\n\n"
+        "Everest Textile Mills"
+    )
+    subject = f"Order {order.code} confirmed: track it here"
+    return mail.Letter(buyer.email, subject, body, "Buyer has no email address")
+
+
+# shared service: email the buyer their tracking link; the result is an audit row, so a
+# failure never undoes anything. Caller commits.
+def email_link(db: Session, order_id: int, user_id: int | None) -> str:
+    order = db.get(Order, order_id)
+    if not order:
+        raise NotFound(f"Order {order_id} not found")
+    return mail.attempt(db, user_id, "link", ("orders", order.id), _link_message(db, order))
+
+
+# after confirm, off the request (BackgroundTasks) on its own session: a slow or dead mail
+# server never holds up the confirm screen
+def email_link_later(order_id: int, user_id: int) -> None:
+    if not mail.enabled():
+        return
+    with SessionLocal() as db:
+        email_link(db, order_id, user_id)
+        db.commit()
+    events.publish("orders", {"type": "link_email", "id": order_id})
+
+
+# office resend, e.g. after a failure or a new link; waits for the answer so the clerk sees it
+def resend_link(db: Session, user: User, order_id: int) -> dict:
+    mail.require_on()
+    email_link(db, order_id, user.id)
+    db.commit()
+    events.publish("orders", {"type": "link_email", "id": order_id})
+    return order_view(db, order_id)

@@ -5,6 +5,7 @@ from sqlalchemy import func, select
 
 from app.core.errors import Conflict, Unprocessable
 from app.modules.auth.models import Role
+from app.modules.dispatch.models import Dispatch, DispatchRoll, DispatchStatus
 from app.modules.inventory.models import MoveReason, StockMove
 from app.modules.masters.models import Location, LocationKind
 from app.modules.production import service as production
@@ -283,3 +284,41 @@ def test_roll_detail_carries_order_status(db, floor, client_as):
     roll = roll_waiting(db, floor)
     body = client_as(Role.qc).get(f"/api/quality/rolls/{roll.id}").json()
     assert body["order_status"] == "confirmed"
+
+
+def drafts(db, floor) -> list[Dispatch]:
+    return db.scalars(
+        select(Dispatch).where(
+            Dispatch.order_id == floor.shirt_order.id, Dispatch.status == DispatchStatus.draft
+        )
+    ).all()
+
+
+# the pass that covers the order opens a draft truck; dispatch still scans and confirms
+def test_pass_covering_order_drafts_a_dispatch(db, floor, make_user):
+    floor.shirt_order.qty_m = Decimal(100)
+    db.commit()
+    qc = make_user(Role.qc)
+    first, second = roll_waiting(db, floor, 60), roll_waiting(db, floor, 50)
+    out = decide(db, first, qc, decision="pass", shade_band="A")
+    assert drafts(db, floor) == [] and out["dispatch_code"] is None
+    out = decide(db, second, qc, decision="pass", shade_band="A")
+    (d,) = drafts(db, floor)
+    assert out["dispatch_code"] == d.code
+    assert d.vehicle_no is None
+    assert db.scalar(select(func.count()).select_from(DispatchRoll)) == 0
+
+
+# auto draft only when one shade band covers the order, and never a second open truck
+def test_no_draft_for_mixed_shades_or_when_a_truck_is_open(db, floor, make_user):
+    floor.shirt_order.qty_m = Decimal(100)
+    db.commit()
+    qc = make_user(Role.qc)
+    decide(db, roll_waiting(db, floor, 60), qc, decision="pass", shade_band="A")
+    decide(db, roll_waiting(db, floor, 50), qc, decision="pass", shade_band="B")
+    assert drafts(db, floor) == []
+
+    decide(db, roll_waiting(db, floor, 50), qc, decision="pass", shade_band="A")
+    assert len(drafts(db, floor)) == 1
+    decide(db, roll_waiting(db, floor, 70), qc, decision="pass", shade_band="A")
+    assert len(drafts(db, floor)) == 1

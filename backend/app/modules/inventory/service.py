@@ -488,6 +488,13 @@ def _check_work_order_for_yarn(db: Session, work_order_id: int) -> WorkOrder:
     _check_first_stage(db, wo, "work_order_id")
     if wo.status == WorkOrderStatus.done:
         raise Conflict(f"{wo.code} is already done", field="work_order_id")
+    order = db.get(Order, wo.order_id)
+    if order.status != OrderStatus.confirmed:
+        raise Conflict(
+            f"Order {order.code} is {order.status}; its jobs take no more yarn",
+            field="work_order_id",
+            code="order_not_open",
+        )
     return wo
 
 
@@ -519,6 +526,14 @@ def issue_to_work_order(
         raise Conflict(
             f"{batch.code} is {batch.status}; only approved yarn can be issued",
             field="yarn_batch_id",
+        )
+    # only yarn the order's recipe and colour call for: wrong yarn means wrong lineage and cost
+    order = db.get(Order, wo.order_id)
+    if batch.yarn_item_id not in {n["yarn_item_id"] for n in order_needs(db, order)}:
+        raise Conflict(
+            f"{batch.code} is {item_label(batch.yarn_item)}; {order.code} does not use that yarn",
+            field="yarn_batch_id",
+            code="wrong_yarn",
         )
     kg = qty(kg)
     in_store = batch_kg_at(db, batch.id, LocationKind.store)

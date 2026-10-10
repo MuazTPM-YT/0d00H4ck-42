@@ -131,6 +131,8 @@ def decide(
         events.publish("stock", {"type": "roll", "id": roll_id})
     if result["rework_work_order_id"]:
         events.publish("machines", {"type": "work_order", "id": result["rework_work_order_id"]})
+    if result.get("dispatch_code"):
+        events.publish("dispatch", {"type": "auto_draft", "code": result["dispatch_code"]})
     return result
 
 
@@ -152,7 +154,8 @@ def _can_rework(db: Session, roll: Roll, previous_checks: int) -> None:
 
 
 def _decide(db: Session, roll_id: int, body: QcCheckIn, user_id: int, at: datetime | None) -> dict:
-    # production imports this module for ROLL_TRANSITIONS, so import it late
+    # production and dispatch import this module for ROLL_TRANSITIONS, so import them late
+    from app.modules.dispatch.service import auto_draft
     from app.modules.production.service import create_rework_work_order
 
     roll = db.scalar(select(Roll).where(Roll.id == roll_id).with_for_update())
@@ -230,10 +233,12 @@ def _decide(db: Session, roll_id: int, body: QcCheckIn, user_id: int, at: dateti
         )
     )
     db.flush()
+    truck = auto_draft(db, roll.order_id, user_id, at) if passed else None
     return {
         "check": QcCheckOut.model_validate(check),
         "roll": RollOut.model_validate(roll),
         "rework_work_order_id": rework_wo_id,
+        "dispatch_code": truck.code if truck else None,
     }
 
 

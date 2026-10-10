@@ -389,6 +389,42 @@ def test_month_view_and_drilldown(client_as, db, mill):
     assert acc.get("/api/finance/month?month=2026-13").status_code == 422
 
 
+# yarn rejected back to the supplier is not a cost of the month, in the total or the rows
+def test_yarn_sent_back_is_not_a_yarn_bill(client_as, db):
+    from app.modules.inventory.models import BatchStatus, Receipt, ReceiptStatus, YarnBatch
+    from tests.inventory_helpers import make_item, make_supplier
+
+    sup, item = make_supplier(db), make_item(db, "Ne 40/1", "Raw White")
+    receipt = Receipt(
+        code="RC-TB1",
+        supplier_id=sup.id,
+        status=ReceiptStatus.confirmed,
+        confirmed_at=datetime.now(IST),
+        bill_amount_paise=4_275_000,  # 150 kg x Rs 285
+    )
+    db.add(receipt)
+    db.flush()
+    for kg, status in ((100, BatchStatus.approved), (50, BatchStatus.rejected)):
+        db.add(
+            YarnBatch(
+                code=f"YB-TB{kg}",
+                yarn_item_id=item.id,
+                supplier_id=sup.id,
+                receipt_id=receipt.id,
+                received_kg=Decimal(kg),
+                unit_cost_paise_per_kg=28_500,
+                status=status,
+            )
+        )
+    db.commit()
+    acc = client_as(Role.accounts)
+    month = datetime.now(IST).strftime("%Y-%m")
+    view = acc.get(f"/api/finance/month?month={month}").json()
+    assert view["yarn_bills_paise"] == 2_850_000  # the 100 kg kept
+    rows = acc.get(f"/api/finance/month/records?month={month}&kind=yarn_bills").json()
+    assert sum(r["amount_paise"] for r in rows) == view["yarn_bills_paise"]
+
+
 def test_expense_validation(client_as):
     acc = client_as(Role.accounts)
     ok = acc.post(
@@ -686,3 +722,38 @@ def test_month_wages_paid_drilldown_is_paid_runs_only(client_as, db):
     assert [r["ref"].endswith("(paid)") for r in paid.json()] == [True]
     accrued = acc.get(f"/api/finance/month/records?month={month}&kind=wages").json()
     assert len(accrued) == 2
+
+
+# two clerks create overlapping wage runs at the same moment: one wins, one gets the overlap 409
+def test_overlapping_wage_runs_at_once_never_both_land(committed, password_hash):
+    import threading
+
+    from sqlalchemy.orm import Session
+
+    from app.core.errors import Conflict
+    from app.modules.auth.models import User
+
+    with Session(committed) as s:
+        clerk = User(name="A", email="a@t.local", role=Role.accounts, password_hash=password_hash)
+        s.add(clerk)
+        s.commit()
+        clerk_id = clerk.id
+    day = date.today() - timedelta(days=3)
+    barrier = threading.Barrier(2)
+    outcomes = []
+
+    def create(end):
+        with Session(committed) as s:
+            barrier.wait()
+            try:
+                service.create_wage_run(s, s.get(User, clerk_id), day, end)
+                outcomes.append("ok")
+            except Conflict as e:
+                outcomes.append(e.field)
+
+    threads = [threading.Thread(target=create, args=(day + timedelta(days=i),)) for i in (0, 1)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert sorted(outcomes) == ["ok", "period_start"]

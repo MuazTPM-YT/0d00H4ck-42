@@ -161,20 +161,27 @@ def test_absent_refused_while_on_a_machine_that_shift(db, floor):
         service.set_attendance(db, body, floor.supervisor.id)
 
 
-def test_attendance_locked_once_wages_are_final(db, floor):
+def test_days_in_a_final_wage_run_are_locked(db, floor):
     from app.modules.finance.models import WageRun, WageRunStatus
 
-    db.add(WageRun(period_start=DAY, period_end=DAY, status=WageRunStatus.final))
-    db.flush()
-    body = AttendanceIn(
+    run = WageRun(period_start=DAY, period_end=DAY, status=WageRunStatus.draft)
+    db.add(run)
+    db.commit()
+    service.assign_crew(db, crew(floor, floor.weaver, floor.loom1), None)  # draft: still open
+
+    run.status = WageRunStatus.final
+    db.commit()
+    with pytest.raises(Conflict) as locked:
+        service.assign_crew(db, crew(floor, floor.helper, floor.loom2), None)
+    assert locked.value.code == "wages_final"
+    db.rollback()
+    fix = AttendanceIn(
         date=DAY,
         shift_id=floor.shifts[0].id,
         worker_id=floor.weaver.id,
-        status=AttendanceStatus.present,
-        reason="Came late",
+        status=AttendanceStatus.absent,
+        reason="Left early",
     )
-    with pytest.raises(Conflict) as e:
-        service.set_attendance(db, body, floor.supervisor.id)
-    assert e.value.code == "period_locked"
-    with pytest.raises(Conflict):
-        service.assign_crew(db, crew(floor, floor.weaver, floor.loom1), floor.supervisor.id, T0)
+    with pytest.raises(Conflict) as locked:
+        service.set_attendance(db, fix, None)
+    assert locked.value.code == "wages_final"

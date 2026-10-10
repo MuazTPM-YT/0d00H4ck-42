@@ -204,6 +204,11 @@ erDiagram
         int order_id FK
         string vehicle_no
         string status
+        string delivery_token UK
+        string delivery_otp
+        datetime delivered_at
+        string received_by
+        string driver_email
     }
     dispatch_rolls {
         int dispatch_id FK
