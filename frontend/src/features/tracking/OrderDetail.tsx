@@ -1,7 +1,7 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, Copy, Link2, RefreshCw } from "lucide-react";
+import { AlertTriangle, Check, Copy, Link2, Mail, MessageCircle, RefreshCw } from "lucide-react";
 import { type ReactNode, useState } from "react";
 
 import { EmptyState } from "@/components/layout/EmptyState";
@@ -20,6 +20,9 @@ type OrderView = Track & {
   order_id: number;
   order_status: string;
   buyer_name: string;
+  buyer_contact: string | null;
+  buyer_phone: string | null;
+  buyer_email: string | null;
   tracking_token: string;
   rolls: { id: number; code: string; length_m: string; status: string; shade_band: string | null; dispatch_code: string | null }[];
   dispatches: { id: number; code: string; status: string; vehicle_no: string | null; confirmed_at: string | null; roll_count: number; metres: string }[];
@@ -117,22 +120,69 @@ function Section({ title, empty, children }: { title: string; empty: string; chi
   );
 }
 
+// clipboard api only exists on https or localhost; office pcs on http://<lan-ip> need the old way
+async function copyText(text: string): Promise<boolean> {
+  if (navigator.clipboard && window.isSecureContext) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch {
+      // fall through to the old way
+    }
+  }
+  const area = document.createElement("textarea");
+  area.value = text;
+  area.setAttribute("readonly", "");
+  area.style.position = "fixed";
+  area.style.opacity = "0";
+  document.body.appendChild(area);
+  area.select();
+  const ok = document.execCommand("copy");
+  area.remove();
+  return ok;
+}
+
+// wa.me wants digits with country code; a bare 10-digit number is an indian mobile
+function whatsappNumber(phone: string | null): string {
+  const digits = (phone ?? "").replace(/\D/g, "");
+  if (digits.length === 10) return `91${digits}`;
+  if (digits.length === 11 && digits.startsWith("0")) return `91${digits.slice(1)}`;
+  return digits;
+}
+
 // the buyer's read-only link; replacing it kills the old one at once
 function BuyerLink({ o, canRotate }: { o: OrderView; canRotate: boolean }) {
   const qc = useQueryClient();
-  const [copied, setCopied] = useState(false);
+  const [copy, setCopy] = useState<"idle" | "copied" | "failed">("idle");
   const url = typeof window === "undefined" ? "" : `${window.location.origin}/track/${o.tracking_token}`;
+  const message = `Hello ${o.buyer_contact ?? o.buyer_name}, you can track your order ${o.order_code} (${o.fabric}, ${o.colour}) any time here: ${url}`;
+  const whatsapp = `https://wa.me/${whatsappNumber(o.buyer_phone)}?text=${encodeURIComponent(message)}`;
+  const email = `mailto:${o.buyer_email ?? ""}?subject=${encodeURIComponent(`Order ${o.order_code}: tracking link`)}&body=${encodeURIComponent(message)}`;
   const rotate = useMutation({
     mutationFn: () => api(`/track/orders/${o.order_id}/rotate-token`, { method: "POST" }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["orders", "view"] }),
   });
+  async function onCopy() {
+    setCopy((await copyText(url)) ? "copied" : "failed");
+    setTimeout(() => setCopy("idle"), 2000);
+  }
   return (
     <section className="grid gap-2 rounded-lg border bg-card p-4 text-sm">
       <h2 className="flex items-center gap-2 font-medium"><Link2 className="size-4" aria-hidden /> Buyer tracking link</h2>
       <p className="break-all text-muted-foreground">{url}</p>
       <div className="flex flex-wrap gap-2">
-        <Button variant="outline" size="sm" onClick={() => navigator.clipboard.writeText(url).then(() => setCopied(true))}>
-          <Copy /> {copied ? "Copied" : "Copy"}
+        <Button variant="outline" size="sm" onClick={onCopy}>
+          {copy === "copied" ? <Check /> : <Copy />} {copy === "copied" ? "Copied" : "Copy link"}
+        </Button>
+        <Button variant="outline" size="sm" asChild>
+          <a href={whatsapp} target="_blank" rel="noopener noreferrer" title={o.buyer_phone ? `Send to ${o.buyer_phone}` : "Pick a contact in WhatsApp"}>
+            <MessageCircle /> WhatsApp
+          </a>
+        </Button>
+        <Button variant="outline" size="sm" asChild>
+          <a href={email} title={o.buyer_email ? `Send to ${o.buyer_email}` : "No email on file; add one in the mail app"}>
+            <Mail /> Email
+          </a>
         </Button>
         {canRotate && (
           <Button variant="outline" size="sm" disabled={rotate.isPending} onClick={() => window.confirm("The old link stops working. Continue?") && rotate.mutate()}>
@@ -140,6 +190,7 @@ function BuyerLink({ o, canRotate }: { o: OrderView; canRotate: boolean }) {
           </Button>
         )}
       </div>
+      {copy === "failed" && <p role="alert" className="text-danger">Could not copy. Select the link above and copy it by hand.</p>}
       {rotate.isError && <p role="alert" className="text-danger">{rotate.error.message}</p>}
     </section>
   );

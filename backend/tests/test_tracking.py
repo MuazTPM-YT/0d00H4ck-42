@@ -171,6 +171,21 @@ def test_order_view_lists_rolls_and_roles(client_as, db):
     assert body["buyer_name"] == "Mill Buyer"
 
 
+# staff share the link on whatsapp or email; buyer contact never reaches the public page
+def test_order_view_carries_buyer_contact_for_sharing(client_as, client, db):
+    mill = Mill(db)
+    mill.buyer.contact_name, mill.buyer.phone = "Ravi", "+91 98450 10037"
+    mill.buyer.email = "ravi@millbuyer.example"
+    o = mill.order()
+    db.commit()
+    body = client_as(Role.sales).get(f"/api/track/orders/{o.id}").json()
+    assert body["buyer_contact"] == "Ravi"
+    assert body["buyer_phone"] == "+91 98450 10037"
+    assert body["buyer_email"] == "ravi@millbuyer.example"
+    public = json.dumps(client.get(f"/api/track/{o.tracking_token}").json())
+    assert "98450" not in public and "ravi" not in public.lower()
+
+
 def test_late_when_forecast_lands_after_deadline(client, db):
     from datetime import date, timedelta
 

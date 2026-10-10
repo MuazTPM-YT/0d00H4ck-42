@@ -89,6 +89,9 @@ class OrderView(TrackOut):
     order_id: int
     order_status: str
     buyer_name: str
+    buyer_contact: str | None
+    buyer_phone: str | None
+    buyer_email: str | None
     tracking_token: str
     rolls: list[RollRow]
     dispatches: list[DispatchRef]

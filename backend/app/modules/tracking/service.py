@@ -226,11 +226,15 @@ def order_view(db: Session, order_id: int) -> dict:
         .where(Invoice.order_id == order.id)
         .order_by(Invoice.id)
     ).all()
+    buyer = db.get(Buyer, order.buyer_id)
     return {
         **_card(db, order, internal=True),
         "order_id": order.id,
         "order_status": order.status,
-        "buyer_name": db.get(Buyer, order.buyer_id).name,
+        "buyer_name": buyer.name,
+        "buyer_contact": buyer.contact_name,
+        "buyer_phone": buyer.phone,
+        "buyer_email": buyer.email,
         "tracking_token": order.tracking_token,
         "rolls": [
             {
