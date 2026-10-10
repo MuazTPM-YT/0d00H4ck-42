@@ -75,7 +75,8 @@ class WorkOrder(Base):
         str_enum(WorkOrderStatus, "work_order_status"), default=WorkOrderStatus.waiting
     )
     queue_position: Mapped[int | None] = mapped_column(Integer)
-    roll_id: Mapped[int | None] = mapped_column(ForeignKey("rolls.id"), index=True)
+    # use_alter: rolls and work_orders point at each other
+    roll_id: Mapped[int | None] = mapped_column(ForeignKey("rolls.id", use_alter=True), index=True)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
