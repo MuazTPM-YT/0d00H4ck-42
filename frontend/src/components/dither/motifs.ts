@@ -2,9 +2,10 @@
 // each motif fills a w×h density field (0..1) plus an ember-accent mask, and the Bayer pass in
 // DitherPlate turns density into dots. Pure arithmetic, no data: same motif + seed, same picture.
 
-export type Field = { val: Float32Array; acc: Uint8Array; w: number; h: number };
+// cov marks cells that hide whatever is drawn underneath (paper fill), for overlays
+export type Field = { val: Float32Array; acc: Uint8Array; w: number; h: number; cov?: Uint8Array };
 type Rnd = () => number;
-export type MotifName = "loom" | "cones" | "rolls" | "loupe" | "orders" | "bars" | "mill" | "gear" | "spool";
+export type MotifName = "loom" | "cones" | "rolls" | "loupe" | "orders" | "bars" | "mill" | "gear" | "spool" | "truck" | "everest";
 
 const clamp = (x: number, a = 0, b = 1) => Math.min(b, Math.max(a, x));
 
@@ -342,7 +343,90 @@ const spool = (w: number, h: number, rnd: Rnd): Field => {
   return f;
 };
 
-export const MOTIFS: Record<MotifName, (w: number, h: number, rnd: Rnd) => Field> = { loom, cones, rolls, loupe, orders, bars, mill, gear, spool };
+// ── dispatch: a lorry with its slatted bed loaded with rolls, tail light in ember, on the road
+const truck = (w: number, h: number, rnd: Rnd): Field => {
+  const f = field(w, h);
+  paper(f);
+  const { U, X, Y } = frame(w, h);
+  const bedTop = Y(0.28);
+  const deck = Y(0.74);
+  // the load: rolls end-on, stacked in the bed
+  const r = U * 0.075;
+  for (let row = 0; row < 3; row++) {
+    for (let i = 0; i < 6; i++) {
+      const cx = X(0.1) + r + i * r * 2.08 + (row % 2) * r;
+      const cy = deck - r - row * r * 1.8;
+      if (cx + r > X(0.64)) continue;
+      disc(f, cx, cy, r, (_, __, d) => (d < 0.22 ? 1 : d > 0.9 ? 0.95 : 0.25 + 0.3 * (0.5 + 0.5 * Math.sin(d * 22))));
+    }
+  }
+  // slatted sides over the load
+  for (let k = 0; k <= 7; k++) line(f, X(0.08 + k * 0.08), bedTop, X(0.08 + k * 0.08), deck, 0.95);
+  line(f, X(0.08), bedTop, X(0.64), bedTop, 1, false, 2);
+  // cab with its window
+  box(f, X(0.66), Y(0.36), X(0.9), deck, (u) => 0.35 + 0.4 * u);
+  box(f, X(0.7), Y(0.4), X(0.86), Y(0.54), () => 0.04);
+  box(f, X(0.89), Y(0.6), X(0.92), Y(0.66), () => 1, () => true); // headlight
+  box(f, X(0.06), Y(0.62), X(0.08), Y(0.7), () => 1, () => true); // tail light
+  box(f, X(0.06), deck, X(0.92), deck + U * 0.04, () => 0.95); // chassis
+  for (const a of [0.2, 0.5, 0.8]) {
+    disc(f, X(a), deck + U * 0.08, U * 0.085, (_, __, d) => (d < 0.35 ? 0.2 : 0.95));
+  }
+  // the road, dashed, with speed lines behind
+  for (let x = X(0.02); x < X(0.98); x += U * 0.06) line(f, x, Y(0.96), x + U * 0.03, Y(0.96), 0.9);
+  for (let k = 0; k < 4; k++) {
+    const y = Y(0.4 + k * 0.08 + rnd() * 0.02);
+    line(f, X(-0.05), y, X(0.04 - k * 0.01), y, 0.7);
+  }
+  return f;
+};
+
+// ── Mount Everest across the whole width: Nuptse, the summit pyramid with its wind plume, Lhotse.
+//    Lit faces stay snow-white, shadow faces carry the dots; the mountain covers what is under it.
+const everest = (w: number, h: number, rnd: Rnd): Field => {
+  const f = field(w, h);
+  f.cov = new Uint8Array(w * h);
+  const pts: [number, number][] = [
+    [0, 0.74], [0.07, 0.6], [0.14, 0.66], [0.24, 0.44], [0.3, 0.5], [0.36, 0.38], [0.47, 0.12],
+    [0.53, 0.26], [0.6, 0.22], [0.66, 0.36], [0.74, 0.3], [0.82, 0.46], [0.9, 0.42], [1, 0.56],
+  ];
+  const jag = (u: number) => Math.sin(u * 91 + 1.3) * 0.008 + Math.sin(u * 37) * 0.012;
+  const ridge = (u: number) => {
+    let k = 0;
+    while (k < pts.length - 2 && pts[k + 1][0] < u) k++;
+    const [u0, v0] = pts[k];
+    const [u1, v1] = pts[k + 1];
+    return v0 + ((v1 - v0) * (u - u0)) / (u1 - u0) + jag(u);
+  };
+  for (let x = 0; x < w; x++) {
+    const u = x / w;
+    const top = ridge(u) * h;
+    const slope = ridge(u + 0.004) - ridge(u - 0.004);
+    const lit = slope > 0; // the face turned to the morning sun on the left
+    for (let y = Math.max(0, Math.round(top)); y < h; y++) {
+      const i = y * w + x;
+      const depth = (y - top) / h;
+      const strata = 0.12 * Math.sin(y * 0.7 + u * 60 + Math.sin(u * 13) * 4);
+      const snow = depth < 0.05 + 0.04 * Math.sin(u * 23) ? 0.4 : 1;
+      f.val[i] = Math.max(0, (lit ? 0.08 : 0.5) * snow + strata * (lit ? 0.4 : 1) + depth * 0.5);
+      f.cov[i] = 1;
+    }
+    put(f, x, top, 1); // the skyline itself, in ink
+  }
+  // the summit plume: wind-blown snow streaming east
+  const sx = 0.47 * w;
+  const sy = ridge(0.47) * h;
+  for (let p = 0; p < 14; p++) {
+    const px = sx + p * w * 0.018;
+    const py = sy - h * 0.02 - Math.sin(p * 0.5) * h * 0.02;
+    disc(f, px, py, h * (0.012 + p * 0.0035), (_, __, d) => (0.42 - p * 0.026) * (1 - d * 0.7) + rnd() * 0.02);
+  }
+  // a low ember sun above Nuptse
+  disc(f, w * 0.2, h * 0.2, Math.min(w, h) * 0.05, () => 0.9, () => true);
+  return f;
+};
+
+export const MOTIFS: Record<MotifName, (w: number, h: number, rnd: Rnd) => Field> = { loom, cones, rolls, loupe, orders, bars, mill, gear, spool, truck, everest };
 
 // every part of the mill wears its own picture and a ledger index
 export const SECTION: Record<string, { motif: MotifName; index: string }> = {
@@ -351,7 +435,7 @@ export const SECTION: Record<string, { motif: MotifName; index: string }> = {
   Sales: { motif: "orders", index: "03" },
   Production: { motif: "loom", index: "04" },
   Quality: { motif: "loupe", index: "05" },
-  Dispatch: { motif: "rolls", index: "06" },
+  Dispatch: { motif: "truck", index: "06" },
   Accounts: { motif: "bars", index: "07" },
   Setup: { motif: "gear", index: "08" },
 };

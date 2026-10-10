@@ -121,7 +121,6 @@
   --font-sans: var(--font-manrope), "Manrope", system-ui, "Segoe UI", sans-serif;
   --font-display: var(--font-cormorant), "Cormorant Garamond", Georgia, serif;
   --font-mono: var(--font-plex-mono), "IBM Plex Mono", ui-monospace, Consolas, monospace;
-  --font-dot: var(--font-doto), "Doto", var(--font-plex-mono), monospace;
 }
 
 @theme inline {
@@ -383,6 +382,9 @@
 }
 
 /* sign-in entrance: each block rises out of a soft blur, a beat after the one above */
+@keyframes plate-in {
+  from { opacity: 0; }
+}
 @keyframes fade-slide-in {
   to { opacity: 1; filter: blur(0); transform: translateY(0); }
 }
@@ -450,13 +452,17 @@
     font-variant-numeric: tabular-nums slashed-zero;
     font-feature-settings: "zero" 1, "tnum" 1;
   }
-  /* giant dotted numerals: stats only */
-  .dotnum {
-    font-family: var(--font-dot);
-    font-weight: 700;
-    letter-spacing: 0.02em;
-    font-variant-numeric: tabular-nums;
+  /* headline figures: stats and machine codes, tight tabular sans */
+  .figure {
+    font-family: var(--font-sans);
+    font-weight: 600;
+    letter-spacing: -0.03em;
+    font-variant-numeric: tabular-nums lining-nums;
     line-height: 1;
+  }
+  /* a print fades in when it is swapped */
+  .plate-in {
+    animation: plate-in 320ms var(--curve-out) both;
   }
   /* a + registration mark where a rule meets an edge */
   .reg {

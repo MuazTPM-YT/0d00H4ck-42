@@ -58,9 +58,11 @@ type MachineProduction = { machine_id: number; code: string; name: string; unit:
 const monthKey = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 const monthName = (key: string) => new Date(`${key}-01T00:00:00`).toLocaleDateString("en-IN", { month: "long", year: "numeric" });
 const shortDay = (iso: string) => new Date(`${iso.slice(0, 10)}T00:00:00`).toLocaleDateString("en-IN", { day: "numeric", month: "short" });
+// short rupees for headlines: ₹26.2L, ₹480k, −₹20.8L (the sign goes before the symbol)
 const lakh = (paise: number) => {
-  const r = paise / 100;
-  return r >= 1e5 ? `₹${(r / 1e5).toFixed(1)}L` : r >= 1e3 ? `₹${(r / 1e3).toFixed(0)}k` : `₹${r.toFixed(0)}`;
+  const r = Math.abs(paise / 100);
+  const sign = paise < 0 ? "−" : "";
+  return `${sign}₹${r >= 1e5 ? `${(r / 1e5).toFixed(1)}L` : r >= 1e3 ? `${(r / 1e3).toFixed(0)}k` : r.toFixed(0)}`;
 };
 const num = new Intl.NumberFormat("en-IN", { maximumFractionDigits: 0 });
 
@@ -95,14 +97,17 @@ function ChartTip({ active, payload, label, money }: { active?: boolean; payload
 // one ledger figure: mono label, big dotted numeral, a small print of where the number comes from
 function Stat({ icon: Icon, label, value, sub, motif, tone = "default" }: { icon: LucideIcon; label: string; value: string; sub: string; motif: MotifName; tone?: "default" | "good" | "bad" }) {
   return (
-    <Card className="relative flex flex-col gap-4 overflow-hidden border-t-foreground">
-      <DitherPlate motif={motif} seed={label} className="pointer-events-none absolute top-0 right-0 !h-24 !w-36 opacity-80 [mask-image:linear-gradient(to_left,#000_30%,transparent)]" />
-      <div className="relative flex items-center gap-2">
-        <Icon className="size-4 text-ember" aria-hidden />
-        <span className="label">{label}</span>
+    <Card className="flex flex-col gap-4 border-t-foreground">
+      <div className="flex items-start justify-between gap-3">
+        <span className="flex min-w-0 items-center gap-2 pt-1">
+          <Icon className="size-4 shrink-0 text-ember" aria-hidden />
+          <span className="label truncate">{label}</span>
+        </span>
+        {/* its own corner, never under the figure */}
+        <DitherPlate motif={motif} seed={label} className="pointer-events-none !h-14 !w-24 shrink-0 opacity-90" />
       </div>
-      <div className="relative">
-        <p className={cn("dotnum text-[2.6rem]", tone === "good" && "text-success", tone === "bad" && "text-danger")}>{value}</p>
+      <div className="min-w-0">
+        <p className={cn("figure truncate text-[2.25rem]", tone === "good" && "text-success", tone === "bad" && "text-danger")}>{value}</p>
         <p className="mt-2 text-sm text-body">{sub}</p>
       </div>
     </Card>
@@ -305,7 +310,7 @@ export function OwnerDashboard() {
             {riskTotal > 0 && (
               <div className="pointer-events-none absolute inset-0 grid place-items-center text-center">
                 <span>
-                  <span className="dotnum block text-4xl">{riskTotal}</span>
+                  <span className="figure block text-4xl">{riskTotal}</span>
                   <span className="label">open orders</span>
                 </span>
               </div>

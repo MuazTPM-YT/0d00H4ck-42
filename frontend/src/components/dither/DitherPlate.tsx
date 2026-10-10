@@ -45,6 +45,7 @@ function DitherPlateInner({
       const h = Math.max(8, Math.floor(canvas.clientHeight / scale));
       const ink = rgba32(cssVar("--foreground", "#15140f"));
       const ac = rgba32(cssVar("--ember", "#ae4024"));
+      const paperPx = rgba32(cssVar("--background", "#f2eee4"));
       const key = `${motif}:${n}:${w}x${h}`;
       if (painted === `${key}:${ink}:${ac}`) return;
       painted = `${key}:${ink}:${ac}`;
@@ -61,12 +62,13 @@ function DitherPlateInner({
       }
       const img = ctx.createImageData(w, h);
       const px = new Uint32Array(img.data.buffer);
-      const { val, acc } = fld;
+      const { val, acc, cov } = fld;
       for (let y = 0; y < h; y++) {
         const row = (y & 7) << 3;
         for (let x = 0; x < w; x++) {
           const i = y * w + x;
           if (val[i] > 0.03 && val[i] > BAYER8[row | (x & 7)]) px[i] = acc[i] ? ac : ink;
+          else if (cov?.[i]) px[i] = paperPx;
         }
       }
       ctx.putImageData(img, 0, 0);

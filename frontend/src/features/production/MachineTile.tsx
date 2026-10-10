@@ -43,7 +43,7 @@ export function MachineTile({ tile, now, onOpen }: { tile: BoardTile; now: numbe
       <span className="relative flex min-w-0 flex-1 flex-col gap-3.5 p-5">
         <span className="grid gap-1">
           <span className="flex items-center justify-between gap-2">
-            <span className="dotnum text-[1.6rem] whitespace-nowrap">{tile.code}</span>
+            <span className="figure text-[1.5rem] whitespace-nowrap">{tile.code}</span>
             <StatusBadge status={tile.status} className="shrink-0" />
           </span>
           <span className="label truncate normal-case tracking-[0.04em]">

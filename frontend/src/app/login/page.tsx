@@ -17,6 +17,7 @@ import {
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, type SubmitEvent, useState } from "react";
 
+import type { MotifName } from "@/components/dither/motifs";
 import { BrandMark } from "@/components/layout/BrandMark";
 import { GlassInput, GlassInputWrapper, type Highlight, PasswordInput, SignInPage } from "@/components/ui/sign-in";
 import { ApiError } from "@/lib/api";
@@ -33,6 +34,17 @@ const ROLE_ICON: Record<Role, LucideIcon> = {
   dispatch: Truck,
   accounts: IndianRupee,
   sales: ShoppingCart,
+};
+
+// tap a role and the print shows that person's part of the mill
+const ROLE_ART: Record<Role, { motif: MotifName; caption: string }> = {
+  owner: { motif: "mill", caption: "Plate 02 · the whole mill" },
+  store: { motif: "cones", caption: "Plate 03 · yarn store" },
+  supervisor: { motif: "loom", caption: "Plate 04 · the loom floor" },
+  qc: { motif: "loupe", caption: "Plate 05 · quality check" },
+  dispatch: { motif: "truck", caption: "Plate 06 · dispatch" },
+  accounts: { motif: "bars", caption: "Plate 07 · the books" },
+  sales: { motif: "orders", caption: "Plate 08 · order book" },
 };
 
 // what the mill gets, said plainly, on the photo
@@ -52,7 +64,7 @@ function FieldError({ id, children }: { id: string; children?: string }) {
   );
 }
 
-function LoginForm() {
+function LoginForm({ onRole }: { onRole: (role: Role | null) => void }) {
   const router = useRouter();
   const next = useSearchParams().get("next");
   const login = useLogin();
@@ -95,7 +107,10 @@ function LoginForm() {
               placeholder="you@everest.local"
               required
               value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              onChange={(e) => {
+                setEmail(e.target.value);
+                onRole(ROLES.find((r) => e.target.value === `${r}@everest.local`) ?? null);
+              }}
               aria-invalid={!!errors.email}
               aria-describedby={errors.email ? "email-error" : undefined}
             />
@@ -149,6 +164,7 @@ function LoginForm() {
               type="button"
               aria-pressed={picked}
               onClick={() => {
+                onRole(role);
                 setEmail(`${role}@everest.local`);
                 setPassword(DEMO_PASSWORD);
                 setErrors({});
@@ -173,8 +189,10 @@ function LoginForm() {
 }
 
 export default function LoginPage() {
+  const [role, setRole] = useState<Role | null>(null);
   return (
     <SignInPage
+      heroArt={role ? { ...ROLE_ART[role], key: role } : undefined}
       brand={
         <div className="flex items-center gap-3">
           <BrandMark className="size-10" />
@@ -190,7 +208,7 @@ export default function LoginPage() {
       highlights={HIGHLIGHTS}
     >
       <Suspense>
-        <LoginForm />
+        <LoginForm onRole={setRole} />
       </Suspense>
     </SignInPage>
   );
