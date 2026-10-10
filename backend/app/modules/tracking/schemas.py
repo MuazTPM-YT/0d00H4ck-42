@@ -39,7 +39,7 @@ class TimelineEvent(BaseModel):
     title: str
 
 
-# one truck that left for the buyer; the challan number is what the buyer's gate signs
+# one truck that left for the buyer; the code is the buyer's signature, given on receipt
 class Delivery(BaseModel):
     challan: str
     left_at: datetime
@@ -47,6 +47,10 @@ class Delivery(BaseModel):
     metres: Decimal
     vehicle_no: str | None
     driver: str | None
+    delivered_at: datetime | None = None
+    received_by: str | None = None
+    code: str | None = None
+    code_locked: bool = False
 
 
 # what a buyer sees: no costs, no rates, no internal ids
@@ -81,6 +85,7 @@ class DispatchRef(BaseModel):
     status: str
     vehicle_no: str | None
     confirmed_at: datetime | None
+    delivered_at: datetime | None
     roll_count: int
     metres: Decimal
 

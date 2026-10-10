@@ -1,3 +1,5 @@
+import hmac
+import secrets
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
@@ -31,6 +33,8 @@ DISPATCH_TRANSITIONS = {
 }
 # corner check: a passed roll older than this on the shelf needs a look
 SHELF_DAYS = 7
+# wrong delivery codes before the code locks; 6 digits and 5 tries leave a 1 in 200,000 guess
+OTP_TRIES = 5
 ZERO = Decimal(0)
 
 
@@ -210,6 +214,7 @@ def list_dispatches(
         {
             **{c: getattr(d, c) for c in ("id", "code", "order_id", "buyer_id", "vehicle_no")},
             **{c: getattr(d, c) for c in ("driver", "status", "confirmed_at", "created_at")},
+            "delivered_at": d.delivered_at,
             "order_code": order_code,
             "buyer_name": buyer_name,
             "roll_count": count,
@@ -265,6 +270,7 @@ def get_detail(db: Session, dispatch_id: int) -> dict:
     return {
         **{c: getattr(d, c) for c in ("id", "code", "order_id", "buyer_id", "vehicle_no")},
         **{c: getattr(d, c) for c in ("driver", "status", "confirmed_at", "created_at")},
+        **{c: getattr(d, c) for c in ("delivered_at", "received_by", "delivery_note")},
         "order_code": order.code,
         "buyer_name": buyer.name,
         "buyer_gstin": buyer.gstin,
@@ -282,6 +288,9 @@ def get_detail(db: Session, dispatch_id: int) -> dict:
         "candidates": [_roll_row(r, locs) for r in candidates],
         "invoice_id": invoice.id if invoice else None,
         "invoice_code": invoice.code if invoice else None,
+        "delivery_token": d.delivery_token if d.status == DispatchStatus.confirmed else None,
+        "has_code": d.delivery_otp is not None,
+        "tries_left": _tries_left(d),
     }
 
 
@@ -649,6 +658,7 @@ def confirm(db: Session, user: User, dispatch_id: int) -> dict:
         r.status, r.location_id = RollStatus.dispatched, dispatched_loc
     check_transition(DISPATCH_TRANSITIONS, d.status, DispatchStatus.confirmed)
     d.status, d.confirmed_at = DispatchStatus.confirmed, now
+    open_delivery(d)
     invoice = finance.issue_invoice(db, user.id, d, rolls)
     audit.record(
         db,
@@ -669,4 +679,120 @@ def confirm(db: Session, user: User, dispatch_id: int) -> dict:
     db.commit()
     for topic in ("dispatch", "stock", "orders"):
         events.publish(topic, {"type": "dispatched", "id": d.id})
+    return get_detail(db, d.id)
+
+
+# --- delivery: the driver link plus the buyer's code close the trip
+
+
+def _tries_left(d: Dispatch) -> int:
+    return max(OTP_TRIES - d.otp_tries, 0)
+
+
+# a truck that leaves gets a fresh code; only the buyer link ever shows it
+def open_delivery(d: Dispatch) -> None:
+    d.delivery_otp, d.otp_tries = f"{secrets.randbelow(10**6):06d}", 0
+
+
+def _by_token(db: Session, token: str, lock: bool = False) -> Dispatch:
+    stmt = select(Dispatch).where(Dispatch.delivery_token == token)
+    d = db.scalar(stmt.with_for_update() if lock else stmt)
+    # a truck still at the mill has no trip to close: same answer as a wrong link
+    if not d or d.status != DispatchStatus.confirmed:
+        raise NotFound("Delivery link is not valid")
+    return d
+
+
+def _has_left(d: Dispatch) -> None:
+    if d.status != DispatchStatus.confirmed:
+        raise Conflict(f"{d.code} has not left the mill yet", code="not_left")
+
+
+def _delivery_view(db: Session, d: Dispatch) -> dict:
+    order = db.get(Order, d.order_id)
+    buyer = db.get(Buyer, d.buyer_id)
+    rolls = _loaded(db, d.id)
+    return {
+        "challan": d.code,
+        "order_code": order.code,
+        "buyer_name": buyer.name,
+        "buyer_city": buyer.city,
+        "fabric": db.get(FabricType, order.fabric_type_id).name,
+        "colour": order.colour,
+        "vehicle_no": d.vehicle_no,
+        "driver": d.driver,
+        "left_at": d.confirmed_at,
+        "rolls": [{"code": r.code, "length_m": r.length_m} for r in rolls],
+        "roll_count": len(rolls),
+        "metres": qty(sum((r.length_m for r in rolls), ZERO)),
+        "delivered_at": d.delivered_at,
+        "received_by": d.received_by,
+        "delivery_note": d.delivery_note,
+        "tries_left": _tries_left(d),
+        "has_code": d.delivery_otp is not None,
+    }
+
+
+def delivery_view(db: Session, token: str) -> dict:
+    return _delivery_view(db, _by_token(db, token))
+
+
+# one check for the driver link and the office phone path; caller holds the dispatch row lock,
+# so two guesses at once cannot both use the last try
+def _close_trip(db: Session, d: Dispatch, user_id: int | None, data: dict, via: str) -> None:
+    if d.delivered_at:
+        return  # repeat submit after a flaky network: already done, change nothing
+    if not d.delivery_otp:
+        raise Conflict("No delivery code yet. Ask the mill office for one.", code="no_code")
+    if d.otp_tries >= OTP_TRIES:
+        raise Conflict(
+            "Too many wrong codes. Ask the mill office for a new code.",
+            field="otp",
+            code="otp_locked",
+        )
+    if not hmac.compare_digest(data["otp"], d.delivery_otp):
+        d.otp_tries += 1
+        tries = {"via": via, "tries": d.otp_tries}
+        audit.record(db, user_id, "delivery_code_wrong", "dispatches", d.id, data=tries)
+        db.commit()
+        events.publish("dispatch", {"type": "code_wrong", "id": d.id})
+        left = _tries_left(d)
+        msg = {0: "The code is now locked: ask the mill office for a new one.", 1: "1 try left."}
+        raise Unprocessable(
+            f"Wrong code. {msg.get(left, f'{left} tries left.')}", field="otp", code="wrong_otp"
+        )
+    d.delivered_at = _now()
+    d.received_by, d.delivery_note = data["received_by"], data.get("note")
+    proof = {"via": via, "received_by": d.received_by, "note": d.delivery_note}
+    audit.record(db, user_id, "delivered", "dispatches", d.id, data=proof)
+    db.commit()
+    for topic in ("dispatch", "orders"):
+        events.publish(topic, {"type": "delivered", "id": d.id})
+
+
+# public: driver link, no login; the buyer's code is the signature
+def deliver(db: Session, token: str, data: dict) -> dict:
+    d = _by_token(db, token, lock=True)
+    _close_trip(db, d, None, data, "driver_link")
+    return _delivery_view(db, d)
+
+
+# driver has no signal at the gate: reads the code out on the phone, the clerk types it
+def office_deliver(db: Session, user: User, dispatch_id: int, data: dict) -> dict:
+    d = _get(db, dispatch_id, lock=True)
+    _has_left(d)
+    _close_trip(db, d, user.id, data, "office_phone")
+    return get_detail(db, d.id)
+
+
+# locked or lost code: a fresh one shows on the buyer link, tries start again
+def new_code(db: Session, user: User, dispatch_id: int) -> dict:
+    d = _get(db, dispatch_id, lock=True)
+    _has_left(d)
+    if d.delivered_at:
+        raise Conflict(f"{d.code} is already delivered", code="delivered")
+    open_delivery(d)
+    audit.record(db, user.id, "delivery_code_reissued", "dispatches", d.id)
+    db.commit()
+    events.publish("dispatch", {"type": "code_reissued", "id": d.id})
     return get_detail(db, d.id)

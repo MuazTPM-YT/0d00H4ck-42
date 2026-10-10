@@ -14,7 +14,9 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { api } from "@/lib/api";
 import { useMe } from "@/lib/auth";
 import { date, dateTime, inr, metres } from "@/lib/format";
+import { copyText, whatsappNumber } from "@/lib/share";
 import { useSSE } from "@/lib/useSSE";
+import { tripStatus } from "@/features/dispatch/types";
 
 import { StageCard, Timeline, type Track } from "./StageCard";
 
@@ -27,7 +29,7 @@ type OrderView = Track & {
   buyer_email: string | null;
   tracking_token: string;
   rolls: { id: number; code: string; length_m: string; status: string; shade_band: string | null; dispatch_code: string | null }[];
-  dispatches: { id: number; code: string; status: string; vehicle_no: string | null; confirmed_at: string | null; roll_count: number; metres: string }[];
+  dispatches: { id: number; code: string; status: string; vehicle_no: string | null; confirmed_at: string | null; delivered_at: string | null; roll_count: number; metres: string }[];
   invoices: { id: number; code: string; total_paise: number; paid_paise: number; status: string; due_date: string }[];
 };
 
@@ -93,7 +95,7 @@ export function OrderDetail({ id, costPanel, yarnPanel }: { id: string; costPane
                 {o.dispatches.map((d) => (
                   <li key={d.id} className="flex flex-wrap items-center gap-3 px-4 py-2">
                     <span className="font-medium">{d.code}</span>
-                    <StatusBadge status={d.status} />
+                    <StatusBadge status={tripStatus(d)} />
                     <span className="text-muted-foreground">{d.vehicle_no ?? "no vehicle"} · {dateTime(d.confirmed_at)}</span>
                     <span className="ml-auto tabular">{d.roll_count} rolls · {metres(d.metres)}</span>
                   </li>
@@ -132,36 +134,6 @@ function Section({ title, empty, children }: { title: string; empty: string; chi
       <div className="overflow-x-auto">{children || <p className="px-4 py-6 text-sm text-muted-foreground">{empty}</p>}</div>
     </section>
   );
-}
-
-// clipboard api only exists on https or localhost; office pcs on http://<lan-ip> need the old way
-async function copyText(text: string): Promise<boolean> {
-  if (navigator.clipboard && window.isSecureContext) {
-    try {
-      await navigator.clipboard.writeText(text);
-      return true;
-    } catch {
-      // fall through to the old way
-    }
-  }
-  const area = document.createElement("textarea");
-  area.value = text;
-  area.setAttribute("readonly", "");
-  area.style.position = "fixed";
-  area.style.opacity = "0";
-  document.body.appendChild(area);
-  area.select();
-  const ok = document.execCommand("copy");
-  area.remove();
-  return ok;
-}
-
-// wa.me wants digits with country code; a bare 10-digit number is an indian mobile
-function whatsappNumber(phone: string | null): string {
-  const digits = (phone ?? "").replace(/\D/g, "");
-  if (digits.length === 10) return `91${digits}`;
-  if (digits.length === 11 && digits.startsWith("0")) return `91${digits.slice(1)}`;
-  return digits;
 }
 
 // the buyer's read-only link; replacing it kills the old one at once

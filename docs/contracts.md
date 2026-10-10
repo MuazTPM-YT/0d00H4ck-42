@@ -17,7 +17,8 @@ Rules every module follows. If your change breaks one, talk to the module owner 
   guard). Strip strings, reject empty, positive quantities, real ranges. In a validator, raise
   `FieldError(field, message)` to point at one field.
 - **Roles.** Every route has `Depends(get_current_user)` or `Depends(require_roles(...))`. Owner
-  is admin and passes every `require_roles` check. `/api/track/{token}` is the only public route.
+  is admin and passes every `require_roles` check. Public routes, each opened by an unguessable
+  token: `/api/track/{token}` (buyer) and `/api/deliver/{token}` (driver).
 - **Status changes.** Always `check_transition(MAP, current, new)` from `app.core.states`. Off the
   map = 409 `illegal_transition`. Maps live at the top of each `service.py` and are copied below.
 - **Codes.** `next_code(db, prefix)` from `app.core.codes`, in the same transaction. Format
@@ -168,6 +169,8 @@ Pure helpers in `app.core.units`: `qty`, `rupees_to_paise`, `line_amount_paise`,
 | `GET /api/dispatch/dispatches[/{id}]`, `/finished-stock`, `/corner-check` | dispatch, accounts, supervisor |
 | `POST /api/dispatch/dispatches`, `.../{id}/scan`, `PUT .../{id}/vehicle`, `DELETE .../{id}/rolls/{roll_id}`, `POST .../{id}/confirm` | dispatch |
 | `POST /api/dispatch/dispatches/{id}/shade-override` | supervisor |
+| `POST /api/dispatch/dispatches/{id}/deliver` (code read out on the phone), `.../{id}/new-code` | dispatch |
+| `GET`, `POST /api/deliver/{token}` (driver link; POST needs the buyer's 6-digit code) | public |
 | `/api/finance/*` (invoices, payments, wage-runs, expenses, orders/{id}/cost, order-costs, machine-production, month, month/records) | accounts |
 | `GET /api/analytics/insights[/{id}]` (`?q=` title search), `/insights/counts`, `/attention`, `/briefing` | any logged in (insights filtered to the role's kinds) |
 | `POST /api/analytics/insights/{id}/acknowledge`, `/resolve` | any logged in, own kinds |

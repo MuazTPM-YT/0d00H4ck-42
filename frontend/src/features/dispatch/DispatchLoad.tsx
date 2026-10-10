@@ -1,7 +1,7 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, Check, CheckCircle2, Printer, ScanLine, Truck, X } from "lucide-react";
+import { AlertTriangle, Check, CheckCircle2, Copy, MessageCircle, Phone, Printer, RefreshCw, ScanLine, Truck, X } from "lucide-react";
 import Link from "next/link";
 import { type ReactNode, type SubmitEvent, useRef, useState } from "react";
 
@@ -16,10 +16,12 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { api, ApiError } from "@/lib/api";
 import { useMe } from "@/lib/auth";
 import { dateTime, metres } from "@/lib/format";
+import { copyText } from "@/lib/share";
 import { useSSE } from "@/lib/useSSE";
 import { cn } from "@/lib/utils";
 import { PrintArea } from "@/features/finance/PrintArea";
 
+import { CodeForm, type DeliverBody } from "./CodeForm";
 import { VEHICLE_RE } from "./DispatchList";
 import type { DispatchDetail, LoadedRoll, ScanResult } from "./types";
 
@@ -73,7 +75,10 @@ export function DispatchLoad({ id }: { id: string }) {
           </div>
         </div>
       ) : (
-        <Challan d={d} />
+        <div className="grid gap-6">
+          <DeliveryPanel d={d} id={id} clerk={clerk} onChange={refresh} />
+          <Challan d={d} />
+        </div>
       )}
     </>
   );
@@ -301,6 +306,84 @@ function ConfirmButton({ d, id, onDone }: { d: DispatchDetail; id: string; onDon
   );
 }
 
+function driverUrl(token: string | null): string {
+  return typeof window === "undefined" || !token ? "" : `${window.location.origin}/deliver/${token}`;
+}
+
+// after the gate: share the driver link; the buyer's code, typed by the driver, closes the trip.
+// staff never see the code, they can only issue a new one
+function DeliveryPanel({ d, id, clerk, onChange }: { d: DispatchDetail; id: string; clerk: boolean; onChange: () => void }) {
+  const [copy, setCopy] = useState<"idle" | "copied" | "failed">("idle");
+  const [phone, setPhone] = useState(false);
+  const url = driverUrl(d.delivery_token);
+  const message = `Delivery ${d.code} to ${d.buyer_name}${d.buyer_city ? `, ${d.buyer_city}` : ""}: ${d.loaded.length} rolls. At the gate, count the rolls with the buyer, ask for their delivery code and enter it here: ${url}`;
+  const newCode = useMutation({
+    mutationFn: () => api(`/dispatch/dispatches/${id}/new-code`, { method: "POST" }),
+    onSuccess: onChange,
+  });
+  const deliver = useMutation({
+    mutationFn: (body: DeliverBody) => api(`/dispatch/dispatches/${id}/deliver`, { method: "POST", json: body }),
+    onSuccess: () => { setPhone(false); onChange(); },
+    // a wrong code spends a try: refresh so the count shows
+    onError: onChange,
+  });
+  async function onCopy() {
+    setCopy((await copyText(url)) ? "copied" : "failed");
+    setTimeout(() => setCopy("idle"), 2000);
+  }
+
+  if (d.delivered_at) {
+    return (
+      <section className="grid gap-1 rounded-lg border border-success bg-success-soft p-4 text-sm text-success">
+        <div className="flex items-center gap-2 font-medium"><CheckCircle2 className="size-4" aria-hidden /> Delivered {dateTime(d.delivered_at)}</div>
+        <div>Received by {d.received_by}</div>
+        {d.delivery_note && <div>Note: {d.delivery_note}</div>}
+      </section>
+    );
+  }
+  const locked = d.has_code && d.tries_left === 0;
+  return (
+    <section className="grid gap-3 rounded-lg border bg-card p-4 text-sm">
+      <h2 className="flex items-center gap-2 font-medium"><Truck className="size-5" aria-hidden /> On the way · driver link</h2>
+      <p className="break-all text-muted-foreground">{url}</p>
+      <div className="flex flex-wrap gap-2">
+        <Button variant="outline" size="sm" onClick={onCopy}>
+          {copy === "copied" ? <Check /> : <Copy />} {copy === "copied" ? "Copied" : "Copy link"}
+        </Button>
+        <Button variant="outline" size="sm" asChild>
+          <a href={`https://wa.me/?text=${encodeURIComponent(message)}`} target="_blank" rel="noopener noreferrer" title="Pick the driver in WhatsApp">
+            <MessageCircle /> WhatsApp
+          </a>
+        </Button>
+        {clerk && (
+          <Button variant="outline" size="sm" onClick={() => { deliver.reset(); setPhone((v) => !v); }}>
+            <Phone /> Driver called with code
+          </Button>
+        )}
+        {clerk && (
+          <Button variant="outline" size="sm" disabled={newCode.isPending} onClick={() => window.confirm("The buyer link shows a new code and the old one stops working. Continue?") && newCode.mutate()}>
+            <RefreshCw /> New code
+          </Button>
+        )}
+      </div>
+      {locked ? (
+        <p role="alert" className="bg-warning-soft px-3 py-2 text-warning">Code locked after 5 wrong tries. Press New code, then ask the buyer to read the new one from their order link.</p>
+      ) : !d.has_code ? (
+        <p role="alert" className="bg-warning-soft px-3 py-2 text-warning">No delivery code yet. Press New code.</p>
+      ) : (
+        <p className="text-muted-foreground">The buyer sees the delivery code on their order link and gives it to the driver after counting the rolls. {d.tries_left} {d.tries_left === 1 ? "try" : "tries"} left.</p>
+      )}
+      {copy === "failed" && <p role="alert" className="text-danger">Could not copy. Select the link above and copy it by hand.</p>}
+      {newCode.isError && <p role="alert" className="text-danger">{newCode.error.message}</p>}
+      {phone && clerk && (
+        <div className="border-t pt-3">
+          <CodeForm label="Mark delivered" onSubmit={(b) => deliver.mutate(b)} pending={deliver.isPending} error={deliver.error} disabled={locked || !d.has_code} />
+        </div>
+      )}
+    </section>
+  );
+}
+
 // delivery challan: what physically left, roll by roll
 function Challan({ d }: { d: DispatchDetail }) {
   return (
@@ -340,8 +423,13 @@ function Challan({ d }: { d: DispatchDetail }) {
         </table>
         <div className="mt-10 grid grid-cols-2 gap-8 text-muted-foreground">
           <div className="border-t pt-1">Dispatched by</div>
-          <div className="border-t pt-1">Received by</div>
+          <div className="border-t pt-1">Received by{d.received_by && `: ${d.received_by}, ${dateTime(d.delivered_at)}`}</div>
         </div>
+        {d.delivery_token && !d.delivered_at && (
+          <p className="mt-6 break-all text-xs text-muted-foreground">
+            Driver: at the buyer&apos;s gate open {driverUrl(d.delivery_token)} and enter the buyer&apos;s delivery code.
+          </p>
+        )}
       </PrintArea>
     </div>
   );

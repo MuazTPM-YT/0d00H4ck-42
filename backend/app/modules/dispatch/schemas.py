@@ -18,6 +18,11 @@ RollCode = Annotated[
     str, StringConstraints(strip_whitespace=True, to_upper=True, min_length=1, max_length=20)
 ]
 ScanKey = Annotated[str, StringConstraints(strip_whitespace=True, min_length=8, max_length=100)]
+Otp = Annotated[str, StringConstraints(strip_whitespace=True, pattern=r"^\d{6}$")]
+Receiver = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=80)]
+DeliveryNote = Annotated[
+    str | None, StringConstraints(strip_whitespace=True, min_length=1, max_length=500)
+]
 
 
 class DispatchOut(BaseModel):
@@ -32,6 +37,7 @@ class DispatchOut(BaseModel):
     status: DispatchStatus
     confirmed_at: datetime | None
     created_at: datetime
+    delivered_at: datetime | None
 
 
 # gone-out register row: dispatch + who, what and how much
@@ -130,6 +136,45 @@ class DispatchDetail(DispatchOut):
     candidates: list[LoadedRoll]
     invoice_id: int | None
     invoice_code: str | None
+    # driver link key once the truck has left; the code itself never reaches staff
+    delivery_token: str | None
+    received_by: str | None
+    delivery_note: str | None
+    has_code: bool
+    tries_left: int
+
+
+# buyer's code, read off the buyer link; the office path takes the same body
+class DeliverIn(BaseModel):
+    otp: Otp
+    received_by: Receiver
+    note: DeliveryNote | None = None
+
+
+class DeliveryRoll(BaseModel):
+    code: str
+    length_m: Decimal
+
+
+# driver page: what is on the truck and where it goes; no money, no code
+class DeliveryOut(BaseModel):
+    challan: str
+    order_code: str
+    buyer_name: str
+    buyer_city: str | None
+    fabric: str
+    colour: str
+    vehicle_no: str | None
+    driver: str | None
+    left_at: datetime
+    rolls: list[DeliveryRoll]
+    roll_count: int
+    metres: Decimal
+    delivered_at: datetime | None
+    received_by: str | None
+    delivery_note: str | None
+    tries_left: int
+    has_code: bool
 
 
 class ScanResult(BaseModel):

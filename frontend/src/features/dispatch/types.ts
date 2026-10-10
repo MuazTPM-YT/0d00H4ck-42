@@ -11,6 +11,7 @@ export type DispatchRow = {
   status: DispatchStatus;
   confirmed_at: string | null;
   created_at: string;
+  delivered_at: string | null;
   order_code: string;
   buyer_name: string;
   roll_count: number;
@@ -44,7 +45,19 @@ export type DispatchDetail = Omit<DispatchRow, "roll_count" | "metres"> & {
   shade_override: string | null;
   proposal: Proposal | null;
   candidates: LoadedRoll[];
+  // driver link key once the truck left; the code itself only ever shows on the buyer link
+  delivery_token: string | null;
+  received_by: string | null;
+  delivery_note: string | null;
+  has_code: boolean;
+  tries_left: number;
 };
+
+// a confirmed truck is on the road until the buyer's code closes the trip
+export function tripStatus(d: { status: string; delivered_at: string | null }): string {
+  if (d.delivered_at) return "delivered";
+  return d.status === "confirmed" ? "on_the_way" : d.status;
+}
 
 export type ScanResult = {
   dispatch_id: number;

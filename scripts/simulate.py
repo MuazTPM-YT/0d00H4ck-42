@@ -25,7 +25,7 @@ from app.core.states import check_transition
 from app.core.units import line_amount_paise, qty
 from app.modules.auth.models import Role, User
 from app.modules.dispatch.models import Dispatch, DispatchRoll, DispatchStatus
-from app.modules.dispatch.service import DISPATCH_TRANSITIONS
+from app.modules.dispatch.service import DISPATCH_TRANSITIONS, open_delivery
 from app.modules.finance.models import Invoice, InvoiceLine, InvoiceStatus, Payment, PaymentMode
 from app.modules.finance.service import INVOICE_TRANSITIONS
 from app.modules.inventory.models import (
@@ -771,6 +771,7 @@ def ship(mill: Mill, order: Order, rolls: list[Roll], t: datetime) -> None:
         check_transition(DISPATCH_TRANSITIONS, d.status, new)
         d.status = new
     d.confirmed_at = t
+    open_delivery(d)
     audit.record(db, mill.user[Role.dispatch], "confirmed", "dispatches", d.id)
     for r in rolls:
         db.add(DispatchRoll(dispatch_id=d.id, roll_id=r.id))
