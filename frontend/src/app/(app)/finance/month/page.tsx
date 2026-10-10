@@ -1,5 +1,11 @@
-import { Placeholder } from "@/components/layout/Placeholder";
+import { Suspense } from "react";
+
+import { Month } from "@/features/finance/Month";
 
 export default function Page() {
-  return <Placeholder />;
+  return (
+    <Suspense>
+      <Month />
+    </Suspense>
+  );
 }

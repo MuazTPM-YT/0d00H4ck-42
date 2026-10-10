@@ -1,5 +1,5 @@
-import { Placeholder } from "@/components/layout/Placeholder";
+import { DispatchList } from "@/features/dispatch/DispatchList";
 
 export default function Page() {
-  return <Placeholder />;
+  return <DispatchList />;
 }

@@ -743,6 +743,106 @@ def seed_demo(db: Session) -> None:
     db.add(DispatchRoll(dispatch_id=draft.id, roll_id=r_pass.id))
     dispatch(so_shirt, DispatchStatus.loading, "KA-51-C-7781")
 
+    # --- ready-to-ship order for the dispatch demo: band A covers it, one band B roll is old
+    so_ready = order("IYER", "SHIRT40", "Raw White", 300, 182, 4, OrderStatus.confirmed)
+    create_work_orders(db, so_ready.id, user[Role.sales].id)
+    w_ready = db.scalar(select(WorkOrder).where(WorkOrder.order_id == so_ready.id))
+    w_ready.status, w_ready.machine_id = WorkOrderStatus.done, mc["LM-03"].id
+    w_ready.started_at, w_ready.finished_at = NOW - timedelta(days=11), NOW - timedelta(days=2)
+    issued = NOW - timedelta(days=11)
+    for frm, to, reason, hours in [
+        ("YS-01", "WIP", MoveReason.issue, 0),
+        ("WIP", "PROD", MoveReason.consume, 8),
+    ]:
+        move(
+            ItemKind.yarn,
+            yb_white40.id,
+            76,
+            frm,
+            to,
+            reason,
+            issued + timedelta(hours=hours),
+            ("work_order", w_ready.id),
+        )
+    for length, band, days_ago in [
+        (62, "A", 3),
+        (60, "A", 3),
+        (61, "A", 2),
+        (58, "A", 2),
+        (63, "A", 2),
+        (64, "B", 10),
+        (59, "B", 2),
+    ]:
+        rr = roll(
+            so_ready,
+            w_ready,
+            "LM-03",
+            "W-012",
+            length,
+            RollStatus.passed,
+            yb_white40,
+            qty(Decimal(length) * Decimal("0.1778")),
+            days_ago,
+            band=band,
+        )
+        qc(rr, QcDecision.pass_, 1, band=band, hours=days_ago * 24 - 6)
+        move(
+            ItemKind.fabric,
+            rr.id,
+            length,
+            "WIP",
+            "FG-01",
+            MoveReason.qc_pass,
+            NOW - timedelta(days=days_ago, hours=-6),
+        )
+
+    # loom running spans that order costing reads: (machine, work order, ends days ago, hours)
+    spans = [
+        ("LM-04", w_closed, 8, 12),
+        ("LM-03", w_ready, 10, 6),
+        ("LM-03", w_ready, 3, 6),
+        ("LM-03", w_ready, 2, 6),
+    ]
+    for code, w, days_ago, hours in spans:
+        end = NOW - timedelta(days=days_ago)
+        for status, at in [
+            (MachineStatus.running, end - timedelta(hours=hours)),
+            (MachineStatus.idle, end),
+        ]:
+            db.add(
+                MachineEvent(
+                    machine_id=mc[code].id,
+                    at=at,
+                    status=status,
+                    reason="Job finished" if status == MachineStatus.idle else None,
+                    work_order_id=w.id if status == MachineStatus.running else None,
+                    source=Source.machine,
+                    user_id=user[Role.supervisor].id,
+                )
+            )
+    # daily-rated helper on LM-03 during the last two spans, with attendance
+    for days_ago in (3, 2):
+        start = NOW - timedelta(days=days_ago, hours=7)
+        db.add(
+            CrewAssignment(
+                date=start.date(),
+                shift_id=shift["A"].id,
+                worker_id=worker["W-003"].id,
+                machine_id=mc["LM-03"].id,
+                from_at=start,
+                to_at=start + timedelta(hours=8),
+            )
+        )
+        db.add(
+            Attendance(
+                date=start.date(),
+                shift_id=shift["A"].id,
+                worker_id=worker["W-003"].id,
+                status=AttendanceStatus.present,
+                source=AttendanceSource.crew,
+            )
+        )
+
     # --- wage runs (every status), expenses, insights
     month_start = TODAY.replace(day=1)
     for months_back, status in [

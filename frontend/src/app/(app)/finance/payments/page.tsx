@@ -1,5 +1,11 @@
-import { Placeholder } from "@/components/layout/Placeholder";
+import { Suspense } from "react";
+
+import { Payments } from "@/features/finance/Payments";
 
 export default function Page() {
-  return <Placeholder />;
+  return (
+    <Suspense>
+      <Payments />
+    </Suspense>
+  );
 }

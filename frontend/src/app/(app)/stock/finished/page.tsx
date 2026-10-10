@@ -1,5 +1,5 @@
-import { Placeholder } from "@/components/layout/Placeholder";
+import { FinishedStock } from "@/features/dispatch/FinishedStock";
 
 export default function Page() {
-  return <Placeholder />;
+  return <FinishedStock />;
 }
