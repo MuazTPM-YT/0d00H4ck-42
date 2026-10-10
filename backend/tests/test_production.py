@@ -303,6 +303,17 @@ def test_rework_work_order_returns_roll_to_qc(db, floor):
     assert result["status"] == RollStatus.awaiting_qc
 
 
+# a roll longer than the metres logged at the loom logs the gap, so woven >= cut always
+def test_cut_roll_tops_up_woven_metres_never_double_counts(db, floor):
+    wo = run_on(db, floor, floor.shirt_weave, floor.loom1)
+    floor.issue(wo, floor.batches[0], 50)
+    cut(db, floor, wo, 40)  # tablet flow: nothing logged before the cut
+    assert service.order_progress(db, floor.shirt_order.id)["weaving"]["produced"] == 40
+    service.log_output(db, OutputIn(machine_id=floor.loom1.id, qty=Decimal(70)), None)
+    cut(db, floor, wo, 50)  # counter flow: 110 woven, 90 cut, nothing added
+    assert service.order_progress(db, floor.shirt_order.id)["weaving"]["produced"] == 110
+
+
 # dyeing closing early would strand every roll still coming off the loom
 def test_dyeing_cannot_finish_while_rolls_still_need_it(db, floor):
     weave = run_on(db, floor, floor.dyed_weave, floor.loom1)

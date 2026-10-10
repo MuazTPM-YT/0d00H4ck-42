@@ -478,6 +478,22 @@ def _publish_roll(result: dict) -> None:
         events.publish("quality", {"type": "roll", "id": result["id"]})
 
 
+# woven metres drive progress and piece wages; a roll can't be longer than what was woven,
+# so a cut past the loom's logged metres logs the gap (tablet flow) and counter flow adds nothing
+def _log_uncounted_metres(db: Session, wo: WorkOrder, body: RollIn, when: datetime) -> None:
+    woven = db.scalar(
+        select(func.coalesce(func.sum(ProductionLog.qty), 0)).where(
+            ProductionLog.work_order_id == wo.id
+        )
+    )
+    cut = db.scalar(
+        select(func.coalesce(func.sum(Roll.length_m), 0)).where(Roll.work_order_id == wo.id)
+    )
+    gap = cut + body.length_m - woven
+    if gap > 0:
+        _add_log(db, wo, wo.machine_id, gap, when, body.source, body.shift_id, body.weaver_id)
+
+
 # weaver cuts a roll off the loom: new identity, yarn lineage, fabric enters WIP
 def cut_roll(db: Session, body: RollIn, user_id: int | None, at: datetime | None = None) -> dict:
     def work():
@@ -497,6 +513,7 @@ def cut_roll(db: Session, body: RollIn, user_id: int | None, at: datetime | None
         when = _now(at)
         order = db.get(Order, wo.order_id)
         fabric = db.get(FabricType, order.fabric_type_id)
+        _log_uncounted_metres(db, wo, body, when)
         roll = Roll(
             code=next_code(db, "R"),
             order_id=order.id,
