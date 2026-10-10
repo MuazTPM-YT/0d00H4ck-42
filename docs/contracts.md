@@ -101,7 +101,7 @@ caller. Status: **done** = implemented and tested, **stub** = raises `NotImpleme
 | `inventory.stock_on_hand(db, yarn_item_id)` | Ammaar | done | `Decimal` approved kg in store locations |
 | `inventory.free_stock(db, yarn_item_id)` | Ammaar | done | `Decimal` stock on hand − active reservations |
 | `inventory.reserve(db, order_id, user_id)` | Ammaar | done | `list[Reservation]` (new ones); locks order + batch rows, best-fit single lot else fewest lots, tagged yarn first |
-| `inventory.issue_to_work_order(db, work_order_id, yarn_batch_id, kg, user_id, source=manual, idempotency_key=None, reason=None)` | Ammaar | done | `StockMove` store → WIP; over-issue needs `reason` |
+| `inventory.issue_to_work_order(db, work_order_id, yarn_batch_id, kg, user_id, source=manual, idempotency_key=None, reason=None)` | Ammaar | done | `StockMove` store → WIP; over-issue needs `reason`. Writes `reason=issue`, `ref_type="work_order"`, `ref_id=work_order_id`: roll lineage and finish-consume read exactly that |
 | `inventory.return_to_store(db, work_order_id, yarn_batch_id, kg, user_id, idempotency_key=None)` | Ammaar | done | `StockMove` WIP → store; at most what the work order still holds |
 | `inventory.release_order(db, order_id, user_id, reason)` | Ammaar | done | `int` reservations released |
 | `inventory.stock_warnings(db)` | Ammaar | done | `list[dict]` items whose projected free kg is under reorder level (for `/owner`) |
@@ -110,15 +110,18 @@ caller. Status: **done** = implemented and tested, **stub** = raises `NotImpleme
 | `orders.yarn_components(qty_m, fabric, order_colour)` | Ammaar | done | `[{fibre, count, colour, kg_needed}]`; dyed fabric uses `Raw White` yarn |
 | `orders.yarn_requirement(db, order_id)` | Ammaar | done | `[{fibre, count, colour, kg_needed, kg_free, kg_short}]` |
 | `production.create_work_orders(db, order_id, user_id)` | Muaz | done | `list[WorkOrder]`, one `waiting` per route stage; second call returns the same set |
-| `production.machine_status(db, machine_id)` | Muaz | stub | `MachineStatus`, latest event or `off` |
-| `production.order_progress(db, order_id)` | Muaz | stub | `{stage: {planned, produced, unit}}` |
-| `production.create_rework_work_order(db, roll_id, stage, user_id)` | Muaz | stub | `WorkOrder` with `roll_id` set |
+| `production.machine_status(db, machine_id)` | Muaz | done | `MachineStatus`, latest event or `off` |
+| `production.order_progress(db, order_id)` | Muaz | done | `{stage: {planned, produced, unit}}` |
+| `production.create_rework_work_order(db, roll_id, stage, user_id)` | Muaz | done | `WorkOrder` with `roll_id` set; roll must be `rework`; second call returns the open one. Processing the roll on that job sends it back to `awaiting_qc` |
 | `quality.roll_trace(db, roll_id)` | Razan | stub | order, loom, shift, weaver, yarn batches + suppliers, QC attempts, events |
 | `tracking.order_stage(db, order_id)` | Ashil | stub | derived buyer stage + metres per bucket |
 | `dispatch.finished_stock(db, order_id=None, shade_band=None)` | Ashil | stub | `list[Roll]` passed and not dispatched |
 | `finance.order_cost(db, order_id)` | Ashil | stub | yarn (FIFO GRN cost) + labour + machine + rework/reject vs revenue |
 | `analytics.delivery_estimate(db, order_id)` | Muaz | stub | projected finish, `on_track` / `at_risk` / `late` |
 | `analytics.attention_items(db, role)` | Muaz | stub | short to-do list for that role |
+
+Also callable: `workforce.current_shift(db, at)` → `(shift date, Shift)`, night shift belongs to
+the date it started; `workforce.crew_on_machine(db, machine_id, at)` → worker id or `None`.
 
 Pure helpers in `app.core.units`: `qty`, `rupees_to_paise`, `line_amount_paise`,
 `yarn_kg_for_fabric(metres, width_cm, gsm, loss_pct)`. Yarn kg = metres × width_m × GSM / 1000 /
@@ -146,9 +149,12 @@ Pure helpers in `app.core.units`: `qty`, `rupees_to_paise`, `line_amount_paise`,
 | `GET /api/orders/{id}`, `GET /api/orders/{id}/allocation`, `POST /api/orders/requirement-preview` | any logged in |
 | `GET /api/orders/to-buy` | sales, store |
 | `GET /api/orders`, `GET /api/orders/{id}/yarn-requirement` | any logged in |
-| `GET /api/production/work-orders` | any logged in |
+| `GET /api/production/work-orders`, `/work-orders/open`, `/board`, `/machines/{id}/timeline` | any logged in |
+| `POST /api/production/work-orders/{id}/{queue,unqueue,start,move,finish}`, `PUT /api/production/machines/{id}/queue` | supervisor |
+| `POST /api/production/machine-events`, `/output`, `/rolls`, `/rolls/{id}/process` | supervisor (machine feeds log in as one) |
 | `GET /api/quality/rolls` | any logged in |
-| `GET /api/workforce/attendance` | supervisor, accounts |
+| `GET /api/workforce/attendance`, `/crew`, `/current-shift` | supervisor, accounts |
+| `PUT /api/workforce/attendance`, `POST /api/workforce/crew`, `POST /api/workforce/crew/{id}/end` | supervisor |
 | `GET /api/dispatch/dispatches` | dispatch, accounts |
 | `GET /api/finance/invoices` | accounts |
 | `GET /api/analytics/insights` | supervisor |
