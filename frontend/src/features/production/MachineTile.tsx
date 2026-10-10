@@ -82,7 +82,7 @@ export function MachineTile({ tile, now, onOpen }: { tile: BoardTile; now: numbe
           <span className="min-w-0 truncate text-right text-[0.82rem] text-muted-foreground">{tile.crew.length ? tile.crew.join(", ") : "No crew"}</span>
         </span>
       </span>
-      <DitherPlate motif={machineMotif(tile.code)} seed={tile.code} className="pointer-events-none !h-14 border-t border-border opacity-80 [mask-image:linear-gradient(to_right,transparent,#000_50%)]" />
+      <DitherPlate motif={machineMotif(tile.code)} seed={tile.code} live={tile.status === "running"} className="pointer-events-none !h-14 border-t border-border opacity-80 [mask-image:linear-gradient(to_right,transparent,#000_50%)]" />
     </button>
   );
 }
