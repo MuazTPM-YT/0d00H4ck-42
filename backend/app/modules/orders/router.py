@@ -1,6 +1,6 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, Query
 from sqlalchemy.orm import Session
 
 from app.core.db import get_db
@@ -19,6 +19,7 @@ from app.modules.orders.schemas import (
     ToBuyRow,
     YarnLine,
 )
+from app.modules.tracking import service as tracking
 
 router = APIRouter(prefix="/orders", tags=["orders"], dependencies=[Depends(get_current_user)])
 
@@ -71,8 +72,16 @@ def allocation(order_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("/{order_id}/confirm", response_model=AllocationOut)
-def confirm(order_id: int, db: Session = Depends(get_db), user: User = Sales):
-    return service.confirm_order(db, user, order_id)
+def confirm(
+    order_id: int,
+    background: BackgroundTasks,
+    db: Session = Depends(get_db),
+    user: User = Sales,
+):
+    out = service.confirm_order(db, user, order_id)
+    # buyer gets their tracking link by email once the response has gone
+    background.add_task(tracking.email_link_later, order_id, user.id)
+    return out
 
 
 @router.post("/{order_id}/reserve", response_model=AllocationOut)

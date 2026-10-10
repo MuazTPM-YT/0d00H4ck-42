@@ -39,6 +39,7 @@ class Dispatch(Base):
     buyer_id: Mapped[int] = mapped_column(ForeignKey("buyers.id"), index=True)
     vehicle_no: Mapped[str | None] = mapped_column(String(20))
     driver: Mapped[str | None] = mapped_column(String(80))
+    driver_email: Mapped[str | None] = mapped_column(String(254))
     status: Mapped[DispatchStatus] = mapped_column(
         str_enum(DispatchStatus, "dispatch_status"), default=DispatchStatus.draft
     )

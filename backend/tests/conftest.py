@@ -1,4 +1,5 @@
 from collections.abc import Callable, Iterator
+from contextlib import nullcontext
 from decimal import Decimal
 
 import pytest
@@ -9,13 +10,16 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 
 from alembic import command
+from app.core import mail
 from app.core.config import get_settings
 from app.core.db import Base, get_db
 from app.core.enums import Stage
 from app.core.security import create_token, hash_password
 from app.main import app
 from app.modules.auth.models import Role, User
+from app.modules.dispatch import service as dispatch
 from app.modules.masters.models import Buyer, FabricRecipe, FabricType, FabricTypeStage
+from app.modules.tracking import service as tracking
 
 PASSWORD = "demo1234"
 
@@ -56,6 +60,28 @@ def db(engine: Engine) -> Iterator[Session]:
     session.close()
     outer.rollback()
     conn.close()
+
+
+# tests never send real mail, even when .env has SMTP set; mail tests switch it back on
+@pytest.fixture(autouse=True)
+def no_real_mail(monkeypatch: pytest.MonkeyPatch) -> None:
+    def refuse(*_):
+        raise AssertionError("a test tried to send real mail")
+
+    monkeypatch.setattr(mail, "enabled", lambda: False)
+    monkeypatch.setattr(mail, "send", refuse)
+
+
+# mail on, sends land in a list, and the after-response sends stay inside this test's transaction
+@pytest.fixture
+def outbox(db: Session, monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, str, str]]:
+    sent: list[tuple[str, str, str]] = []
+    monkeypatch.setattr(mail, "enabled", lambda: True)
+    monkeypatch.setattr(mail, "send", lambda to, subject, body: sent.append((to, subject, body)))
+    monkeypatch.setattr(get_settings(), "web_url", "http://mill.test/")
+    for module in (tracking, dispatch):
+        monkeypatch.setattr(module, "SessionLocal", lambda: nullcontext(db))
+    return sent
 
 
 @pytest.fixture

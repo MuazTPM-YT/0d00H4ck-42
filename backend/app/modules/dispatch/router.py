@@ -1,7 +1,7 @@
 from datetime import date
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Path, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, Path, Query
 from sqlalchemy.orm import Session
 
 from app.core.db import get_db
@@ -18,6 +18,7 @@ from app.modules.dispatch.schemas import (
     DispatchDetail,
     DispatchOut,
     DispatchRow,
+    DriverEmailIn,
     OverrideIn,
     ScanIn,
     ScanResult,
@@ -51,7 +52,9 @@ def list_dispatches(
 
 @router.post("/dispatches", response_model=DispatchOut, status_code=201)
 def create_dispatch(data: DispatchCreate, db: Session = Depends(get_db), user: User = Clerk):
-    return service.create_dispatch(db, user, data.order_id, data.vehicle_no, data.driver)
+    return service.create_dispatch(
+        db, user, data.order_id, data.vehicle_no, data.driver, data.driver_email
+    )
 
 
 @router.get("/dispatches/{dispatch_id}", response_model=DispatchDetail, dependencies=[Readers])
@@ -63,7 +66,9 @@ def get_dispatch(dispatch_id: int, db: Session = Depends(get_db)):
 def set_vehicle(
     dispatch_id: int, data: VehicleIn, db: Session = Depends(get_db), user: User = Clerk
 ):
-    return service.set_vehicle(db, user, dispatch_id, data.vehicle_no, data.driver)
+    return service.set_vehicle(
+        db, user, dispatch_id, data.vehicle_no, data.driver, data.driver_email
+    )
 
 
 @router.post("/dispatches/{dispatch_id}/scan", response_model=ScanResult)
@@ -84,8 +89,16 @@ def shade_override(
 
 
 @router.post("/dispatches/{dispatch_id}/confirm", response_model=DispatchDetail)
-def confirm(dispatch_id: int, db: Session = Depends(get_db), user: User = Clerk):
-    return service.confirm(db, user, dispatch_id)
+def confirm(
+    dispatch_id: int,
+    background: BackgroundTasks,
+    db: Session = Depends(get_db),
+    user: User = Clerk,
+):
+    out = service.confirm(db, user, dispatch_id)
+    # driver gets their link by email once the response has gone
+    background.add_task(service.email_driver_later, dispatch_id, user.id)
+    return out
 
 
 # office path for a driver with no signal: same code check, same try limit
@@ -99,6 +112,13 @@ def office_deliver(
 @router.post("/dispatches/{dispatch_id}/new-code", response_model=DispatchDetail)
 def new_code(dispatch_id: int, db: Session = Depends(get_db), user: User = Clerk):
     return service.new_code(db, user, dispatch_id)
+
+
+@router.post("/dispatches/{dispatch_id}/email-driver", response_model=DispatchDetail)
+def email_driver(
+    dispatch_id: int, data: DriverEmailIn, db: Session = Depends(get_db), user: User = Clerk
+):
+    return service.resend_driver(db, user, dispatch_id, data.driver_email)
 
 
 @router.get("/finished-stock", response_model=list[ShelfGroup], dependencies=[Readers])

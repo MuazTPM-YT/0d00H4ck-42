@@ -1,7 +1,7 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, Check, CheckCircle2, Copy, MessageCircle, Phone, Printer, RefreshCw, ScanLine, Truck, X } from "lucide-react";
+import { AlertTriangle, Check, CheckCircle2, Copy, Mail, MessageCircle, Phone, Printer, RefreshCw, ScanLine, Truck, X } from "lucide-react";
 import Link from "next/link";
 import { type ReactNode, type SubmitEvent, useRef, useState } from "react";
 
@@ -211,7 +211,7 @@ function VehicleForm({ d, id, onSaved }: { d: DispatchDetail; id: string; onSave
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [saved, setSaved] = useState(false);
   const save = useMutation({
-    mutationFn: (body: { vehicle_no: string; driver: string | null }) => api(`/dispatch/dispatches/${id}/vehicle`, { method: "PUT", json: body }),
+    mutationFn: (body: { vehicle_no: string; driver: string | null; driver_email: string | null }) => api(`/dispatch/dispatches/${id}/vehicle`, { method: "PUT", json: body }),
     onSuccess: () => { setSaved(true); onSaved(); },
     onError: (err) => setErrors({ [err instanceof ApiError && err.field ? err.field : "form"]: err.message }),
   });
@@ -221,7 +221,11 @@ function VehicleForm({ d, id, onSaved }: { d: DispatchDetail; id: string; onSave
     setSaved(false);
     if (!e.currentTarget.checkValidity()) return;
     const f = new FormData(e.currentTarget);
-    save.mutate({ vehicle_no: String(f.get("vehicle_no")).trim(), driver: String(f.get("driver") ?? "").trim() || null });
+    save.mutate({
+      vehicle_no: String(f.get("vehicle_no")).trim(),
+      driver: String(f.get("driver") ?? "").trim() || null,
+      driver_email: String(f.get("driver_email") ?? "").trim() || null,
+    });
   }
   return (
     <form noValidate onSubmit={submit} onInvalidCapture={(e) => {
@@ -234,6 +238,9 @@ function VehicleForm({ d, id, onSaved }: { d: DispatchDetail; id: string; onSave
       </FormField>
       <FormField name="driver" label="Driver" error={errors.driver}>
         <Input id="driver" name="driver" defaultValue={d.driver ?? ""} maxLength={120} className="h-12 text-base" />
+      </FormField>
+      <FormField name="driver_email" label="Driver email" error={errors.driver_email} hint="Optional: the driver link is emailed when the truck leaves">
+        <Input id="driver_email" name="driver_email" type="email" defaultValue={d.driver_email ?? ""} maxLength={254} className="h-12 text-base" aria-invalid={!!errors.driver_email} />
       </FormField>
       {errors.form && <p role="alert" className="text-sm text-danger">{errors.form}</p>}
       <Button type="submit" variant="outline" size="lg" disabled={save.isPending}>{saved ? <><Check /> Saved</> : "Save vehicle"}</Button>
@@ -375,12 +382,52 @@ function DeliveryPanel({ d, id, clerk, onChange }: { d: DispatchDetail; id: stri
       )}
       {copy === "failed" && <p role="alert" className="text-danger">Could not copy. Select the link above and copy it by hand.</p>}
       {newCode.isError && <p role="alert" className="text-danger">{newCode.error.message}</p>}
+      {d.mail_on && <DriverMail d={d} id={id} clerk={clerk} onChange={onChange} />}
       {phone && clerk && (
         <div className="border-t pt-3">
           <CodeForm label="Mark delivered" onSubmit={(b) => deliver.mutate(b)} pending={deliver.isPending} error={deliver.error} disabled={locked || !d.has_code} />
         </div>
       )}
     </section>
+  );
+}
+
+// was the driver link emailed? clerk can resend, or fill in a missing or wrong address
+function DriverMail({ d, id, clerk, onChange }: { d: DispatchDetail; id: string; clerk: boolean; onChange: () => void }) {
+  const [error, setError] = useState("");
+  const send = useMutation({
+    mutationFn: (driver_email: string | null) => api(`/dispatch/dispatches/${id}/email-driver`, { method: "POST", json: { driver_email } }),
+    onSuccess: () => { setError(""); onChange(); },
+    onError: (err) => setError(err.message),
+  });
+  const m = d.driver_mail;
+  function submit(e: SubmitEvent<HTMLFormElement>) {
+    e.preventDefault();
+    const input = e.currentTarget.elements.namedItem("driver_email_again") as HTMLInputElement;
+    if (!input.checkValidity()) return setError("Enter a valid email address");
+    send.mutate(input.value.trim() || null);
+  }
+  return (
+    <div className="grid gap-2 border-t pt-3">
+      {!m ? (
+        <p className="text-muted-foreground">Driver link not emailed yet.</p>
+      ) : m.status === "sent" ? (
+        <p className="text-success">Driver link emailed to {m.to} on {dateTime(m.at)}.</p>
+      ) : m.status === "skipped" ? (
+        <p className="text-warning">Driver link not emailed: no driver email on this truck.</p>
+      ) : (
+        <p role="alert" className="text-danger">Driver link email to {m.to} failed on {dateTime(m.at)}: {m.error}</p>
+      )}
+      {clerk && (
+        <form noValidate onSubmit={submit} className="flex flex-wrap gap-2">
+          <Input name="driver_email_again" type="email" aria-label="Driver email" defaultValue={d.driver_email ?? ""} maxLength={254} placeholder="driver@example.com" className="h-9 min-w-0 flex-1" aria-invalid={!!error} />
+          <Button type="submit" variant="outline" size="sm" disabled={send.isPending}>
+            <Mail /> {send.isPending ? "Sending…" : m?.status === "sent" ? "Resend to driver" : "Email driver"}
+          </Button>
+        </form>
+      )}
+      {error && <p role="alert" className="text-danger">{error}</p>}
+    </div>
   );
 }
 

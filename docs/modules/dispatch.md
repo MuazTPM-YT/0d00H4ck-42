@@ -40,6 +40,12 @@ screens `/stock/finished`, `/dispatch`, `/dispatch/[id]`. Requirements R16 to R1
   - If the driver has no signal, they phone the office and the clerk types the code. The check
     and the try limit are the same; the audit row records `via: office_phone`.
   - The whole truck is accepted, with a note. Per-roll returns are not built.
+- **Driver link by email.** The vehicle form takes an optional driver email. When the truck
+  is confirmed, the driver gets the challan, the buyer's name and city, rolls and metres,
+  and the driver link (never the code), sent after the response like the buyer email
+  (`dispatch.email_driver_later`). The delivery panel shows sent, failed (with the reason)
+  or skipped (no address). The clerk can resend, or type a missing or wrong address there;
+  the truck itself stays locked, so only `driver_email` changes (audit `set_driver_email`).
 
 ## Data flow
 

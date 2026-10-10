@@ -4,7 +4,9 @@ from decimal import Decimal
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.core import audit
+from app.core import audit, events, mail
+from app.core.config import get_settings
+from app.core.db import SessionLocal
 from app.core.errors import NotFound
 from app.core.units import qty
 from app.modules.analytics import service as analytics
@@ -275,6 +277,8 @@ def order_view(db: Session, order_id: int) -> dict:
     buyer = db.get(Buyer, order.buyer_id)
     return {
         **_card(db, order, internal=True),
+        "mail_on": mail.enabled(),
+        "link_email": mail.last_attempt(db, "link", ("orders", order.id)),
         "order_id": order.id,
         "order_status": order.status,
         "buyer_name": buyer.name,
@@ -329,3 +333,53 @@ def rotate_token(db: Session, user: User, order_id: int) -> dict:
     audit.record(db, user.id, "rotate_tracking_token", "orders", order.id)
     db.commit()
     return order_view(db, order.id)
+
+
+# --- buyer link email
+
+
+def _link_message(db: Session, order: Order) -> mail.Letter:
+    buyer = db.get(Buyer, order.buyer_id)
+    fabric = db.get(FabricType, order.fabric_type_id)
+    url = f"{get_settings().web_url.rstrip('/')}/track/{order.tracking_token}"
+    body = (
+        f"Hello {buyer.contact_name or buyer.name},\n\n"
+        f"Your order {order.code} is confirmed: {fabric.name}, {order.colour}, "
+        f"{order.qty_m.normalize():,f} m, due {order.deadline:%d %b %Y}.\n\n"
+        "Follow it from yarn to your gate here, any time, no login needed:\n"
+        f"{url}\n\n"
+        "When a truck leaves, this page also shows its delivery code. Give the code to the "
+        "driver only after you have counted the rolls.\n\n"
+        "Everest Textile Mills"
+    )
+    subject = f"Order {order.code} confirmed: track it here"
+    return mail.Letter(buyer.email, subject, body, "Buyer has no email address")
+
+
+# shared service: email the buyer their tracking link; the result is an audit row, so a
+# failure never undoes anything. Caller commits.
+def email_link(db: Session, order_id: int, user_id: int | None) -> str:
+    order = db.get(Order, order_id)
+    if not order:
+        raise NotFound(f"Order {order_id} not found")
+    return mail.attempt(db, user_id, "link", ("orders", order.id), _link_message(db, order))
+
+
+# after confirm, off the request (BackgroundTasks) on its own session: a slow or dead mail
+# server never holds up the confirm screen
+def email_link_later(order_id: int, user_id: int) -> None:
+    if not mail.enabled():
+        return
+    with SessionLocal() as db:
+        email_link(db, order_id, user_id)
+        db.commit()
+    events.publish("orders", {"type": "link_email", "id": order_id})
+
+
+# office resend, e.g. after a failure or a new link; waits for the answer so the clerk sees it
+def resend_link(db: Session, user: User, order_id: int) -> dict:
+    mail.require_on()
+    email_link(db, order_id, user.id)
+    db.commit()
+    events.publish("orders", {"type": "link_email", "id": order_id})
+    return order_view(db, order_id)

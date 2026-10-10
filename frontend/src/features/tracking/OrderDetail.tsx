@@ -1,7 +1,7 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, Check, Copy, Link2, Mail, MessageCircle, RefreshCw } from "lucide-react";
+import { AlertTriangle, Check, Copy, Link2, Mail, MessageCircle, RefreshCw, Send } from "lucide-react";
 import Link from "next/link";
 import { type ReactNode, useState } from "react";
 
@@ -28,6 +28,8 @@ type OrderView = Track & {
   buyer_phone: string | null;
   buyer_email: string | null;
   tracking_token: string;
+  mail_on: boolean;
+  link_email: { status: "sent" | "failed" | "skipped"; at: string; to: string | null; error: string | null } | null;
   rolls: { id: number; code: string; length_m: string; status: string; shade_band: string | null; dispatch_code: string | null }[];
   dispatches: { id: number; code: string; status: string; vehicle_no: string | null; confirmed_at: string | null; delivered_at: string | null; roll_count: number; metres: string }[];
   invoices: { id: number; code: string; total_paise: number; paid_paise: number; status: string; due_date: string }[];
@@ -148,6 +150,10 @@ function BuyerLink({ o, canRotate }: { o: OrderView; canRotate: boolean }) {
     mutationFn: () => api(`/track/orders/${o.order_id}/rotate-token`, { method: "POST" }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["orders", "view"] }),
   });
+  const send = useMutation({
+    mutationFn: () => api(`/track/orders/${o.order_id}/email-link`, { method: "POST" }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["orders", "view"] }),
+  });
   async function onCopy() {
     setCopy((await copyText(url)) ? "copied" : "failed");
     setTimeout(() => setCopy("idle"), 2000);
@@ -170,6 +176,11 @@ function BuyerLink({ o, canRotate }: { o: OrderView; canRotate: boolean }) {
             <Mail /> Email
           </a>
         </Button>
+        {canRotate && o.mail_on && (
+          <Button variant="outline" size="sm" disabled={send.isPending} onClick={() => send.mutate()}>
+            <Send /> {send.isPending ? "Sending…" : o.link_email ? "Resend email" : "Send email"}
+          </Button>
+        )}
         {canRotate && (
           <Button variant="outline" size="sm" disabled={rotate.isPending} onClick={() => window.confirm("The old link stops working. Continue?") && rotate.mutate()}>
             <RefreshCw /> New link
@@ -178,6 +189,18 @@ function BuyerLink({ o, canRotate }: { o: OrderView; canRotate: boolean }) {
       </div>
       {copy === "failed" && <p role="alert" className="text-danger">Could not copy. Select the link above and copy it by hand.</p>}
       {rotate.isError && <p role="alert" className="text-danger">{rotate.error.message}</p>}
+      {send.isError && <p role="alert" className="text-danger">{send.error.message}</p>}
+      <EmailStatus o={o} />
     </section>
   );
+}
+
+// what happened to the automatic "order confirmed" email, so the clerk knows whether to follow up
+function EmailStatus({ o }: { o: OrderView }) {
+  const e = o.link_email;
+  if (!o.mail_on) return <p className="text-muted-foreground">Automatic email is off: no mail server is set in .env.</p>;
+  if (!e) return <p className="text-muted-foreground">The link is emailed to the buyer when the order is confirmed.</p>;
+  if (e.status === "sent") return <p className="text-success">Emailed to {e.to} on {dateTime(e.at)}.</p>;
+  if (e.status === "skipped") return <p className="text-warning">Not emailed: the buyer has no email address. Add one in Masters → Buyers, then send.</p>;
+  return <p role="alert" className="text-danger">Email to {e.to} failed on {dateTime(e.at)}: {e.error}</p>;
 }

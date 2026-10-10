@@ -39,6 +39,11 @@ def rotate_token(order_id: int, db: Session = Depends(get_db), user: User = Sale
     return service.rotate_token(db, user, order_id)
 
 
+@router.post("/orders/{order_id}/email-link", response_model=OrderView)
+def email_link(order_id: int, db: Session = Depends(get_db), user: User = Sales):
+    return service.resend_link(db, user, order_id)
+
+
 # public: no login, token is the only key; response_model strips anything not for buyers
 @router.get("/{token}", response_model=TrackOut)
 def track(token: str = Path(min_length=10, max_length=64), db: Session = Depends(get_db)):

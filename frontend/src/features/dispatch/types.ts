@@ -8,6 +8,7 @@ export type DispatchRow = {
   buyer_id: number;
   vehicle_no: string | null;
   driver: string | null;
+  driver_email: string | null;
   status: DispatchStatus;
   confirmed_at: string | null;
   created_at: string;
@@ -51,6 +52,9 @@ export type DispatchDetail = Omit<DispatchRow, "roll_count" | "metres"> & {
   delivery_note: string | null;
   has_code: boolean;
   tries_left: number;
+  mail_on: boolean;
+  // newest try at emailing the driver their link
+  driver_mail: { status: "sent" | "failed" | "skipped"; at: string; to: string | null; error: string | null } | null;
 };
 
 // a confirmed truck is on the road until the buyer's code closes the trip
