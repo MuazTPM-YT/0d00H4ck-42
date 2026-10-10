@@ -73,7 +73,7 @@ def order_body(stocked, **over):
 
 def test_preview_uses_raw_white_for_dyed_fabric(api, stocked):
     res = api(
-        Role.sales,
+        Role.accounts,
         "POST",
         "/api/orders/requirement-preview",
         json={"fabric_type_id": stocked["fabric"].id, "colour": "Maroon", "qty_m": "500"},
@@ -99,19 +99,19 @@ def test_preview_uses_raw_white_for_dyed_fabric(api, stocked):
     ],
 )
 def test_order_input_validation(api, stocked, over, field):
-    res = api(Role.sales, "POST", "/api/orders", json=order_body(stocked, **over))
+    res = api(Role.accounts, "POST", "/api/orders", json=order_body(stocked, **over))
     assert res.status_code == 422
     assert res.json()["error"]["field"] == field
 
 
 def test_confirm_plans_work_orders_reserves_and_lists_shortfall(api, db, stocked):
-    created = api(Role.sales, "POST", "/api/orders", json=order_body(stocked))
+    created = api(Role.accounts, "POST", "/api/orders", json=order_body(stocked))
     assert created.status_code == 201, created.text
     order = created.json()
     assert order["code"].startswith("SO-") and order["status"] == "draft"
     assert order["buyer"]["name"] == "Test Buyer"
 
-    res = api(Role.sales, "POST", f"/api/orders/{order['id']}/confirm")
+    res = api(Role.accounts, "POST", f"/api/orders/{order['id']}/confirm")
     assert res.status_code == 200, res.text
     alloc = res.json()
     assert [(x["kg_reserved"], x["kg_short"]) for x in alloc["lines"]] == [
@@ -122,14 +122,14 @@ def test_confirm_plans_work_orders_reserves_and_lists_shortfall(api, db, stocked
     wos = db.scalars(select(WorkOrder).where(WorkOrder.order_id == order["id"])).all()
     assert [w.stage for w in wos] == ["weaving", "dyeing"]
 
-    to_buy = api(Role.sales, "GET", "/api/orders/to-buy").json()
+    to_buy = api(Role.accounts, "GET", "/api/orders/to-buy").json()
     row = next(r for r in to_buy if r["order_id"] == order["id"])
     assert (row["label"], row["to_buy_kg"]) == ("Cotton Ne 30/1 Raw White", "30.000")
     assert row["suggested_supplier_id"] == stocked["sup"].id
 
     # one click: the shortfall becomes an expected delivery, and leaves the to-buy list
     ed = api(
-        Role.sales,
+        Role.accounts,
         "POST",
         "/api/inventory/expected-deliveries",
         json={
@@ -142,31 +142,34 @@ def test_confirm_plans_work_orders_reserves_and_lists_shortfall(api, db, stocked
         },
     )
     assert ed.status_code == 201, ed.text
-    after = api(Role.sales, "GET", "/api/orders/to-buy").json()
+    after = api(Role.accounts, "GET", "/api/orders/to-buy").json()
     row = next(r for r in after if r["order_id"] == order["id"])
     assert (row["on_order_kg"], row["to_buy_kg"]) == ("30.000", "0.000")
 
-    again = api(Role.sales, "POST", f"/api/orders/{order['id']}/confirm")
+    again = api(Role.accounts, "POST", f"/api/orders/{order['id']}/confirm")
     assert again.status_code == 409 and again.json()["error"]["code"] == "illegal_transition"
 
 
 def test_cancel_releases_reservations(api, db, stocked):
-    order = api(Role.sales, "POST", "/api/orders", json=order_body(stocked)).json()
-    api(Role.sales, "POST", f"/api/orders/{order['id']}/confirm")
+    order = api(Role.accounts, "POST", "/api/orders", json=order_body(stocked)).json()
+    api(Role.accounts, "POST", f"/api/orders/{order['id']}/confirm")
     assert inv.free_stock(db, stocked["w40"].id) == D(10)
     res = api(
-        Role.sales, "POST", f"/api/orders/{order['id']}/cancel", json={"reason": "Buyer cancelled"}
+        Role.accounts,
+        "POST",
+        f"/api/orders/{order['id']}/cancel",
+        json={"reason": "Buyer cancelled"},
     )
     assert res.status_code == 200 and res.json()["status"] == "cancelled"
     assert inv.free_stock(db, stocked["w40"].id) == D(70)
 
 
 def test_reserve_again_picks_up_new_stock(api, db, stocked):
-    order = api(Role.sales, "POST", "/api/orders", json=order_body(stocked)).json()
-    api(Role.sales, "POST", f"/api/orders/{order['id']}/confirm")
+    order = api(Role.accounts, "POST", "/api/orders", json=order_body(stocked)).json()
+    api(Role.accounts, "POST", f"/api/orders/{order['id']}/confirm")
     make_batch(db, stocked["sup"], stocked["w30"], 50)
     db.commit()
-    alloc = api(Role.sales, "POST", f"/api/orders/{order['id']}/reserve").json()
+    alloc = api(Role.accounts, "POST", f"/api/orders/{order['id']}/reserve").json()
     assert alloc["fully_covered"] is True
     assert alloc["lines"][1]["mixed_lots"] is True  # 10 kg lot + 30 kg from the new one
 

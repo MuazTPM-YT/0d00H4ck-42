@@ -68,31 +68,32 @@ export function StockScreen() {
             <TableHeader>
               <TableRow>
                 <TableHead>Yarn</TableHead>
+                <TableHead>Status</TableHead>
                 <TableHead className="text-right">On hand</TableHead>
                 <TableHead className="text-right">Reserved</TableHead>
                 <TableHead className="text-right">Free</TableHead>
                 <TableHead className="text-right">Still needed</TableHead>
                 <TableHead className="text-right">Projected</TableHead>
                 <TableHead className="text-right">Reorder at</TableHead>
-                <TableHead className="text-right">Inspection</TableHead>
-                <TableHead className="text-right">Quarantine</TableHead>
-                <TableHead>Status</TableHead>
+                <TableHead className="text-right">On hold</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {rows.map((r) => (
                 <TableRow key={r.yarn_item_id} onClick={() => setItem(r)} className="cursor-pointer">
                   <TableCell className="font-medium whitespace-nowrap">{r.label}</TableCell>
+                  <TableCell>
+                    <LevelBadge level={r.level} />
+                  </TableCell>
                   <TableCell className="text-right">{kg(r.on_hand_kg)}</TableCell>
                   <TableCell className="text-right">{kg(r.reserved_kg)}</TableCell>
                   <TableCell className="text-right font-medium">{kg(r.free_kg)}</TableCell>
                   <TableCell className="text-right">{kg(r.needed_by_orders_kg)}</TableCell>
                   <TableCell className="text-right font-medium">{kg(r.projected_free_kg)}</TableCell>
                   <TableCell className="text-right text-muted-foreground">{kg(r.reorder_level_kg)}</TableCell>
-                  <TableCell className="text-right text-muted-foreground">{kg(r.inspection_kg)}</TableCell>
-                  <TableCell className="text-right text-muted-foreground">{kg(r.quarantined_kg)}</TableCell>
-                  <TableCell>
-                    <LevelBadge level={r.level} />
+                  <TableCell className="text-right text-muted-foreground" title="In inspection · in quarantine; neither counts as free">
+                    <span className="block">{kg(r.inspection_kg)} inspection</span>
+                    <span className="block text-[0.82rem]">{kg(r.quarantined_kg)} quarantine</span>
                   </TableCell>
                 </TableRow>
               ))}

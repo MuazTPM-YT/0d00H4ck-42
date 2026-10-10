@@ -1,6 +1,6 @@
 "use client";
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { api, type Paged, qs } from "@/lib/api";
 
@@ -89,12 +89,25 @@ const RECORD_PAGE: Record<string, (id: number) => string> = {
 export const recordHref = (r: RecordRef) => RECORD_PAGE[r.type]?.(r.id) ?? null;
 
 // keys start with their SSE topic: "insights" refetch on new findings, "orders" on forecast moves
-export type InsightFilters = { status: string; severity: string; kind: string };
+export type InsightFilters = { status: string; severity: string; kind: string; q: string };
+export type InsightCounts = {
+  by_status: Record<InsightStatus, number>;
+  by_severity: Record<Severity, number>;
+  by_kind: { kind: string; count: number; critical: number }[];
+};
 
 export const useInsights = (filters: InsightFilters, offset: number, limit: number) =>
   useQuery({
     queryKey: ["insights", "list", filters, offset, limit],
     queryFn: () => api<Paged<Insight>>(`/analytics/insights${qs({ ...filters, offset, limit })}`),
+    placeholderData: keepPreviousData,
+  });
+
+export const useInsightCounts = (status: string) =>
+  useQuery({
+    queryKey: ["insights", "counts", status],
+    queryFn: () => api<InsightCounts>(`/analytics/insights/counts${qs({ status })}`),
+    placeholderData: keepPreviousData,
   });
 
 export const useInsight = (id: number | null) =>

@@ -108,7 +108,6 @@ def seed_masters(db: Session) -> None:
         (Role.qc, "Priya Raman"),
         (Role.dispatch, "Imran Shaikh"),
         (Role.accounts, "Kavitha Rao"),
-        (Role.sales, "Arjun Mehta"),
     ]:
         get_or_create(
             db, User, {"email": f"{role}@everest.local"}, name=name, role=role, password_hash=pw
@@ -462,7 +461,7 @@ def seed_demo(db: Session) -> None:
 
     # --- work orders through the real service, then placed in every status
     for o in (so_closed, so_shirt, so_dyed, so_drill):
-        create_work_orders(db, o.id, user[Role.sales].id)
+        create_work_orders(db, o.id, user[Role.accounts].id)
     wo = {(w.order_id, w.stage): w for w in db.scalars(select(WorkOrder))}
     w_closed = wo[(so_closed.id, Stage.weaving)]
     w_closed.status, w_closed.machine_id = WorkOrderStatus.done, mc["LM-04"].id
@@ -745,7 +744,7 @@ def seed_demo(db: Session) -> None:
 
     # --- ready-to-ship order for the dispatch demo: band A covers it, one band B roll is old
     so_ready = order("IYER", "SHIRT40", "Raw White", 300, 182, 4, OrderStatus.confirmed)
-    create_work_orders(db, so_ready.id, user[Role.sales].id)
+    create_work_orders(db, so_ready.id, user[Role.accounts].id)
     w_ready = db.scalar(select(WorkOrder).where(WorkOrder.order_id == so_ready.id))
     w_ready.status, w_ready.machine_id = WorkOrderStatus.done, mc["LM-03"].id
     w_ready.started_at, w_ready.finished_at = NOW - timedelta(days=11), NOW - timedelta(days=2)

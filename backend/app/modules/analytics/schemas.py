@@ -25,6 +25,18 @@ class InsightOut(BaseModel):
     created_at: datetime
 
 
+class KindCount(BaseModel):
+    kind: str
+    count: int
+    critical: int
+
+
+class InsightCountsOut(BaseModel):
+    by_status: dict[InsightStatus, int]
+    by_severity: dict[Severity, int]
+    by_kind: list[KindCount]
+
+
 class AttentionItemOut(BaseModel):
     kind: str
     severity: Severity

@@ -25,11 +25,27 @@ const STATUSES: BatchStatus[] = ["inspection", "pending_identification", "quaran
 const columns: Column<Batch>[] = [
   { key: "code", header: "Batch", cell: (b) => <span className="font-medium tabular">{b.code}</span> },
   { key: "yarn", header: "Yarn", cell: (b) => itemLabel(b.yarn_item), className: "whitespace-nowrap" },
-  { key: "lot", header: "Supplier lot", cell: (b) => b.supplier_lot ?? "—" },
-  { key: "supplier", header: "Supplier", cell: (b) => b.supplier?.name ?? "—" },
+  {
+    key: "supplier",
+    header: "Supplier · lot",
+    cell: (b) => (
+      <>
+        <span className="block">{b.supplier?.name ?? "—"}</span>
+        <span className="block text-[0.82rem] text-muted-foreground">lot {b.supplier_lot ?? "—"}</span>
+      </>
+    ),
+  },
   { key: "kg", header: "Received", cell: (b) => kg(b.received_kg), className: "text-right" },
-  { key: "receipt", header: "Receipt", cell: (b) => `${b.receipt?.code ?? "—"}${b.receipt?.status === "draft" ? " (draft)" : ""}` },
-  { key: "date", header: "Date", cell: (b) => date(b.receipt?.confirmed_at ?? b.created_at) },
+  {
+    key: "receipt",
+    header: "Receipt",
+    cell: (b) => (
+      <>
+        <span className="block">{`${b.receipt?.code ?? "—"}${b.receipt?.status === "draft" ? " (draft)" : ""}`}</span>
+        <span className="block text-[0.82rem] text-muted-foreground">{date(b.receipt?.confirmed_at ?? b.created_at)}</span>
+      </>
+    ),
+  },
   { key: "status", header: "Status", cell: (b) => <StatusBadge status={b.status} /> },
 ];
 

@@ -143,7 +143,7 @@ def test_rejected_metres_only_for_staff(client_as, client, db):
     assert "rejected" not in public["metres"]
     assert "reject" not in json.dumps(public).lower()
     assert public["metres"]["produced"] == "120.000"
-    staff = client_as(Role.sales).get(f"/api/track/orders/{o.id}").json()
+    staff = client_as(Role.accounts).get(f"/api/track/orders/{o.id}").json()
     assert staff["metres"]["rejected"] == "40.000"
 
 
@@ -153,7 +153,7 @@ def test_bad_or_rotated_token_is_404(client_as, client, db):
     old = o.tracking_token
     assert client.get("/api/track/not-a-real-token-123").status_code == 404
 
-    res = client_as(Role.sales).post(f"/api/track/orders/{o.id}/rotate-token")
+    res = client_as(Role.accounts).post(f"/api/track/orders/{o.id}/rotate-token")
     assert res.status_code == 200
     assert res.json()["tracking_token"] != old
     assert client.get(f"/api/track/{old}").status_code == 404
@@ -166,7 +166,7 @@ def test_order_view_lists_rolls_and_roles(client_as, db):
     mill.roll(mill.work_order(o), 100)
     db.commit()
     assert client_as(Role.qc).get(f"/api/track/orders/{o.id}").status_code == 403
-    body = client_as(Role.sales).get(f"/api/track/orders/{o.id}").json()
+    body = client_as(Role.accounts).get(f"/api/track/orders/{o.id}").json()
     assert [r["status"] for r in body["rolls"]] == ["passed"]
     assert body["buyer_name"] == "Mill Buyer"
 
@@ -183,3 +183,19 @@ def test_late_when_forecast_lands_after_deadline(client, db):
     # no forecast outside production, but a missed deadline is still late
     body = client.get(f"/api/track/{draft.tracking_token}").json()
     assert body["risk"] == "late" and body["projected_finish"] is None
+
+
+# order list column: stage for many orders in one call, office roles only
+def test_stages_for_a_page_of_orders(client_as, db):
+    mill = Mill(db)
+    ready = mill.order(100)
+    mill.roll(mill.work_order(ready), 120)
+    waiting = mill.order(200)
+    db.commit()
+    rows = client_as(Role.accounts).get(f"/api/track/stages?ids={ready.id},{waiting.id}").json()
+    by_id = {r["order_id"]: r for r in rows}
+    assert by_id[ready.id]["stage"] == "ready_to_ship" and by_id[ready.id]["passed_m"] == "120.000"
+    assert by_id[waiting.id]["stage"] == "waiting_for_yarn"
+    assert client_as(Role.dispatch).get("/api/track/stages?ids=4,x").status_code == 422
+    bad = client_as(Role.qc).get(f"/api/track/stages?ids={ready.id}")
+    assert bad.status_code == 403

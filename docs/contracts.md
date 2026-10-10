@@ -113,7 +113,7 @@ caller. Status: **done** = implemented and tested, **stub** = raises `NotImpleme
 | `production.machine_status(db, machine_id)` | Muaz | done | `MachineStatus`, latest event or `off` |
 | `production.order_progress(db, order_id)` | Muaz | done | `{stage: {planned, produced, unit}}` |
 | `production.create_rework_work_order(db, roll_id, stage, user_id)` | Muaz | done | `WorkOrder` with `roll_id` set; roll must be `rework`; second call returns the open one. Processing the roll on that job sends it back to `awaiting_qc` |
-| `quality.roll_trace(db, roll_id)` | Razan | stub | order, loom, shift, weaver, yarn batches + suppliers, QC attempts, events |
+| `quality.roll_trace(db, roll_id)` | Razan | done | order, loom, shift, weaver, yarn batches + suppliers, QC attempts, events |
 | `tracking.order_stage(db, order_id)` | Ashil | done | derived buyer stage + metres per bucket |
 | `dispatch.finished_stock(db, order_id=None, shade_band=None)` | Ashil | done | `list[Roll]` passed and not dispatched |
 | `dispatch.corner_check(db, days=7)` | Ashil | done | rolls too long on shelf, order not open, or leftover of a shipped order |
@@ -148,32 +148,31 @@ Pure helpers in `app.core.units`: `qty`, `rupees_to_paise`, `line_amount_paise`,
 | `GET /api/inventory/{stock,stock/warnings,batches,batches/{id},expected-deliveries,receipts,receipts/{id},qr.svg}` | any logged in |
 | `POST /api/inventory/batches/{id}/{approve,quarantine,reject,identify}` | store |
 | `POST /api/inventory/batches/{id}/release` | owner only, reason required |
-| `POST /api/inventory/expected-deliveries`, `.../{id}/cancel` | store, sales |
+| `POST /api/inventory/expected-deliveries`, `.../{id}/cancel` | store, accounts |
 | `GET /api/inventory/sample-labels`, `POST /api/inventory/labels/check`, `POST /api/inventory/receipts[/{id}/lines,/{id}/confirm]` | store |
 | `GET /api/inventory/issue-plan?work_order=WO-…` | store, supervisor |
 | `POST /api/inventory/issues`, `POST /api/inventory/returns` | store |
-| `POST /api/orders`, `POST /api/orders/{id}/{confirm,reserve,cancel}` | sales |
+| `POST /api/orders`, `POST /api/orders/{id}/{confirm,reserve,cancel}` | accounts |
 | `GET /api/orders/{id}`, `GET /api/orders/{id}/allocation`, `POST /api/orders/requirement-preview` | any logged in |
-| `GET /api/orders/to-buy` | sales, store |
+| `GET /api/orders/to-buy` | accounts, store |
 | `GET /api/orders`, `GET /api/orders/{id}/yarn-requirement` | any logged in |
 | `GET /api/production/work-orders`, `/work-orders/open`, `/board`, `/machines/{id}/timeline` | any logged in |
 | `POST /api/production/work-orders/{id}/{queue,unqueue,start,move,finish}`, `PUT /api/production/machines/{id}/queue` | supervisor |
 | `POST /api/production/machine-events`, `/output`, `/rolls`, `/rolls/{id}/process` | supervisor (machine feeds log in as one) |
-| `GET /api/quality/rolls` | any logged in |
-| `GET /api/quality/queue`, `/summary?days=`, `/rolls/{id}` | any logged in |
+| `GET /api/quality/rolls`, `/queue`, `/summary?days=`, `/checks`, `/rolls/{id}`, `/rolls/{id}/trace` | any logged in |
 | `POST /api/quality/rolls/{id}/checks` | qc |
 | `GET /api/workforce/attendance`, `/crew`, `/current-shift` | supervisor, accounts |
 | `PUT /api/workforce/attendance`, `POST /api/workforce/crew`, `POST /api/workforce/crew/{id}/end` | supervisor |
 | `GET /api/dispatch/dispatches[/{id}]`, `/finished-stock`, `/corner-check` | dispatch, accounts, supervisor |
 | `POST /api/dispatch/dispatches`, `.../{id}/scan`, `PUT .../{id}/vehicle`, `DELETE .../{id}/rolls/{roll_id}`, `POST .../{id}/confirm` | dispatch |
 | `POST /api/dispatch/dispatches/{id}/shade-override` | supervisor |
-| `/api/finance/*` (invoices, payments, wage-runs, expenses, orders/{id}/cost, machine-production, month, month/records) | accounts |
-| `GET /api/analytics/insights[/{id}]`, `/attention`, `/briefing` | any logged in (insights filtered to the role's kinds) |
+| `/api/finance/*` (invoices, payments, wage-runs, expenses, orders/{id}/cost, order-costs, machine-production, month, month/records) | accounts |
+| `GET /api/analytics/insights[/{id}]` (`?q=` title search), `/insights/counts`, `/attention`, `/briefing` | any logged in (insights filtered to the role's kinds) |
 | `POST /api/analytics/insights/{id}/acknowledge`, `/resolve` | any logged in, own kinds |
 | `POST /api/analytics/run` | supervisor |
-| `GET /api/analytics/delivery`, `/orders/{id}/delivery-estimate` | sales, supervisor |
+| `GET /api/analytics/delivery`, `/orders/{id}/delivery-estimate` | accounts, supervisor |
 | `GET /api/track/{token}` | public |
-| `GET /api/track/orders/{id}` | sales, accounts, dispatch |
-| `POST /api/track/orders/{id}/rotate-token` | sales |
+| `GET /api/track/orders/{id}`, `/track/stages?ids=` (stage for a page of orders) | accounts, dispatch |
+| `POST /api/track/orders/{id}/rotate-token` | accounts |
 
 Owner passes every role check. Full schema at http://localhost:8000/docs.

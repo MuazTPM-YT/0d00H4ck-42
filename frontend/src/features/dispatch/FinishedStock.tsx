@@ -2,6 +2,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { AlertTriangle, PackageCheck, Truck } from "lucide-react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
@@ -10,6 +11,7 @@ import { PageHeader } from "@/components/layout/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { api } from "@/lib/api";
 import { useMe } from "@/lib/auth";
 import { metres } from "@/lib/format";
@@ -37,9 +39,9 @@ export function FinishedStock() {
         description={shelf.data ? `${shelf.data.reduce((n, g) => n + g.rolls.length, 0)} rolls, ${metres(total)} passed and waiting to ship.` : "Passed rolls waiting to ship."}
       />
       {corner.data && corner.data.length > 0 && (
-        <section className="mb-6 rounded-lg border border-warning bg-warning-soft p-4">
-          <h2 className="mb-2 flex items-center gap-2 font-medium text-warning"><AlertTriangle className="size-5" /> Needs a look ({corner.data.length})</h2>
-          <ul className="grid gap-1 text-sm">
+        <section className="mb-6 border border-warning bg-warning-soft p-4">
+          <h2 className="mb-2 flex items-center gap-2 text-base text-warning"><AlertTriangle className="size-5" /> Needs a look ({corner.data.length})</h2>
+          <ul className="scroll-panel grid max-h-44 gap-1 text-sm">
             {corner.data.map((c) => (
               <li key={c.roll_id}><span className="font-medium">{c.roll_code}</span> ({c.order_code}, {metres(c.length_m)}, {c.days_on_shelf} days): {c.reasons.join("; ")}</li>
             ))}
@@ -55,10 +57,10 @@ export function FinishedStock() {
       ) : (
         <div className="grid gap-4 lg:grid-cols-2">
           {shelf.data.map((g) => (
-            <section key={g.order_id} className={cn("rounded-lg border bg-card", !g.order_open && "border-warning")}>
-              <div className="flex flex-wrap items-start justify-between gap-2 border-b px-4 py-3">
+            <section key={g.order_id} className={cn("flex flex-col border border-border bg-card", !g.order_open && "border-warning")}>
+              <div className="flex flex-wrap items-start justify-between gap-2 border-b border-border px-4 py-3">
                 <div>
-                  <h2 className="font-medium">{g.order_code} · {g.buyer_name}</h2>
+                  <h2 className="text-base">{g.order_code} · {g.buyer_name}</h2>
                   <p className="text-sm text-muted-foreground">
                     {metres(g.on_shelf_m)} on shelf · {metres(g.shipped_m)} of {metres(g.ordered_m)} shipped
                     {!g.order_open && " · order not open"}
@@ -66,24 +68,31 @@ export function FinishedStock() {
                 </div>
                 {canLoad && g.order_open && <Button size="lg" onClick={() => setShipOrder(g.order_id)}><Truck /> Ship</Button>}
               </div>
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead className="text-left text-muted-foreground">
-                    <tr><th className="px-4 py-2 font-normal">Roll</th><th className="font-normal">Shade</th><th className="font-normal">Where</th><th className="text-right font-normal">Metres</th><th className="px-4 text-right font-normal">Days</th></tr>
-                  </thead>
-                  <tbody>
-                    {g.rolls.map((r) => (
-                      <tr key={r.id} className="border-t">
-                        <td className="px-4 py-2 font-medium">{r.code}{r.dispatch_code && <span className="ml-2 text-xs text-info">on {r.dispatch_code}</span>}</td>
-                        <td>{r.shade_band ?? "—"}</td>
-                        <td>{r.location}</td>
-                        <td className="text-right tabular">{metres(r.length_m)}</td>
-                        <td className={cn("px-4 text-right tabular", r.days_on_shelf > 7 && "font-semibold text-warning")}>{r.days_on_shelf}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+              <Table containerClassName="scroll-panel max-h-80">
+                <TableHeader className="sticky top-0 z-10 bg-card">
+                  <TableRow>
+                    <TableHead>Roll</TableHead>
+                    <TableHead>Shade</TableHead>
+                    <TableHead>Where</TableHead>
+                    <TableHead className="text-right">Metres</TableHead>
+                    <TableHead className="text-right">Days</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {g.rolls.map((r) => (
+                    <TableRow key={r.id} className="[&_td]:h-11">
+                      <TableCell>
+                        <Link href={`/qc/rolls/${r.id}`} className="num font-semibold hover:text-ember">{r.code}</Link>
+                        {r.dispatch_code && <span className="ml-2 text-xs text-info">on {r.dispatch_code}</span>}
+                      </TableCell>
+                      <TableCell>{r.shade_band ?? "—"}</TableCell>
+                      <TableCell className="num">{r.location}</TableCell>
+                      <TableCell className="tabular text-right">{metres(r.length_m)}</TableCell>
+                      <TableCell className={cn("tabular text-right", r.days_on_shelf > 7 && "font-semibold text-warning")}>{r.days_on_shelf}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
             </section>
           ))}
         </div>

@@ -100,3 +100,19 @@ def test_only_supervisor_or_owner_runs_detectors(client_as, monkeypatch):
     monkeypatch.setattr(detectors, "find_all", lambda db, now: [])
     assert client_as(Role.qc).post("/api/analytics/run").status_code == 403
     assert client_as(Role.supervisor).post("/api/analytics/run").json()["created"] == 0
+
+
+def test_counts_follow_role_and_status_and_search_finds_title(client_as, db, two_insights):
+    two_insights["machine_slowdown"].severity = Severity.critical
+    db.commit()
+    owner = client_as(Role.owner)
+    counts = owner.get("/api/analytics/insights/counts?status=open").json()
+    assert counts["by_status"] == {"open": 2, "acknowledged": 0, "resolved": 0}
+    assert counts["by_severity"] == {"info": 0, "warn": 1, "critical": 1}
+    assert [k["kind"] for k in counts["by_kind"]] == ["machine_slowdown", "supplier_defects"]
+    hits = owner.get("/api/analytics/insights?q=lm-03").json()
+    assert hits["total"] == 2
+    assert owner.get("/api/analytics/insights?q=nothing-like-this").json()["total"] == 0
+    # client_as re-points the one test client, so the store view comes last
+    store = client_as(Role.store).get("/api/analytics/insights/counts").json()
+    assert [k["kind"] for k in store["by_kind"]] == ["supplier_defects"]

@@ -123,7 +123,7 @@ def test_delivery_estimate_api_roles_and_closed_orders(client_as, db, floor):
     path = f"/api/analytics/orders/{floor.shirt_order.id}/delivery-estimate"
     assert client_as(Role.qc).get(path).status_code == 403
 
-    body = client_as(Role.sales).get(path).json()
+    body = client_as(Role.accounts).get(path).json()
     assert body["order_code"] == "SO-T1"
     assert body["status"] in {"on_track", "at_risk", "late"}
     assert body["stages"][0]["remaining"] == 600.0
@@ -137,7 +137,7 @@ def test_delivery_estimate_api_roles_and_closed_orders(client_as, db, floor):
 
 
 def test_delivery_board_lists_most_urgent_first(client_as, floor):
-    rows = client_as(Role.sales).get("/api/analytics/delivery").json()
+    rows = client_as(Role.accounts).get("/api/analytics/delivery").json()
     assert {r["order_code"] for r in rows} == {"SO-T1", "SO-T2"}
     ranks = [forecast_rank(r) for r in rows]
     assert ranks == sorted(ranks)

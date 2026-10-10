@@ -27,11 +27,28 @@ const SELECT = "h-9 w-full rounded-md border border-input bg-transparent px-3 te
 const columns: Column<DispatchRow>[] = [
   { key: "code", header: "Dispatch", cell: (d) => <span className="font-medium">{d.code}</span> },
   { key: "when", header: "Date", cell: (d) => dateTime(d.confirmed_at ?? d.created_at) },
-  { key: "buyer", header: "Buyer", cell: (d) => d.buyer_name },
-  { key: "order", header: "Order", cell: (d) => d.order_code },
+  {
+    key: "order",
+    header: "Order · buyer",
+    cell: (d) => (
+      <>
+        <span className="block">{d.order_code}</span>
+        <span className="block text-[0.82rem] text-muted-foreground">{d.buyer_name}</span>
+      </>
+    ),
+  },
   { key: "vehicle", header: "Vehicle", cell: (d) => d.vehicle_no ?? "—" },
-  { key: "rolls", header: "Rolls", cell: (d) => d.roll_count, className: "text-right tabular" },
-  { key: "metres", header: "Metres", cell: (d) => metres(d.metres), className: "text-right tabular" },
+  {
+    key: "load",
+    header: "Load",
+    className: "text-right tabular",
+    cell: (d) => (
+      <>
+        <span className="block">{metres(d.metres)}</span>
+        <span className="block text-[0.82rem] text-muted-foreground">{d.roll_count} rolls</span>
+      </>
+    ),
+  },
   { key: "invoice", header: "Invoice", cell: (d) => d.invoice_code ?? "—" },
   { key: "status", header: "Status", cell: (d) => <StatusBadge status={d.status} /> },
 ];

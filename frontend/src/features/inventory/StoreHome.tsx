@@ -5,6 +5,7 @@ import { AlertTriangle, CheckCircle2 } from "lucide-react";
 import Link from "next/link";
 
 import { PageHeader } from "@/components/layout/PageHeader";
+import { StatStrip } from "@/components/layout/StatStrip";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { api, type Paged } from "@/lib/api";
@@ -42,27 +43,20 @@ export function StoreHome() {
         actions={<Button asChild size="lg"><Link href="/store/receive">Receive yarn</Link></Button>}
       />
 
-      <ul className="mb-6 grid grid-cols-2 gap-3 md:grid-cols-4">
-        <li>
-          <Link href="/store/receive" className="block min-h-20 lift rounded-2xl border border-border/60 bg-card p-4 shadow-card">
-            <div className="text-xs text-muted-foreground">Deliveries expected</div>
-            <div className="text-2xl font-semibold tabular">{(deliveries.data as Paged<Delivery> | undefined)?.total ?? "…"}</div>
-          </Link>
-        </li>
-        {QUEUES.map((q, i) => (
-          <li key={q.status}>
-            <Link href="/store/batches" className="block min-h-20 lift rounded-2xl border border-border/60 bg-card p-4 shadow-card">
-              <div className="text-xs text-muted-foreground">{q.title}</div>
-              <div className="text-2xl font-semibold tabular">{(queues[i].data as Paged<Batch> | undefined)?.total ?? "…"}</div>
-            </Link>
-          </li>
-        ))}
-      </ul>
+      <StatStrip
+        stats={[
+          { key: "deliveries", label: "Deliveries expected", value: (deliveries.data as Paged<Delivery> | undefined)?.total ?? "…", sub: "open supplier orders", href: "/store/receive" },
+          ...QUEUES.map((q, i) => {
+            const n = (queues[i].data as Paged<Batch> | undefined)?.total;
+            return { key: q.status, label: q.title, value: n ?? "…", sub: "yarn batches", tone: n ? ("warn" as const) : undefined, href: "/store/batches" };
+          }),
+        ]}
+      />
 
       <div className="grid gap-6 lg:grid-cols-2">
-        <section className="grid content-start gap-3 rounded-lg border bg-card p-4">
+        <section className="grid content-start gap-3 border border-border bg-card p-4">
           <div className="flex items-center justify-between gap-2">
-            <h2 className="font-semibold">Low-stock warnings</h2>
+            <h2 className="text-base">Low-stock warnings</h2>
             <Link href="/store/stock" className="text-sm font-medium text-info hover:underline">All stock</Link>
           </div>
           <ErrorText error={stock.error} />
@@ -70,9 +64,9 @@ export function StoreHome() {
           {stock.data && warnings.length === 0 && (
             <p className="flex items-center gap-2 text-sm text-success"><CheckCircle2 className="size-4" aria-hidden /> Every yarn is above its reorder level.</p>
           )}
-          <ul className="grid gap-2">
+          <ul className="scroll-panel grid max-h-[30rem] content-start gap-2">
             {warnings.map((w) => (
-              <li key={w.yarn_item_id} className="flex flex-wrap items-center gap-2 rounded-md border p-3">
+              <li key={w.yarn_item_id} className="flex flex-wrap items-center gap-2 border border-border p-3">
                 <AlertTriangle className={w.level === "short" ? "size-4 text-danger" : "size-4 text-warning"} aria-hidden />
                 <span className="font-medium">{w.label}</span>
                 <LevelBadge level={w.level} />

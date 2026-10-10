@@ -13,8 +13,8 @@ class Role(StrEnum):
     supervisor = "supervisor"
     qc = "qc"
     dispatch = "dispatch"
+    # one desk: buyer orders and the books
     accounts = "accounts"
-    sales = "sales"
 
 
 class User(Base):

@@ -178,7 +178,7 @@ function Row({
   return (
     <li id={`worker-${worker.id}`} className={cn("border-l-2 border-l-transparent px-4 py-2.5", selected && "border-l-ember bg-accent")}>
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-        <button type="button" onClick={onSelect} aria-pressed={selected} className="min-w-44 flex-1 basis-52 text-left outline-none focus-visible:ring-2 focus-visible:ring-ember">
+        <button type="button" onClick={onSelect} aria-pressed={selected} className="min-w-36 flex-1 basis-40 text-left outline-none focus-visible:ring-2 focus-visible:ring-ember">
           <span className="flex min-w-0 items-baseline gap-2">
             <span className="truncate font-medium">{worker.name}</span>
             <span className="num shrink-0 text-xs text-muted-foreground">{worker.code}</span>
@@ -320,7 +320,7 @@ export function AttendancePanel({
           <p>{searching ? "No worker matches that search." : filter === "all" ? "No active workers. Add them under Masters." : "Nobody in this group."}</p>
         </div>
       ) : (
-        <ul className="divide-y divide-border">
+        <ul className="scroll-panel max-h-[34rem] divide-y divide-border lg:max-h-[calc(100dvh-15rem)]">
           {shown.map((r) => (
             <Row
               key={r.worker.id}

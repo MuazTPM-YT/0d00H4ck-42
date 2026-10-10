@@ -446,7 +446,7 @@ def test_tagged_yarn_reserved_for_its_order_on_approve(api, db, setup, buyer):
 
 
 def test_inventory_role_checks(api, setup):
-    assert api(Role.sales, "POST", "/api/inventory/batches/1/approve").status_code == 403
+    assert api(Role.accounts, "POST", "/api/inventory/batches/1/approve").status_code == 403
     assert (
         api(Role.qc, "POST", "/api/inventory/receipts", json={"supplier_id": 1}).status_code == 403
     )

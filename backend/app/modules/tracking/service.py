@@ -196,6 +196,27 @@ def order_stage(db: Session, order_id: int) -> dict:
 # --- routes
 
 
+# list view: where each order stands, without the delivery forecast (that runs per card)
+def stages(db: Session, order_ids: list[int]) -> list[dict]:
+    out = []
+    for order in db.scalars(select(Order).where(Order.id.in_(order_ids)).order_by(Order.id)):
+        m = _metres(db, order.id)
+        stage, production_stage, pct = derive_stage(
+            order.status, order.qty_m, _stage_progress(db, order.id), m
+        )
+        out.append(
+            {
+                "order_id": order.id,
+                "stage": stage,
+                "production_stage": production_stage,
+                "progress_pct": pct,
+                "passed_m": m["passed"],
+                "shipped_m": m["shipped"],
+            }
+        )
+    return out
+
+
 # produced counts good fabric only, else produced minus the rest gives rejects away
 def public_view(db: Session, token: str) -> dict:
     card = _card(db, order_by_token(db, token), internal=False)
