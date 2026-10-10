@@ -18,7 +18,7 @@ import { useMe } from "@/lib/auth";
 import { dateTime, metres } from "@/lib/format";
 import { useSSE } from "@/lib/useSSE";
 
-import type { DispatchRow, ShelfGroup } from "./types";
+import { type DispatchRow, type ShelfGroup, tripStatus } from "./types";
 
 const LIMIT = 20;
 export const VEHICLE_RE = "[A-Za-z0-9][A-Za-z0-9 \\-]{3,18}[A-Za-z0-9]";
@@ -50,7 +50,7 @@ const columns: Column<DispatchRow>[] = [
     ),
   },
   { key: "invoice", header: "Invoice", cell: (d) => d.invoice_code ?? "—" },
-  { key: "status", header: "Status", cell: (d) => <StatusBadge status={d.status} /> },
+  { key: "status", header: "Status", cell: (d) => <StatusBadge status={tripStatus(d)} /> },
 ];
 
 // gone-out register: every dispatch by date, buyer and vehicle (R16-R17)

@@ -16,6 +16,7 @@ import { useMe } from "@/lib/auth";
 import { date, dateTime, inr, metres } from "@/lib/format";
 import { copyText, whatsappNumber } from "@/lib/share";
 import { useSSE } from "@/lib/useSSE";
+import { tripStatus } from "@/features/dispatch/types";
 
 import { StageCard, Timeline, type Track } from "./StageCard";
 
@@ -28,7 +29,7 @@ type OrderView = Track & {
   buyer_email: string | null;
   tracking_token: string;
   rolls: { id: number; code: string; length_m: string; status: string; shade_band: string | null; dispatch_code: string | null }[];
-  dispatches: { id: number; code: string; status: string; vehicle_no: string | null; confirmed_at: string | null; roll_count: number; metres: string }[];
+  dispatches: { id: number; code: string; status: string; vehicle_no: string | null; confirmed_at: string | null; delivered_at: string | null; roll_count: number; metres: string }[];
   invoices: { id: number; code: string; total_paise: number; paid_paise: number; status: string; due_date: string }[];
 };
 
@@ -94,7 +95,7 @@ export function OrderDetail({ id, costPanel, yarnPanel }: { id: string; costPane
                 {o.dispatches.map((d) => (
                   <li key={d.id} className="flex flex-wrap items-center gap-3 px-4 py-2">
                     <span className="font-medium">{d.code}</span>
-                    <StatusBadge status={d.status} />
+                    <StatusBadge status={tripStatus(d)} />
                     <span className="text-muted-foreground">{d.vehicle_no ?? "no vehicle"} · {dateTime(d.confirmed_at)}</span>
                     <span className="ml-auto tabular">{d.roll_count} rolls · {metres(d.metres)}</span>
                   </li>
