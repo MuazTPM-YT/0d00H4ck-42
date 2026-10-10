@@ -24,7 +24,7 @@ def list_rows(
     stmt = select(model)
     if q and search:
         stmt = stmt.where(or_(*[getattr(model, col).ilike(f"%{q}%") for col in search]))
-    if active is not None:
+    if active is not None and hasattr(model, "active"):
         stmt = stmt.where(model.active == active)
     order = model.code if hasattr(model, "code") else model.id
     return paginate(db, stmt.order_by(order), page)

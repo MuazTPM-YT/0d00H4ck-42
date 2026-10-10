@@ -126,7 +126,7 @@ def seed_masters(db: Session) -> None:
             name=name,
             gstin=gstin,
             city=city,
-            phone="+91 98450 1" + gstin[8:12],
+            phone=f"+91 98450 {10000 + len(name) * 37}",
         )
 
     for code, name, gstin, contact, city in [

@@ -12,6 +12,7 @@ from app.modules.masters.models import LocationKind, WageType
 Pct = Annotated[Decimal, Field(gt=0, le=100, max_digits=5, decimal_places=2)]
 
 
+# outputs use plain types: input rules must never turn stored data into a 500
 class Out(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: int
@@ -27,8 +28,13 @@ class SupplierIn(BaseModel):
     active: bool = True
 
 
-class SupplierOut(Out, SupplierIn):
-    pass
+class SupplierOut(Out):
+    code: str
+    name: str
+    gstin: str | None
+    phone: str | None
+    city: str | None
+    active: bool
 
 
 # --- buyers
@@ -43,8 +49,15 @@ class BuyerIn(BaseModel):
     active: bool = True
 
 
-class BuyerOut(Out, BuyerIn):
-    email: str | None = None
+class BuyerOut(Out):
+    code: str
+    name: str
+    gstin: str
+    contact_name: str | None
+    phone: str | None
+    email: str | None
+    city: str | None
+    active: bool
 
 
 # --- yarn items
@@ -56,8 +69,12 @@ class YarnItemIn(BaseModel):
     active: bool = True
 
 
-class YarnItemOut(Out, YarnItemIn):
-    pass
+class YarnItemOut(Out):
+    fibre: str
+    count: str
+    colour: str
+    reorder_level_kg: Decimal
+    active: bool
 
 
 # --- fabric types (route stages + yarn recipe travel with the fabric)
@@ -101,12 +118,15 @@ class FabricTypeIn(BaseModel):
         return self
 
 
-class StageOut(Out, StageIn):
-    pass
+class StageOut(Out):
+    seq: int
+    stage: Stage
 
 
-class RecipeOut(Out, RecipeIn):
-    pass
+class RecipeOut(Out):
+    fibre: str
+    count: str
+    share_pct: Decimal
 
 
 class FabricTypeOut(Out):
@@ -139,8 +159,14 @@ class MachineIn(BaseModel):
         return self
 
 
-class MachineOut(Out, MachineIn):
-    pass
+class MachineOut(Out):
+    code: str
+    name: str
+    type: Stage
+    hourly_cost_paise: int
+    rated_output_per_hour: Decimal
+    output_unit: Unit
+    active: bool
 
 
 # --- workers
@@ -161,8 +187,13 @@ class WorkerIn(BaseModel):
         return self
 
 
-class WorkerOut(Out, WorkerIn):
-    pass
+class WorkerOut(Out):
+    code: str
+    name: str
+    wage_type: WageType
+    daily_rate_paise: int | None
+    piece_rate_paise_per_m: int | None
+    active: bool
 
 
 # --- shifts
@@ -179,8 +210,11 @@ class ShiftIn(BaseModel):
         return self
 
 
-class ShiftOut(Out, ShiftIn):
-    pass
+class ShiftOut(Out):
+    code: str
+    name: str
+    start_time: time
+    end_time: time
 
 
 class LocationOut(Out):
