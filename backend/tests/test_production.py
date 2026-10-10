@@ -744,6 +744,19 @@ def test_a_dye_job_with_no_roll_yet_does_not_hold_up_the_next(db, floor, buyer, 
     assert floor.dyed_dye.status == WorkOrderStatus.queued
 
 
+# a final wage run settled piece pay for that day: no output can be logged into it
+def test_output_refused_into_a_final_wage_period(db, floor):
+    from app.modules.finance.models import WageRun, WageRunStatus
+
+    wo = run_on(db, floor, floor.shirt_weave, floor.loom1)
+    today = datetime.now(IST).date()
+    db.add(WageRun(period_start=today, period_end=today, status=WageRunStatus.final))
+    db.commit()
+    with pytest.raises(Conflict) as locked:
+        log(db, floor, floor.loom1, 10, work_order_id=wo.id)
+    assert locked.value.code == "wages_final"
+
+
 # cancel never strands a loom: refused while a job runs, queued jobs go back to waiting
 def test_cancel_refused_while_a_job_runs(db, floor):
     from app.modules.orders import service as orders

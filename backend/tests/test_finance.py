@@ -389,6 +389,27 @@ def test_month_view_and_drilldown(client_as, db, mill):
     assert acc.get("/api/finance/month?month=2026-13").status_code == 422
 
 
+# collected = payments on this month's own invoices, not last month's money arriving now;
+# the result says when no wage run covers the month
+def test_month_collected_is_on_its_own_invoices(client_as, db, mill):
+    today = datetime.now(IST).date()
+    old = invoice_for(db, mill.order(), 300_000, days_ago=today.day + 1)  # last month
+    new = invoice_for(db, mill.order(), 200_000, days_ago=0)
+    db.commit()
+    acc = client_as(Role.accounts)
+    assert pay(acc, old, 315_000).status_code == 201
+    assert pay(acc, new, 50_000).status_code == 201
+    month = today.strftime("%Y-%m")
+    view = acc.get(f"/api/finance/month?month={month}").json()
+    assert view["received_paise"] == 365_000
+    assert view["collected_of_invoiced_paise"] == 50_000
+    assert view["wage_runs"] == 0
+    first = today.replace(day=1)
+    db.add(WageRun(period_start=first, period_end=first, status=WageRunStatus.final))
+    db.commit()
+    assert acc.get(f"/api/finance/month?month={month}").json()["wage_runs"] == 1
+
+
 # yarn rejected back to the supplier is not a cost of the month, in the total or the rows
 def test_yarn_sent_back_is_not_a_yarn_bill(client_as, db):
     from app.modules.inventory.models import BatchStatus, Receipt, ReceiptStatus, YarnBatch
@@ -470,10 +491,27 @@ def test_machine_production_counts_metres_and_hours(client_as, db, mill):
         ]
     )
     db.commit()
+    rework = mill.work_order(o, seq=2)
+    rework.roll_id = mill.roll(wo, 40, status=RollStatus.rework).id
+    db.add(
+        ProductionLog(
+            work_order_id=rework.id,
+            machine_id=mill.loom.id,
+            shift_id=mill.shift.id,
+            qty=Decimal(40),
+            unit=Unit.m,
+            at=start + timedelta(hours=3),
+        )
+    )
+    db.commit()
     rows = client_as(Role.owner).get(f"/api/finance/machine-production?month={start:%Y-%m}").json()
     loom = next(r for r in rows if r["code"] == "LM-T1")
-    assert Decimal(loom["month_qty"]) == 95
+    assert Decimal(loom["month_qty"]) == 95  # rework redoes metres already counted
+    assert loom["type"] == "weaving"
     assert Decimal(loom["hours"]["running"]) == 6 and Decimal(loom["hours"]["breakdown"]) == 2
+    # before its first report the loom was off, as the machine timeline says
+    month_start = datetime.combine(start.date().replace(day=1), time(0), IST)
+    assert Decimal(loom["hours"]["off"]) == Decimal((start - month_start).total_seconds() / 3600)
     assert loom["days"] == [{"day": str(start.date()), "qty": "95.000"}]
 
 
