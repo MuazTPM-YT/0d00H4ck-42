@@ -154,10 +154,15 @@ def test_order_view_lists_rolls_and_roles(client_as, db):
     assert body["buyer_name"] == "Mill Buyer"
 
 
-def test_late_when_deadline_passed_and_estimate_pending(client, db):
+def test_late_when_forecast_lands_after_deadline(client, db):
     from datetime import date, timedelta
 
-    o = Mill(db).order(deadline=date.today() - timedelta(days=3))
+    mill = Mill(db)
+    o = mill.order(deadline=date.today() - timedelta(days=3))
+    draft = mill.order(status=OrderStatus.draft, deadline=date.today() - timedelta(days=3))
     db.commit()
     body = client.get(f"/api/track/{o.tracking_token}").json()
+    assert body["risk"] == "late" and body["projected_finish"] > str(o.deadline)
+    # no forecast outside production, but a missed deadline is still late
+    body = client.get(f"/api/track/{draft.tracking_token}").json()
     assert body["risk"] == "late" and body["projected_finish"] is None

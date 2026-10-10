@@ -114,14 +114,14 @@ def _metres(db: Session, order_id: int) -> dict[str, Decimal]:
 
 
 def _estimate(db: Session, order: Order, stage: BuyerStage) -> tuple:
-    try:
+    if order.status == OrderStatus.confirmed:
         est = analytics.delivery_estimate(db, order.id)
-        return est.get("projected_finish"), est.get("risk")
-    except NotImplementedError:
-        # estimate pending; a missed deadline is still a plain fact
-        done = stage in (BuyerStage.shipped, BuyerStage.cancelled)
-        late = not done and datetime.now(IST).date() > order.deadline
-        return None, Risk.late if late else None
+        finish = est["expected_at"]
+        return (finish.astimezone(IST).date() if finish else None), Risk(est["status"])
+    # only confirmed orders get a forecast; a missed deadline is still a plain fact
+    done = stage in (BuyerStage.shipped, BuyerStage.cancelled)
+    late = not done and datetime.now(IST).date() > order.deadline
+    return None, Risk.late if late else None
 
 
 def _timeline(db: Session, order: Order, internal: bool) -> list[dict]:
