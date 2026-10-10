@@ -61,6 +61,7 @@ def list_insights(
     status: InsightStatus | None = None,
     severity: Severity | None = None,
     kind: str | None = None,
+    q: str | None = None,
 ) -> dict:
     stmt = select(Insight).order_by(SEVERITY_RANK, Insight.id.desc())
     if (kinds := kinds_for(role)) is not None:
@@ -71,7 +72,35 @@ def list_insights(
         stmt = stmt.where(Insight.severity == severity)
     if kind:
         stmt = stmt.where(Insight.kind == kind)
+    if q and q.strip():
+        stmt = stmt.where(Insight.title.ilike(f"%{q.strip()}%"))
     return paginate(db, stmt, page)
+
+
+# counts for the filter rail: per status, and per severity and kind inside one status
+def insight_counts(db: Session, role: Role, status: InsightStatus | None = None) -> dict:
+    stmt = select(Insight.status, Insight.severity, Insight.kind, func.count()).group_by(
+        Insight.status, Insight.severity, Insight.kind
+    )
+    if (kinds := kinds_for(role)) is not None:
+        stmt = stmt.where(Insight.kind.in_(kinds))
+    by_status = dict.fromkeys(InsightStatus, 0)
+    by_severity = dict.fromkeys(Severity, 0)
+    by_kind: dict[str, dict] = {}
+    for st, sev, kind, n in db.execute(stmt):
+        by_status[st] += n
+        if status and st != status:
+            continue
+        by_severity[sev] += n
+        k = by_kind.setdefault(kind, {"kind": kind, "count": 0, "critical": 0})
+        k["count"] += n
+        if sev == Severity.critical:
+            k["critical"] += n
+    return {
+        "by_status": by_status,
+        "by_severity": by_severity,
+        "by_kind": sorted(by_kind.values(), key=lambda k: (-k["critical"], -k["count"], k["kind"])),
+    }
 
 
 # not found and not yours look the same, so ids do not leak other roles' findings

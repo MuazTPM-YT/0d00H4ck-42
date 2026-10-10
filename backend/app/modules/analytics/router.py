@@ -1,4 +1,6 @@
-from fastapi import APIRouter, Depends
+from typing import Annotated
+
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from app.core.db import get_db
@@ -10,6 +12,7 @@ from app.modules.analytics.schemas import (
     AttentionItemOut,
     BriefingOut,
     DeliveryEstimateOut,
+    InsightCountsOut,
     InsightOut,
     NoteIn,
     RunOut,
@@ -34,10 +37,21 @@ def list_insights(
     status: InsightStatus | None = None,
     severity: Severity | None = None,
     kind: str | None = None,
+    q: Annotated[str | None, Query(max_length=80)] = None,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    return service.list_insights(db, page, user.role, status, severity, kind)
+    return service.list_insights(db, page, user.role, status, severity, kind, q)
+
+
+# declared before /insights/{insight_id}, so "counts" is never read as an id
+@router.get("/insights/counts", response_model=InsightCountsOut)
+def insight_counts(
+    status: InsightStatus | None = None,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    return service.insight_counts(db, user.role, status)
 
 
 @router.get("/insights/{insight_id}", response_model=InsightOut)

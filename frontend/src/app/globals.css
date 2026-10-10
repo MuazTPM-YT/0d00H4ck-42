@@ -296,7 +296,6 @@
 @utility scroll-panel {
   overflow-y: auto;
   overscroll-behavior: contain;
-  scrollbar-gutter: stable;
 }
 
 /* frosted chrome: a floating layer, never an opaque strip */
