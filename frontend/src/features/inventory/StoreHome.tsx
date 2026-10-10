@@ -44,14 +44,14 @@ export function StoreHome() {
 
       <ul className="mb-6 grid grid-cols-2 gap-3 md:grid-cols-4">
         <li>
-          <Link href="/store/receive" className="block min-h-20 rounded-lg border bg-card p-3 hover:border-primary">
+          <Link href="/store/receive" className="block min-h-20 lift rounded-2xl border border-border/60 bg-card p-4 shadow-card">
             <div className="text-xs text-muted-foreground">Deliveries expected</div>
             <div className="text-2xl font-semibold tabular">{(deliveries.data as Paged<Delivery> | undefined)?.total ?? "…"}</div>
           </Link>
         </li>
         {QUEUES.map((q, i) => (
           <li key={q.status}>
-            <Link href="/store/batches" className="block min-h-20 rounded-lg border bg-card p-3 hover:border-primary">
+            <Link href="/store/batches" className="block min-h-20 lift rounded-2xl border border-border/60 bg-card p-4 shadow-card">
               <div className="text-xs text-muted-foreground">{q.title}</div>
               <div className="text-2xl font-semibold tabular">{(queues[i].data as Paged<Batch> | undefined)?.total ?? "…"}</div>
             </Link>
@@ -63,7 +63,7 @@ export function StoreHome() {
         <section className="grid content-start gap-3 rounded-lg border bg-card p-4">
           <div className="flex items-center justify-between gap-2">
             <h2 className="font-semibold">Low-stock warnings</h2>
-            <Link href="/store/stock" className="text-sm text-primary hover:underline">All stock</Link>
+            <Link href="/store/stock" className="text-sm font-medium text-info hover:underline">All stock</Link>
           </div>
           <ErrorText error={stock.error} />
           {stock.isPending && <Skeleton className="h-32 w-full" />}

@@ -75,7 +75,7 @@ export function IssuePanel() {
                       onClick={() => { setPicked(l); setScanError(null); }}
                       aria-pressed={picked?.yarn_batch_id === l.yarn_batch_id}
                       className={cn(
-                        "flex min-h-14 w-full flex-wrap items-center gap-2 rounded-md border p-3 text-left hover:border-primary",
+                        "flex min-h-14 w-full flex-wrap items-center gap-2 pressable rounded-xl border p-3 text-left [@media(hover:hover)]:hover:border-input",
                         picked?.yarn_batch_id === l.yarn_batch_id && "border-primary bg-accent",
                       )}
                     >

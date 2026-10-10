@@ -23,13 +23,13 @@ const initials = (name: string) =>
     .map((p) => p[0]?.toUpperCase())
     .join("");
 
-// frosted sidebar: big tap targets, one filled pill marks where you are
+// sidebar: big tap targets, one filled pill marks where you are
 export function Sidebar({ user, onNavigate }: { user: User; onNavigate?: () => void }) {
   const pathname = usePathname();
   const logout = useLogout();
 
   return (
-    <div className="material-strong flex h-full flex-col border-r border-border/70 text-sidebar-foreground">
+    <div className="flex h-full bg-sidebar flex-col border-r border-border/70 text-sidebar-foreground">
       <div className="flex items-center gap-3 px-5 pt-6 pb-5">
         <BrandMark />
         <div className="min-w-0 leading-tight">

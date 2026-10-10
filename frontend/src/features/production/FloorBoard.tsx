@@ -15,7 +15,7 @@ import { MACHINE_STATUSES, useBoard, useNow } from "./api";
 import { MachinePanel } from "./MachinePanel";
 import { MachineTile, STATUS_BAR } from "./MachineTile";
 
-const GRID = "stagger grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4";
+const GRID = "grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4";
 
 // R8: every machine at a glance, pushed live over SSE topic "machines"
 export function FloorBoard({ top }: { top?: ReactNode }) {

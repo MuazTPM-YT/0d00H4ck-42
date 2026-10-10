@@ -38,7 +38,7 @@ export function StatusBadge({ status, className }: { status: string; className?:
   const meaning = MEANING[status] ?? "neutral";
   return (
     <span className={cn("inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[0.8rem] leading-none font-semibold whitespace-nowrap", STYLE[meaning], className)}>
-      <span className={cn("size-2 rounded-full bg-current", LIVE.has(status) && "live-dot")} aria-hidden />
+      <span className={cn("size-2 rounded-full bg-current", LIVE.has(status) && "ring-2 ring-current/25")} aria-hidden />
       {humanize(status)}
     </span>
   );
