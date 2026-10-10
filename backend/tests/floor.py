@@ -1,5 +1,5 @@
 # small mill for production and workforce tests: 2 looms, 1 jigger, 3 shifts, 2 yarn batches
-from datetime import UTC, datetime, time
+from datetime import UTC, date, datetime, time
 from decimal import Decimal
 from types import SimpleNamespace
 
@@ -108,7 +108,7 @@ def build_floor(db: Session, buyer, dyed_fabric) -> SimpleNamespace:
             colour="Raw White",
             qty_m=Decimal(600),
             rate_paise_per_m=20000,
-            deadline="2026-12-01",
+            deadline=date(2026, 12, 1),
             status=OrderStatus.confirmed,
             confirmed_at=datetime.now(UTC),
         )
