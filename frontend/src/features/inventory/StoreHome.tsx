@@ -99,7 +99,7 @@ function NeedsYarn({ onIssue }: { onIssue: (woCode: string) => void }) {
   // queue and start only publish "machines", so poll as well as listening to stock and orders
   const rows = useQuery({ queryKey: ["stock", "needs-yarn"], queryFn: () => api<NeedsYarnRow[]>("/inventory/needs-yarn"), refetchInterval: 30_000 });
   return (
-    <section className="mb-6 grid content-start gap-3 border border-border bg-card p-4">
+    <section data-tour="needs-yarn" className="mb-6 grid content-start gap-3 border border-border bg-card p-4">
       <div className="flex items-center justify-between gap-2">
         <h2 className="text-base">Needs yarn</h2>
         {rows.data && <span className="text-sm text-muted-foreground num">{rows.data.length} {rows.data.length === 1 ? "job" : "jobs"}</span>}

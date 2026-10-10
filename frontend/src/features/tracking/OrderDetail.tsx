@@ -159,7 +159,7 @@ function BuyerLink({ o, canRotate }: { o: OrderView; canRotate: boolean }) {
     setTimeout(() => setCopy("idle"), 2000);
   }
   return (
-    <section className="grid gap-2 border border-border bg-card p-4 text-sm">
+    <section data-tour="buyer-link" className="grid gap-2 border border-border bg-card p-4 text-sm">
       <h2 className="flex items-center gap-2 font-medium"><Link2 className="size-4" aria-hidden /> Buyer tracking link</h2>
       <p className="break-all text-muted-foreground">{url}</p>
       <div className="flex flex-wrap gap-2">

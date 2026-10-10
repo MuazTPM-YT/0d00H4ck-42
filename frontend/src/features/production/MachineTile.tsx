@@ -56,6 +56,7 @@ export function MachineTile({ tile, now, onOpen }: { tile: BoardTile; now: numbe
     <button
       type="button"
       onClick={onOpen}
+      data-machine={tile.code}
       aria-label={`${tile.code}, ${humanize(tile.status)}${job ? `, ${job.order_code}` : ""}. Open machine`}
       className={cn(
         "dither-hover relative flex min-h-48 min-w-0 flex-col overflow-hidden border border-border border-t-2 border-t-foreground bg-card text-left outline-none focus-visible:ring-2 focus-visible:ring-ember",

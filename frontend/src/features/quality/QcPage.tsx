@@ -180,7 +180,7 @@ function Queue({ onOpen }: { onOpen: (row: RollRow) => void }) {
   }
   const total = queue.data?.total ?? 0;
   return (
-    <div className="border border-border bg-card">
+    <div data-tour="qc-queue" className="border border-border bg-card">
       <Table>
         <TableHeader>
           <TableRow>
