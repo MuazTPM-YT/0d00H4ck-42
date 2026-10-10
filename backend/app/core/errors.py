@@ -45,6 +45,13 @@ class Unprocessable(AppError):
     status, code = 422, "validation_error"
 
 
+# raise inside a pydantic validator to point the error at one field
+class FieldError(ValueError):
+    def __init__(self, field: str, message: str):
+        super().__init__(message)
+        self.field = field
+
+
 def error_body(code: str, message: str, field: str | None = None) -> dict:
     return {"error": {"code": code, "message": message, "field": field}}
 
@@ -75,7 +82,8 @@ def install_error_handlers(app: FastAPI) -> None:
         first = e.errors()[0]
         loc = [str(p) for p in first["loc"] if p not in ("body", "query", "path")]
         msg = first["msg"].removeprefix("Value error, ")
-        return _json(422, "validation_error", msg, ".".join(loc) or None)
+        field = getattr(first.get("ctx", {}).get("error"), "field", None) or ".".join(loc)
+        return _json(422, "validation_error", msg, field or None)
 
     @app.exception_handler(HTTPException)
     async def http_error(_: Request, e: HTTPException):
@@ -87,7 +95,8 @@ def install_error_handlers(app: FastAPI) -> None:
         diag = getattr(e.orig, "diag", None)
         constraint = getattr(diag, "constraint_name", None)
         if getattr(e.orig, "sqlstate", None) == "23505":
-            return _json(409, "duplicate", f"Already exists ({constraint})", constraint)
+            field = (constraint or "").removeprefix(f"uq_{getattr(diag, 'table_name', '')}_")
+            return _json(409, "duplicate", "A record with this value already exists", field or None)
         return _json(
             422, "constraint_violation", f"Rejected by database rule ({constraint})", constraint
         )
