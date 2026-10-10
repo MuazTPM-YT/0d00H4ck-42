@@ -1,4 +1,4 @@
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 
 import pytest
@@ -7,6 +7,7 @@ from sqlalchemy import select
 from app.core.audit import AuditLog
 from app.core.errors import AppError
 from app.core.security import create_token
+from app.modules.analytics.service import attention_items
 from app.modules.auth.models import Role
 from app.modules.inventory import service as inv
 from app.modules.inventory.labels import parse_label
@@ -195,6 +196,17 @@ def test_projected_free_warns_below_reorder_level(db, setup, buyer):
     )
     assert row["free_kg"] == D(250) and row["needed_by_orders_kg"] == D(200)
     assert row["projected_free_kg"] == D(50) and row["level"] == "low"  # reorder level 100
+
+
+# owner and store alerts use the same rule as the store screen: free after open orders
+def test_attention_low_stock_counts_open_orders(db, setup, buyer):
+    fabric = plain_fabric(db)
+    make_batch(db, setup["sup"], setup["white40"], 250)
+    make_order(db, buyer, fabric, "Raw White", 1000)
+    db.commit()
+    items = attention_items(db, Role.store, datetime.now(UTC))
+    assert [i["title"] for i in items] == ["Cotton Ne 40/1 Raw White below reorder level"]
+    assert items[0]["detail"] == "50.000 kg free after open orders, reorder at 100.000 kg"
 
 
 # ---------------------------------------------------------------- issue and return
