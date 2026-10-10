@@ -25,7 +25,7 @@ const QUEUES = [
 
 // store home: what needs doing now, low-stock warnings (live), and issue to production
 export function StoreHome() {
-  useSSE(["stock", "orders"]);
+  useSSE(["stock", "orders", "machines"]);
   const stock = useStock();
   const [deliveries, ...queues] = useQueries({
     queries: [
