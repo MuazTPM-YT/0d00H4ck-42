@@ -207,7 +207,7 @@ export function ReceiveScreen() {
 
           {mode === "scan" && (
             <>
-              <ScanField id="label-scan" label="Supplier label" placeholder="SUP=…;LOT=…;FIB=…;CNT=…;COL=…;KG=…" onScan={(v) => scan.mutate(v)} disabled={busy} autoFocus />
+              <ScanField id="label-scan" label="Supplier label" placeholder="SUP=…;LOT=…;FIB=…;CNT=…;COL=…;KG=…" onScan={(v) => scan.mutate(v)} disabled={busy} autoFocus camera />
               <DemoLabels labels={demo.data ?? []} disabled={busy} onPick={(payload) => scan.mutate(payload)} />
             </>
           )}
