@@ -24,3 +24,8 @@ One line of context, the choice, and why. Newest at the bottom.
 | 18 | Commit format `[TAG] module: short message` (Odoo style) | Matches how Odoo writes commits. Judges read it daily. | Conventional Commits |
 | 19 | One folder per module (`models`, `schemas`, `service`, `router`) and `CODEOWNERS` per path | Four people work in parallel with few merge conflicts. Ownership is visible. | Layer-first folders |
 | 20 | Deactivate masters (`active = false`), never delete | Old orders and rolls keep pointing at valid rows. | Hard delete |
+| 21 | Dispatch confirm writes roll status and FG → DISP stock moves itself; tracking rotates `orders.tracking_token` | Confirm must be one transaction. Uses the owning module's transition map, audited, listed in contracts. | Waiting for new shared functions from quality and inventory |
+| 22 | Roll proposal: greedy largest-first inside one shade band, then smallest roll that closes the gap | O(n log n), near optimal for similar roll lengths, easy to explain. Clerk can still scan other rolls. | Exact subset-sum DP (kept for widely varying lengths) |
+| 23 | Piece wages from metres logged at the loom, not metres of passed rolls | `assumptions.md`: paid per metre woven. A weaver is not docked for yarn or dyeing defects. | Passed-roll metres |
+| 24 | Order cost prices each issued kg at its own batch's GRN cost | Batches are the FIFO layers; the issue move names the layer, so cost stays exact even if the store breaks FIFO for shade. | Re-walking a FIFO queue in finance |
+| 25 | IST as a fixed +05:30 offset in Python | India has no DST. Windows Python has no tz database without the extra `tzdata` package. | `zoneinfo` + `tzdata` dependency |

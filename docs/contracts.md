@@ -109,11 +109,18 @@ caller. Status: **done** = implemented and tested, **stub** = raises `NotImpleme
 | `production.order_progress(db, order_id)` | Muaz | stub | `{stage: {planned, produced, unit}}` |
 | `production.create_rework_work_order(db, roll_id, stage, user_id)` | Muaz | stub | `WorkOrder` with `roll_id` set |
 | `quality.roll_trace(db, roll_id)` | Razan | stub | order, loom, shift, weaver, yarn batches + suppliers, QC attempts, events |
-| `tracking.order_stage(db, order_id)` | Ashil | stub | derived buyer stage + metres per bucket |
-| `dispatch.finished_stock(db, order_id=None, shade_band=None)` | Ashil | stub | `list[Roll]` passed and not dispatched |
-| `finance.order_cost(db, order_id)` | Ashil | stub | yarn (FIFO GRN cost) + labour + machine + rework/reject vs revenue |
+| `tracking.order_stage(db, order_id)` | Ashil | done | derived buyer stage + metres per bucket |
+| `dispatch.finished_stock(db, order_id=None, shade_band=None)` | Ashil | done | `list[Roll]` passed and not dispatched |
+| `dispatch.corner_check(db, days=7)` | Ashil | done | rolls too long on shelf, order not open, or leftover of a shipped order |
+| `finance.order_cost(db, order_id)` | Ashil | done | yarn (FIFO GRN cost) + labour + machine + rework/reject vs revenue |
+| `finance.issue_invoice(db, user_id, dispatch, rolls)` | Ashil | done | `Invoice` + one line per roll; called only by dispatch confirm |
 | `analytics.delivery_estimate(db, order_id)` | Muaz | stub | projected finish, `on_track` / `at_risk` / `late` |
 | `analytics.attention_items(db, role)` | Muaz | stub | short to-do list for that role |
+
+Cross-module writes agreed by the team (decision 21): dispatch confirm sets `rolls.status` to
+`dispatched` through `quality.service.ROLL_TRANSITIONS`, moves `rolls.location_id` and writes the
+FG → DISP `stock_moves`; tracking rotates `orders.tracking_token`. All in the caller's
+transaction, all audited.
 
 Pure helpers in `app.core.units`: `qty`, `rupees_to_paise`, `line_amount_paise`,
 `yarn_kg_for_fabric(metres, width_cm, gsm, loss_pct)`. Yarn kg = metres × width_m × GSM / 1000 /
@@ -135,9 +142,13 @@ Pure helpers in `app.core.units`: `qty`, `rupees_to_paise`, `line_amount_paise`,
 | `GET /api/production/work-orders` | any logged in |
 | `GET /api/quality/rolls` | any logged in |
 | `GET /api/workforce/attendance` | supervisor, accounts |
-| `GET /api/dispatch/dispatches` | dispatch, accounts |
-| `GET /api/finance/invoices` | accounts |
+| `GET /api/dispatch/dispatches[/{id}]`, `/finished-stock`, `/corner-check` | dispatch, accounts, supervisor |
+| `POST /api/dispatch/dispatches`, `.../{id}/scan`, `PUT .../{id}/vehicle`, `DELETE .../{id}/rolls/{roll_id}`, `POST .../{id}/confirm` | dispatch |
+| `POST /api/dispatch/dispatches/{id}/shade-override` | supervisor |
+| `/api/finance/*` (invoices, payments, wage-runs, expenses, orders/{id}/cost, machine-production, month, month/records) | accounts |
 | `GET /api/analytics/insights` | supervisor |
-| `GET /api/track/{token}` | public (501 until `order_stage` lands) |
+| `GET /api/track/{token}` | public |
+| `GET /api/track/orders/{id}` | sales, accounts, dispatch |
+| `POST /api/track/orders/{id}/rotate-token` | sales |
 
 Owner passes every role check. Full schema at http://localhost:8000/docs.

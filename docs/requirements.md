@@ -39,27 +39,27 @@ UI/API/logic done, `done` = UI + API + DB + validation + test.
 
 | # | Label | Requirement | Owner | Screen | Tables | Status |
 |---|---|---|---|---|---|---|
-| R14 | Core | Order status derived from data: Confirmed → In Production (stage) → QC → Ready → Dispatched | Ashil | `/orders/[id]` | derived | todo |
-| R15 | Core | Order detail page and a read-only buyer tracking link (token, no login) | Ashil | `/orders/[id]`, `/track/[token]` | `orders.tracking_token` | partial: route + token lookup, `order_stage` stub |
+| R14 | Core | Order status derived from data: Confirmed → In Production (stage) → QC → Ready → Dispatched | Ashil | `/orders/[id]` | derived | done: `tracking.derive_stage`, tests per seeded order |
+| R15 | Core | Order detail page and a read-only buyer tracking link (token, no login) | Ashil | `/orders/[id]`, `/track/[token]` | `orders.tracking_token` | done: order view, public link, token rotate; estimate pending until `analytics.delivery_estimate` |
 
 ## Scene 5: dispatch
 
 | # | Label | Requirement | Owner | Screen | Tables | Status |
 |---|---|---|---|---|---|---|
-| R16 | Core | Finished goods stock: rolls passed and not dispatched | Ashil | `/stock/finished` | `rolls` | schema |
-| R17 | Core | Dispatch: pick rolls for an order, vehicle details, quantity check | Ashil | `/dispatch/[id]` | `dispatches`, `dispatch_rolls` | schema |
-| R18 | Core | A roll can never be dispatched twice (DB constraint) | Ashil | `/dispatch/[id]` | `dispatch_rolls.roll_id` UNIQUE | schema: constraint in place |
-| R19 | Core | Invoice from dispatched rolls, matching quantities and rates | Ashil | `/finance/invoices` | `invoices`, `invoice_lines` | schema |
+| R16 | Core | Finished goods stock: rolls passed and not dispatched | Ashil | `/stock/finished` | `rolls` | done: shelf by order, corner check |
+| R17 | Core | Dispatch: pick rolls for an order, vehicle details, quantity check | Ashil | `/dispatch/[id]` | `dispatches`, `dispatch_rolls` | done: roll proposal, scan loading, confirm |
+| R18 | Core | A roll can never be dispatched twice (DB constraint) | Ashil | `/dispatch/[id]` | `dispatch_rolls.roll_id` UNIQUE | done: constraint + row locks, concurrent test |
+| R19 | Core | Invoice from dispatched rolls, matching quantities and rates | Ashil | `/finance/invoices` | `invoices`, `invoice_lines` | done: made at dispatch confirm, printable |
 
 ## Scene 6: month-end books
 
 | # | Label | Requirement | Owner | Screen | Tables | Status |
 |---|---|---|---|---|---|---|
-| R20 | Core | Attendance per shift (Muaz) and wages from it (Ashil) | Muaz, Ashil | `/floor/crew`, `/finance/wages` | `attendance`, `wage_runs`, `wage_lines` | schema |
-| R21 | Core | Cost per order: yarn + labour + machine, rule stated in the UI | Ashil | `/orders/[id]`, `/finance/month` | many | todo |
-| R22 | Core | Production per machine for a period | Muaz | `/owner` | `production_logs` | schema |
-| R23 | Core | Monthly profit: payments and invoices vs yarn bills and wages | Ashil | `/finance/month` | `invoices`, `payments`, `receipts`, `wage_lines`, `expenses` | schema |
-| R24 | Expected | Buyer payments against invoices; outstanding receivables | Ashil | `/finance/payments` | `payments` | schema |
+| R20 | Core | Attendance per shift (Muaz) and wages from it (Ashil) | Muaz, Ashil | `/floor/crew`, `/finance/wages` | `attendance`, `wage_runs`, `wage_lines` | wages done (Ashil); attendance entry is Muaz |
+| R21 | Core | Cost per order: yarn + labour + machine, rule stated in the UI | Ashil | `/orders/[id]`, `/finance/month` | many | done: `finance.order_cost`, rule on screen |
+| R22 | Core | Production per machine for a period | Muaz | `/owner` | `production_logs` | partial: API + table on `/finance/month` (Ashil); `/owner` view is Muaz |
+| R23 | Core | Monthly profit: payments and invoices vs yarn bills and wages | Ashil | `/finance/month` | `invoices`, `payments`, `receipts`, `wage_lines`, `expenses` | done: invoiced + cash basis, drilldown |
+| R24 | Expected | Buyer payments against invoices; outstanding receivables | Ashil | `/finance/payments` | `payments` | done |
 | R25 | Stretch | Export reports (CSV or PDF) | Ashil | finance pages | none | todo |
 
 ## Cross-cutting
@@ -76,7 +76,7 @@ Start only after the Core items above work. Detail in `.claude/skills/odoo-hacka
 
 | # | Feature | Owner | Status |
 |---|---|---|---|
-| D1 | Lot continuity and shade-safe dispatch (one shade band per dispatch) | Razan (shade at QC), Ashil (dispatch rule) | schema: `rolls.shade_band`, `qc_checks.pass_has_shade` |
+| D1 | Lot continuity and shade-safe dispatch (one shade band per dispatch) | Razan (shade at QC), Ashil (dispatch rule) | dispatch rule done (scan + confirm + override); shade entry at QC is Razan |
 | D2 | Delivery risk early warning (on track / at risk / late) | Muaz | stub: `analytics.delivery_estimate` |
 | D3 | Roll genealogy and root cause (machine, shift, supplier) | Razan | schema: `roll_batches`; stub: `quality.roll_trace` |
-| D4 | True cost per order (FIFO yarn, labour, machine, rework) | Ashil | stub: `finance.order_cost` |
+| D4 | True cost per order (FIFO yarn, labour, machine, rework) | Ashil | done: `finance.order_cost` |
