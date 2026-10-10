@@ -477,9 +477,10 @@ export const LIVE: Partial<Record<MotifName, (f: Field, t: number, seed: number)
       const p = cycle(t, 11, i / n);
       const fadeIn = Math.min(1, p / 0.12);
       const x = cx + p * U * 0.95 + Math.sin(t * 0.35 + i * 1.7) * U * 0.015;
-      const y = top - U * 0.03 - Math.sqrt(p) * U * 0.2;
-      const r = U * (0.03 + p * 0.1);
-      disc(f, x, y, r, (_, __, d) => fadeIn * (0.55 * (1 - p)) * (1 - d * 0.65));
+      // rises a little, mostly drifts: the plate is short, the wind is long
+      const y = top - U * 0.04 - Math.sqrt(p) * U * 0.09;
+      const r = U * (0.035 + p * 0.065);
+      disc(f, x, y, r, (_, __, d) => fadeIn * (0.62 * (1 - p * 0.85)) * (1 - d * 0.6));
     }
   },
   // the shuttle flies across the shed and back, easing at each selvedge

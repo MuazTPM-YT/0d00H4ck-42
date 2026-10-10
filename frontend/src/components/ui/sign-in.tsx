@@ -6,6 +6,7 @@ import { type ComponentProps, type ReactNode, useState } from "react";
 import { DitherImage } from "@/components/dither/DitherImage";
 import { DitherPlate } from "@/components/dither/DitherPlate";
 import type { MotifName } from "@/components/dither/motifs";
+import { setMotion, useMotion } from "@/components/dither/ticker";
 import { cn } from "@/lib/utils";
 
 // split sign-in screen: form on the left, the cloth printed in Bayer dots on the right with a
@@ -46,6 +47,21 @@ export function PasswordInput(props: ComponentProps<"input">) {
         {show ? <EyeOff className="size-5" /> : <Eye className="size-5" />}
       </button>
     </div>
+  );
+}
+
+// the pictures move unless the OS asks for less motion; this overrides it for this browser
+function MotionSwitch() {
+  const on = useMotion();
+  return (
+    <button
+      type="button"
+      onClick={() => setMotion(!on)}
+      aria-pressed={on}
+      className="label absolute bottom-3 left-3 bg-background px-2 py-1 hover:text-ember"
+    >
+      Motion · {on ? "on" : "off"}
+    </button>
   );
 }
 
@@ -109,6 +125,7 @@ export function SignInPage({
             )}
             <p className="label absolute top-3 left-3 bg-background px-2 py-1">{heroArt ? heroArt.caption : "Plate 01 · warp and weft"}</p>
             <p className="label absolute right-3 bottom-3 bg-background px-2 py-1">8,849 m · 27.98° N 86.92° E</p>
+            <MotionSwitch />
           </div>
           {highlights.length > 0 && (
             <ul className="animate-testimonial animate-delay-1000 mt-6">

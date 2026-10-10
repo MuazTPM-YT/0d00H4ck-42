@@ -3,7 +3,7 @@
 import { memo, useEffect, useRef } from "react";
 
 import { type Field, LIVE, MOTIFS, type MotifName } from "@/components/dither/motifs";
-import { motionAllowed, subscribe } from "@/components/dither/ticker";
+import { subscribe, useMotion } from "@/components/dither/ticker";
 import { BAYER8, cssVar, hashString, mulberry32, rgba32 } from "@/lib/bayer";
 import { cn } from "@/lib/utils";
 
@@ -38,13 +38,14 @@ function DitherPlateInner({
   const box = useRef<HTMLDivElement>(null);
   const still = useRef<HTMLCanvasElement>(null);
   const moving = useRef<HTMLCanvasElement>(null);
+  const motion = useMotion();
 
   useEffect(() => {
     const wrap = box.current;
     const canvas = still.current;
     if (!wrap || !canvas) return;
     const n = typeof seed === "string" ? hashString(seed) : seed;
-    const liveFn = live && motionAllowed() ? LIVE[motif] : undefined;
+    const liveFn = live && motion ? LIVE[motif] : undefined;
     let painted = "";
     let job = 0;
     let near = false;
@@ -160,7 +161,7 @@ function DitherPlateInner({
       unsub?.();
       if (job) cancelIdle(job);
     };
-  }, [motif, seed, scale, live]);
+  }, [motif, seed, scale, live, motion]);
 
   return (
     <div
