@@ -4,6 +4,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict
 
 from app.core.enums import Stage, Unit
+from app.core.types import Note
 from app.modules.analytics.models import InsightStatus, Severity
 
 Risk = Literal["on_track", "at_risk", "late"]
@@ -22,6 +23,17 @@ class InsightOut(BaseModel):
     narrative: str | None
     status: InsightStatus
     created_at: datetime
+
+
+class NoteIn(BaseModel):
+    note: Note
+
+
+class RunOut(BaseModel):
+    created: int
+    updated: int
+    unchanged: int
+    skipped: int
 
 
 class PlannedStage(BaseModel):
