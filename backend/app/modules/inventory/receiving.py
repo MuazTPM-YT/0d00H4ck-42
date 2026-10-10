@@ -154,6 +154,43 @@ def sample_labels(db: Session) -> list[dict]:
                 "payload": format_label(sup.code, f"{lot}X", item.fibre, item.count, wrong, kg),
             }
         )
+    return out + _walk_in_labels(db)
+
+
+WALK_IN_KG = Decimal(500)
+
+
+# demo: yarn that arrives with no request first. One label per yarn item, from the supplier that
+# last sent it (else the first supplier); a new lot code each day so a re-run makes a new lot
+def _walk_in_labels(db: Session) -> list[dict]:
+    suppliers = db.scalars(select(Supplier).where(Supplier.active).order_by(Supplier.id)).all()
+    if not suppliers:
+        return []
+    last_from = dict(
+        db.execute(
+            select(YarnBatch.yarn_item_id, YarnBatch.supplier_id)
+            .where(YarnBatch.yarn_item_id.is_not(None))
+            .order_by(YarnBatch.id)
+        ).all()
+    )
+    by_id = {s.id: s for s in suppliers}
+    day = datetime.now(UTC).strftime("%y%m%d")
+    out = []
+    for item in db.scalars(select(YarnItem).where(YarnItem.active).order_by(YarnItem.id)):
+        sup = by_id.get(last_from.get(item.id)) or suppliers[0]
+        lot = f"{sup.code}-W{day}{item.id:02d}"
+        out.append(
+            {
+                "delivery_id": None,
+                "supplier": sup.name,
+                "kg": qty(WALK_IN_KG),
+                "kind": "walk_in",
+                "title": f"{item_label(item)} · lot {lot}",
+                "payload": format_label(
+                    sup.code, lot, item.fibre, item.count, item.colour, qty(WALK_IN_KG)
+                ),
+            }
+        )
     return out
 
 
@@ -172,7 +209,18 @@ def check_label(db: Session, payload: str, expected_delivery_id: int | None) -> 
         "supplier": {"id": supplier.id, "code": supplier.code, "name": supplier.name},
         "delivery": delivery_row(db, delivery) if delivery else None,
         "comparison": compare(db, delivery, label, label["label_kg"]),
+        "suggested_rate_paise_per_kg": None if delivery else _last_rate(db, supplier.id, label),
     }
+
+
+# no request to price the lot: offer this supplier's last GRN rate for the yarn, else any supplier's
+def _last_rate(db: Session, supplier_id: int, label: dict) -> int | None:
+    item = find_item(db, label["fibre"], label["count"], label["colour"])
+    if not item:
+        return None
+    stmt = select(YarnBatch.unit_cost_paise_per_kg).where(YarnBatch.yarn_item_id == item.id)
+    own = db.scalar(stmt.where(YarnBatch.supplier_id == supplier_id).order_by(YarnBatch.id.desc()))
+    return own or db.scalar(stmt.order_by(YarnBatch.id.desc()))
 
 
 def _pick_delivery(db, supplier_id, label, delivery_id) -> ExpectedDelivery | None:

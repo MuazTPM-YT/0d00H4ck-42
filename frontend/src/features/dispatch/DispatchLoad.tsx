@@ -9,7 +9,7 @@ import { EmptyState } from "@/components/layout/EmptyState";
 import { FormField } from "@/components/layout/FormField";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { StatusBadge } from "@/components/layout/StatusBadge";
-import { CameraScan } from "@/components/scan/CameraScan";
+import { CameraScan } from "@/components/layout/CameraScan";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -121,7 +121,7 @@ function ScanBox({ id, onScanned }: { id: string; onScanned: () => void }) {
       </label>
       <div className="flex gap-2">
         <Input ref={input} id="roll_code" name="roll_code" autoFocus autoComplete="off" maxLength={20} placeholder="R-000123" className="h-14 text-lg uppercase" />
-        <CameraScan onScan={(code) => scan.mutate(code.toUpperCase())} label="Read roll label with camera" disabled={scan.isPending} className="h-14" />
+        <CameraScan onScan={(code) => scan.mutate(code.toUpperCase())} disabled={scan.isPending} />
         <Button type="submit" size="lg" className="h-14 px-6" disabled={scan.isPending}>Load</Button>
       </div>
       {feedback && (

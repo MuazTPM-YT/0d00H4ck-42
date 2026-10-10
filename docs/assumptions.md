@@ -32,8 +32,9 @@ Things the problem statement does not say, and what we chose. Change one only wi
   `SUP=KSM;LOT=KSM-L2291;FIB=Cotton;CNT=Ne 40/1;COL=Raw White;KG=1200`. Keys are case-insensitive,
   order does not matter, spaces around values are trimmed. A missing key is an unreadable label.
   `/store/receive/labels` prints sample labels for open expected deliveries.
-- **Scanning.** USB or Bluetooth scanners type into a focused text field and press Enter (keyboard
-  wedge). Camera scanning is not built: a phone camera needs HTTPS or localhost.
+- **Scanning.** USB or Bluetooth scanners type into a focused text field and press Enter or Tab
+  (keyboard wedge). The receive screen can also read a label's QR code with the tablet camera
+  (jsQR). Browsers open the camera only on HTTPS or localhost, so tablets use `make dev-https`.
 - **Weight tolerance.** A lot whose weighed kg differs from the label by more than 2% is flagged,
   and both figures are kept. Never adjusted. One mill-wide value until a per-yarn column lands
   (see schema-requests.md).

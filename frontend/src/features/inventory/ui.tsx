@@ -4,7 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { ScanLine } from "lucide-react";
 import { type KeyboardEvent, useState } from "react";
 
-import { CameraScan } from "@/components/scan/CameraScan";
+import { CameraScan } from "@/components/layout/CameraScan";
 import { Input } from "@/components/ui/input";
 import { api, type Paged } from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -36,6 +36,7 @@ export function ScanField({
   onScan,
   disabled,
   autoFocus,
+  camera,
 }: {
   id: string;
   label: string;
@@ -43,10 +44,13 @@ export function ScanField({
   onScan: (value: string) => void;
   disabled?: boolean;
   autoFocus?: boolean;
+  // QR labels only: offer the tablet camera next to the field
+  camera?: boolean;
 }) {
   const [value, setValue] = useState("");
   function onKeyDown(e: KeyboardEvent<HTMLInputElement>) {
-    if (e.key !== "Enter") return;
+    // scanners end a code with Enter, or with Tab when set up for spreadsheets
+    if (e.key !== "Enter" && !(e.key === "Tab" && value.trim())) return;
     e.preventDefault();
     const v = value.trim();
     if (v) onScan(v);
@@ -74,9 +78,9 @@ export function ScanField({
             className="h-12 pl-11 text-base md:text-base"
           />
         </div>
-        <CameraScan onScan={onScan} label={`${label}: read with camera`} disabled={disabled} className="h-12" />
+        {camera && <CameraScan onScan={onScan} disabled={disabled} />}
       </div>
-      <p className="text-xs text-muted-foreground">Scan, type and press Enter, or use the camera.</p>
+      <p className="text-xs text-muted-foreground">{camera ? "Scan, use the camera, or type and press Enter." : "Scan, or type and press Enter."}</p>
     </div>
   );
 }

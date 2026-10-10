@@ -158,10 +158,11 @@ class LabelCheckOut(BaseModel):
     supplier: SupplierRef
     delivery: ExpectedDeliveryOut | None
     comparison: list[ComparisonRow]
+    suggested_rate_paise_per_kg: int | None = None
 
 
 class SampleLabel(BaseModel):
-    delivery_id: int
+    delivery_id: int | None
     supplier: str
     kg: Decimal
     kind: str
