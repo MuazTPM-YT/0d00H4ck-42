@@ -234,7 +234,9 @@ def _decide(db: Session, roll_id: int, body: QcCheckIn, user_id: int, at: dateti
         )
     )
     db.flush()
-    truck = auto_draft(db, roll.order_id, user_id, at) if passed else None
+    # a pass adds a roll; a reject of the last open roll can finish the order: either can
+    # let a truck be drafted
+    truck = auto_draft(db, roll.order_id, user_id, at) if new != RollStatus.rework else None
     return {
         "check": QcCheckOut.model_validate(check),
         "roll": RollOut.model_validate(roll),
