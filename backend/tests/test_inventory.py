@@ -10,9 +10,15 @@ from app.core.security import create_token
 from app.modules.auth.models import Role
 from app.modules.inventory import service as inv
 from app.modules.inventory.labels import parse_label
-from app.modules.inventory.models import BatchStatus, MoveReason, Reservation, ReservationStatus
+from app.modules.inventory.models import (
+    BatchStatus,
+    MoveReason,
+    Reservation,
+    ReservationStatus,
+    YarnBatch,
+)
 from app.modules.masters.models import LocationKind
-from app.modules.orders.models import OrderStatus
+from app.modules.orders.models import Order, OrderStatus
 from app.modules.production.service import create_work_orders
 from tests.inventory_helpers import (
     ensure_locations,
@@ -453,3 +459,12 @@ def test_qr_svg_endpoint(api, setup):
     res = api(Role.store, "GET", "/api/inventory/qr.svg", params={"data": label("Q")})
     assert res.status_code == 200 and res.headers["content-type"] == "image/svg+xml"
     assert res.text.startswith("<svg")
+
+
+# other modules lock batches and orders with FOR UPDATE; display relationships must not add joins
+def test_batches_and_orders_can_be_row_locked(db, setup, buyer):
+    batch = make_batch(db, setup["sup"], setup["white40"], 10)
+    order = make_order(db, buyer, plain_fabric(db), "Raw White", 10)
+    locked = db.scalar(select(YarnBatch).where(YarnBatch.id == batch.id).with_for_update())
+    assert locked.yarn_item.colour == "Raw White"
+    assert db.scalar(select(Order).where(Order.id == order.id).with_for_update()).buyer is not None

@@ -47,6 +47,6 @@ class Order(Base):
     tracking_token: Mapped[str] = mapped_column(String(64), unique=True, default=new_tracking_token)
     confirmed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
-    # read-only joins for display; no schema change
-    buyer: Mapped[Buyer] = relationship(viewonly=True, lazy="joined")
-    fabric_type: Mapped[FabricType] = relationship(viewonly=True, lazy="joined")
+    # read-only, loaded by a second query (selectin) so FOR UPDATE on this table stays legal
+    buyer: Mapped[Buyer] = relationship(viewonly=True, lazy="selectin")
+    fabric_type: Mapped[FabricType] = relationship(viewonly=True, lazy="selectin")

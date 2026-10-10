@@ -87,9 +87,9 @@ class ExpectedDelivery(Base):
         default=ExpectedDeliveryStatus.open,
     )
 
-    # read-only joins for display; no schema change
-    supplier: Mapped[Supplier] = relationship(viewonly=True, lazy="joined")
-    yarn_item: Mapped[YarnItem] = relationship(viewonly=True, lazy="joined")
+    # read-only, loaded by a second query (selectin) so FOR UPDATE on this table stays legal
+    supplier: Mapped[Supplier] = relationship(viewonly=True, lazy="selectin")
+    yarn_item: Mapped[YarnItem] = relationship(viewonly=True, lazy="selectin")
 
 
 # GRN: one truck at the gate. Stock only moves when confirmed.
@@ -115,7 +115,7 @@ class Receipt(Base):
     )
     confirmed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
-    supplier: Mapped[Supplier] = relationship(viewonly=True, lazy="joined")
+    supplier: Mapped[Supplier] = relationship(viewonly=True, lazy="selectin")
 
 
 # one supplier lot inside one receipt; missing label -> pending_identification, item unknown
@@ -144,9 +144,9 @@ class YarnBatch(Base):
     order_id: Mapped[int | None] = mapped_column(ForeignKey("orders.id"), index=True)
     mismatch_notes: Mapped[str | None] = mapped_column(Text)
 
-    yarn_item: Mapped[YarnItem | None] = relationship(viewonly=True, lazy="joined")
-    supplier: Mapped[Supplier] = relationship(viewonly=True, lazy="joined")
-    receipt: Mapped[Receipt] = relationship(viewonly=True, lazy="joined")
+    yarn_item: Mapped[YarnItem | None] = relationship(viewonly=True, lazy="selectin")
+    supplier: Mapped[Supplier] = relationship(viewonly=True, lazy="selectin")
+    receipt: Mapped[Receipt] = relationship(viewonly=True, lazy="selectin")
 
 
 # append-only ledger. Stock at a location = moves in - moves out. Never updated, never deleted.
