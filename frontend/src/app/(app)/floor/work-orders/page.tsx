@@ -1,5 +1,5 @@
-import { Placeholder } from "@/components/layout/Placeholder";
+import { WorkOrderQueues } from "@/features/production/WorkOrderQueues";
 
 export default function Page() {
-  return <Placeholder />;
+  return <WorkOrderQueues />;
 }
