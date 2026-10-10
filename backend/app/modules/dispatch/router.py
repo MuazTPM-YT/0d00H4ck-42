@@ -1,7 +1,7 @@
 from datetime import date
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Path, Query
 from sqlalchemy.orm import Session
 
 from app.core.db import get_db
@@ -12,6 +12,8 @@ from app.modules.dispatch import service
 from app.modules.dispatch.models import DispatchStatus
 from app.modules.dispatch.schemas import (
     CornerItem,
+    DeliverIn,
+    DeliveryOut,
     DispatchCreate,
     DispatchDetail,
     DispatchOut,
@@ -86,6 +88,19 @@ def confirm(dispatch_id: int, db: Session = Depends(get_db), user: User = Clerk)
     return service.confirm(db, user, dispatch_id)
 
 
+# office path for a driver with no signal: same code check, same try limit
+@router.post("/dispatches/{dispatch_id}/deliver", response_model=DispatchDetail)
+def office_deliver(
+    dispatch_id: int, data: DeliverIn, db: Session = Depends(get_db), user: User = Clerk
+):
+    return service.office_deliver(db, user, dispatch_id, data.model_dump())
+
+
+@router.post("/dispatches/{dispatch_id}/new-code", response_model=DispatchDetail)
+def new_code(dispatch_id: int, db: Session = Depends(get_db), user: User = Clerk):
+    return service.new_code(db, user, dispatch_id)
+
+
 @router.get("/finished-stock", response_model=list[ShelfGroup], dependencies=[Readers])
 def finished_stock(db: Session = Depends(get_db)):
     return service.shelf(db)
@@ -96,3 +111,18 @@ def corner_check(
     days: Annotated[int, Query(ge=1, le=365)] = service.SHELF_DAYS, db: Session = Depends(get_db)
 ):
     return service.corner_check(db, days)
+
+
+# public, no login: the token opens one truck that has left, the buyer's code closes it
+delivery = APIRouter(prefix="/deliver", tags=["delivery"])
+Token = Path(min_length=10, max_length=64)
+
+
+@delivery.get("/{token}", response_model=DeliveryOut)
+def delivery_view(token: str = Token, db: Session = Depends(get_db)):
+    return service.delivery_view(db, token)
+
+
+@delivery.post("/{token}", response_model=DeliveryOut)
+def deliver(data: DeliverIn, token: str = Token, db: Session = Depends(get_db)):
+    return service.deliver(db, token, data.model_dump())

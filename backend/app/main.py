@@ -13,6 +13,7 @@ from app.core.deps import stream_user
 from app.core.errors import Unprocessable, install_error_handlers
 from app.modules.analytics.router import router as analytics
 from app.modules.auth.router import router as auth
+from app.modules.dispatch.router import delivery
 from app.modules.dispatch.router import router as dispatch
 from app.modules.finance.router import router as finance
 from app.modules.inventory.router import router as inventory
@@ -75,6 +76,7 @@ for r in (
     quality,
     tracking,
     dispatch,
+    delivery,
     finance,
     analytics,
 ):
