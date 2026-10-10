@@ -39,6 +39,8 @@ ignore = ["B008"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
+# starlette 1.x nags about httpx2; TestClient still works on httpx 0.28
+filterwarnings = ["ignore:Using `httpx` with `starlette.testclient`"]
 
 [tool.ruff.lint.per-file-ignores]
 # generated migrations keep long SQL strings on one line
