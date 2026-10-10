@@ -13,6 +13,7 @@ from app.modules.orders import service
 from app.modules.orders.models import OrderStatus
 from app.modules.orders.schemas import (
     AllocationOut,
+    CloseIn,
     OrderIn,
     OrderOut,
     RequirementIn,
@@ -78,6 +79,12 @@ def confirm(order_id: int, db: Session = Depends(get_db), user: User = Sales):
 @router.post("/{order_id}/reserve", response_model=AllocationOut)
 def reserve(order_id: int, db: Session = Depends(get_db), user: User = Sales):
     return service.reserve_again(db, user, order_id)
+
+
+# accounts ends an order by hand; short of the ordered metres needs a reason
+@router.post("/{order_id}/close", response_model=OrderOut)
+def close(order_id: int, data: CloseIn, db: Session = Depends(get_db), user: User = Sales):
+    return service.close(db, user, order_id, data.reason)
 
 
 @router.post("/{order_id}/cancel", response_model=OrderOut)
