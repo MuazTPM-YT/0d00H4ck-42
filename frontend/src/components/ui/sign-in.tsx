@@ -103,7 +103,7 @@ export function SignInPage({
             {/* Everest sits low and faint behind every print: the mill's name, in dots */}
             <DitherPlate motif="everest" seed="everest" className="pointer-events-none absolute inset-x-0 bottom-0 !h-[30%] opacity-45" label="Mount Everest" />
             {heroArt ? (
-              <DitherPlate key={heroArt.key} motif={heroArt.motif} seed={heroArt.key} className="plate-in absolute inset-x-0 top-0 !h-[78%]" label={heroArt.caption} />
+              <DitherPlate key={heroArt.key} motif={heroArt.motif} seed={heroArt.key} className="plate-in absolute inset-x-0 top-0 !h-[78%] [mask-image:linear-gradient(to_bottom,#000_75%,transparent)]" label={heroArt.caption} />
             ) : (
               <DitherImage src={heroImageSrc} className="absolute inset-x-0 top-0 !h-[78%] [mask-image:linear-gradient(to_bottom,#000_75%,transparent)]" label="Cloth on the loom, printed in dots" />
             )}
