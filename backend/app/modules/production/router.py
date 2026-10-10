@@ -14,6 +14,7 @@ from app.modules.production.schemas import (
     MachineEventIn,
     MachineEventOut,
     MoveIn,
+    OpenWorkOrderOut,
     OutputIn,
     ProductionLogOut,
     QueueIn,
@@ -41,6 +42,11 @@ def list_work_orders(
     db: Session = Depends(get_db),
 ):
     return service.list_work_orders(db, page, status, order_id, machine_id)
+
+
+@router.get("/work-orders/open", response_model=list[OpenWorkOrderOut])
+def open_work_orders(db: Session = Depends(get_db)):
+    return service.open_work_orders(db)
 
 
 @router.post("/work-orders/{work_order_id}/queue", response_model=WorkOrderOut)

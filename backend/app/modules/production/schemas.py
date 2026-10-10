@@ -35,6 +35,12 @@ class WorkOrderOut(BaseModel):
     finished_at: datetime | None
 
 
+class OpenWorkOrderOut(WorkOrderOut):
+    order_code: str
+    deadline: date
+    produced: Decimal
+
+
 class MachineEventIn(BaseModel):
     machine_id: Id
     status: MachineStatus

@@ -31,6 +31,7 @@ from app.modules.production.schemas import (
     RollIn,
     RollOut,
     RollProcessIn,
+    WorkOrderOut,
 )
 from app.modules.quality.models import Roll, RollBatch, RollEvent, RollStatus
 from app.modules.quality.service import ROLL_TRANSITIONS
@@ -669,6 +670,28 @@ def board(db: Session, now: datetime | None = None) -> dict:
             }
         )
     return {"as_of": now, "shift_code": shift.code if shift else None, "machines": tiles}
+
+
+# every job not done yet, with order code and progress: what the queue screen needs in one call
+def open_work_orders(db: Session) -> list[dict]:
+    rows = db.execute(
+        select(WorkOrder, Order.code, Order.deadline)
+        .join(Order, Order.id == WorkOrder.order_id)
+        .where(WorkOrder.status != WorkOrderStatus.done, Order.status == OrderStatus.confirmed)
+        .order_by(WorkOrder.queue_position.nulls_last(), Order.deadline, WorkOrder.seq)
+    ).all()
+    produced = _sum_by(
+        db, ProductionLog.work_order_id, ProductionLog.work_order_id.in_([r[0].id for r in rows])
+    )
+    return [
+        {
+            **WorkOrderOut.model_validate(wo).model_dump(),
+            "order_code": code,
+            "deadline": deadline,
+            "produced": qty(produced.get(wo.id, 0)),
+        }
+        for wo, code, deadline in rows
+    ]
 
 
 # one machine, one IST day: events, seconds per status, output logs

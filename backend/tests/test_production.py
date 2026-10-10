@@ -348,3 +348,14 @@ def test_timeline_lists_todays_events_and_output(client_as, db, floor):
     body = res.json()
     assert [e["status"] for e in body["events"]] == ["running", "breakdown"]
     assert body["total_output"] == "10.000"
+
+
+def test_open_work_orders_carry_order_code_and_progress(client_as, db, floor):
+    run_on(db, floor, floor.shirt_weave, floor.loom1)
+    log(db, floor, floor.loom1, 12)
+    res = client_as(Role.supervisor).get("/api/production/work-orders/open")
+    assert res.status_code == 200, res.text
+    rows = {r["code"]: r for r in res.json()}
+    assert rows[floor.shirt_weave.code]["order_code"] == "SO-T1"
+    assert rows[floor.shirt_weave.code]["produced"] == "12.000"
+    assert rows[floor.dyed_dye.code]["status"] == "waiting"
