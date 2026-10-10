@@ -24,3 +24,8 @@ One line of context, the choice, and why. Newest at the bottom.
 | 18 | Commit format `[TAG] module: short message` (Odoo style) | Matches how Odoo writes commits. Judges read it daily. | Conventional Commits |
 | 19 | One folder per module (`models`, `schemas`, `service`, `router`) and `CODEOWNERS` per path | Four people work in parallel with few merge conflicts. Ownership is visible. | Layer-first folders |
 | 20 | Deactivate masters (`active = false`), never delete | Old orders and rolls keep pointing at valid rows. | Hard delete |
+| 21 | AI layer = statistics on the mill's own data + template text, no language model yet | Works offline, every number traceable to a record, nothing to download. A local model can replace the templates later behind the same number guard. | Cloud LLM (offline rule), chatbot (copies Odoo 20) |
+| 22 | Detectors use stdlib only (`statistics`, `heapq`, `bisect`) | Median, MAD, heap and binary search are enough; nothing new to install or explain. | numpy / pandas / scikit-learn |
+| 23 | Delivery forecast computed on read, not stored | Always matches the floor; a breakdown or QC event triggers one debounced `orders` SSE event so screens refetch. | Cached forecast table (goes stale) |
+| 24 | Analytics background loop via `APIRouter(lifespan=...)` | FastAPI merges router lifespans, so `main.py` stays untouched. One uvicorn worker, so one loop. | Cron / separate worker process (more moving parts) |
+| 25 | Detector runs serialised by a Postgres advisory lock | Loop and button can overlap; the lock makes the second wait, so no duplicate insights. | Unique index only (needs a schema change, see schema-requests) |

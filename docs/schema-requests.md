@@ -27,4 +27,12 @@ Do not edit `backend/alembic/versions/` yourself.
 
 ## Requests
 
-None yet.
+### One live insight per finding, at the database
+- Requested by: Muaz, 2026-10-10
+- Module: analytics
+- Change: `insights.finding_key VARCHAR(80) NOT NULL DEFAULT ''` and a partial unique index on
+  `(kind, entity_type, entity_id, finding_key) WHERE status <> 'resolved'`
+- Why: D5. Today the key lives in `facts.key` and an advisory lock prevents duplicates; the index
+  would make the database the last guard, like every other invariant.
+- Nullable / default for existing rows: default `''`, backfill from `facts->>'key'`
+- Status: requested (nice to have, not blocking)
