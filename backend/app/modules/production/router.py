@@ -1,3 +1,5 @@
+from datetime import date
+
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
@@ -8,6 +10,7 @@ from app.modules.auth.models import Role, User
 from app.modules.production import service
 from app.modules.production.models import WorkOrderStatus
 from app.modules.production.schemas import (
+    BoardOut,
     MachineEventIn,
     MachineEventOut,
     MoveIn,
@@ -18,6 +21,7 @@ from app.modules.production.schemas import (
     RollIn,
     RollOut,
     RollProcessIn,
+    TimelineOut,
     WorkOrderOut,
 )
 
@@ -93,3 +97,13 @@ def process_roll(
     roll_id: int, body: RollProcessIn, db: Session = Depends(get_db), user: User = Supervisor
 ):
     return service.process_roll(db, roll_id, body, user.id)
+
+
+@router.get("/board", response_model=BoardOut)
+def board(db: Session = Depends(get_db)):
+    return service.board(db)
+
+
+@router.get("/machines/{machine_id}/timeline", response_model=TimelineOut)
+def timeline(machine_id: int, date: date, db: Session = Depends(get_db)):
+    return service.timeline(db, machine_id, date)

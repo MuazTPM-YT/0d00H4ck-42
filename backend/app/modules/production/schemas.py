@@ -1,4 +1,4 @@
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from typing import Annotated
 
@@ -139,3 +139,48 @@ class RollOut(BaseModel):
     weaver_id: int | None
     length_m: Decimal
     status: RollStatus
+
+
+class BoardJob(BaseModel):
+    work_order_id: int
+    code: str
+    order_id: int
+    order_code: str
+    stage: Stage
+    status: WorkOrderStatus
+    planned: Decimal
+    produced: Decimal
+    unit: Unit
+    rework: bool
+
+
+class BoardTile(BaseModel):
+    machine_id: int
+    code: str
+    name: str
+    type: Stage
+    unit: Unit
+    status: MachineStatus
+    since: datetime | None
+    reason: str | None
+    job: BoardJob | None
+    today_output: Decimal
+    queued: int
+    crew: list[str]
+
+
+class BoardOut(BaseModel):
+    as_of: datetime
+    shift_code: str | None
+    machines: list[BoardTile]
+
+
+class TimelineOut(BaseModel):
+    machine_id: int
+    code: str
+    date: date
+    unit: Unit
+    events: list[MachineEventOut]
+    seconds: dict[str, float]
+    output: list[ProductionLogOut]
+    total_output: Decimal

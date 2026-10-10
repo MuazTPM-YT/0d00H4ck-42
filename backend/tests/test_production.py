@@ -16,7 +16,7 @@ from app.modules.production.models import MachineStatus, WorkOrder, WorkOrderSta
 from app.modules.production.schemas import MachineEventIn, OutputIn, RollIn, RollProcessIn
 from app.modules.production.service import create_work_orders
 from app.modules.quality.models import Roll, RollBatch, RollStatus
-from app.modules.workforce.schemas import CrewIn
+from app.modules.workforce.schemas import IST, CrewIn
 from app.modules.workforce.service import assign_crew
 from tests.floor import build_floor
 
@@ -311,3 +311,40 @@ def test_finish_consumes_yarn_left_on_the_floor(db, floor):
         select(StockMove).where(StockMove.ref_id == wo.id, StockMove.reason == "consume")
     ).all()
     assert [m.qty for m in consumed] == [Decimal(50)]
+
+
+def test_status_durations_one_pass():
+    t = datetime(2026, 10, 9, 0, 0, tzinfo=UTC)
+    events = [
+        (t - timedelta(hours=1), MachineStatus.running),  # in effect at window start
+        (t + timedelta(hours=2), MachineStatus.breakdown),
+        (t + timedelta(hours=3), MachineStatus.idle),
+    ]
+    got = service.status_durations(events, t, t + timedelta(hours=4))
+    assert (got["running"], got["breakdown"], got["idle"]) == (7200, 3600, 3600)
+    assert service.status_durations([], t, t + timedelta(hours=1))["off"] == 3600
+
+
+def test_board_shows_job_progress_and_todays_output(client_as, db, floor):
+    run_on(db, floor, floor.shirt_weave, floor.loom1)
+    log(db, floor, floor.loom1, 20)
+    log(db, floor, floor.loom1, "4.5")
+    res = client_as(Role.owner).get("/api/production/board")
+    assert res.status_code == 200, res.text
+    tiles = {t["code"]: t for t in res.json()["machines"]}
+    lm1 = tiles["LM-T1"]
+    assert lm1["status"] == "running" and lm1["today_output"] == "24.500"
+    assert lm1["job"]["code"] == floor.shirt_weave.code and lm1["job"]["produced"] == "24.500"
+    assert tiles["LM-T2"]["status"] == "off" and tiles["LM-T2"]["job"] is None
+
+
+def test_timeline_lists_todays_events_and_output(client_as, db, floor):
+    run_on(db, floor, floor.shirt_weave, floor.loom1)
+    log(db, floor, floor.loom1, 10)
+    report(db, floor, floor.loom1, MachineStatus.breakdown, "Belt slip")
+    today = datetime.now(UTC).astimezone(IST).date()
+    res = client_as(Role.qc).get(f"/api/production/machines/{floor.loom1.id}/timeline?date={today}")
+    assert res.status_code == 200, res.text
+    body = res.json()
+    assert [e["status"] for e in body["events"]] == ["running", "breakdown"]
+    assert body["total_output"] == "10.000"

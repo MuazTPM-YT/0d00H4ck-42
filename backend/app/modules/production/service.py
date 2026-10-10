@@ -1,5 +1,5 @@
 from collections import defaultdict
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 
 from sqlalchemy import func, select
@@ -14,7 +14,7 @@ from app.core.pagination import Page, paginate
 from app.core.states import check_transition
 from app.core.units import qty, yarn_kg_for_fabric
 from app.modules.inventory.models import ItemKind, MoveReason, StockMove
-from app.modules.masters.models import FabricType, Location, LocationKind, Machine
+from app.modules.masters.models import FabricType, Location, LocationKind, Machine, Worker
 from app.modules.orders.models import Order, OrderStatus
 from app.modules.production.models import (
     MachineEvent,
@@ -34,7 +34,9 @@ from app.modules.production.schemas import (
 )
 from app.modules.quality.models import Roll, RollBatch, RollEvent, RollStatus
 from app.modules.quality.service import ROLL_TRANSITIONS
-from app.modules.workforce.service import crew_on_machine, current_shift
+from app.modules.workforce.models import CrewAssignment
+from app.modules.workforce.schemas import IST
+from app.modules.workforce.service import crew_on_machine, current_shift, day_start
 
 WORK_ORDER_TRANSITIONS = {
     WorkOrderStatus.waiting: {WorkOrderStatus.queued},
@@ -46,6 +48,7 @@ WORK_ORDER_TRANSITIONS = {
 MACHINE_TRANSITIONS = {s: set(MachineStatus) - {s} for s in MachineStatus}
 STAGE_UNIT = {Stage.spinning: Unit.kg, Stage.weaving: Unit.m, Stage.dyeing: Unit.m}
 DOWNTIME = {MachineStatus.breakdown, MachineStatus.maintenance}
+FLOW = {Stage.spinning: 0, Stage.weaving: 1, Stage.dyeing: 2}
 
 
 def list_work_orders(
@@ -553,6 +556,160 @@ def process_roll(
     db.commit()
     _publish_roll(result)
     return result
+
+
+# one pass over time-ordered (at, status) pairs; time before the first event counts as off
+def status_durations(
+    events: list[tuple[datetime, str]], start: datetime, end: datetime
+) -> dict[str, float]:
+    seconds = {s.value: 0.0 for s in MachineStatus}
+    points = list(events)
+    if not points or points[0][0] > start:
+        points.insert(0, (start, MachineStatus.off))
+    for (at, status), (next_at, _) in zip(points, [*points[1:], (end, None)], strict=True):
+        a, b = max(at, start), min(next_at, end)
+        if b > a:
+            seconds[status] += (b - a).total_seconds()
+    return seconds
+
+
+def _sum_by(db: Session, key, *where) -> dict[int, Decimal]:
+    rows = db.execute(select(key, func.sum(ProductionLog.qty)).where(*where).group_by(key))
+    return {k: v for k, v in rows}
+
+
+# every machine right now: status, job, progress, today's output, crew. One call per refresh.
+def board(db: Session, now: datetime | None = None) -> dict:
+    now = _now(now)
+    machines = sorted(
+        db.scalars(select(Machine).where(Machine.active)), key=lambda m: (FLOW[m.type], m.code)
+    )
+    latest = {
+        e.machine_id: e
+        for e in db.scalars(
+            select(MachineEvent)
+            .distinct(MachineEvent.machine_id)
+            .order_by(MachineEvent.machine_id, MachineEvent.at.desc(), MachineEvent.id.desc())
+        )
+    }
+    jobs: dict[int, WorkOrder] = {}
+    for wo in db.scalars(
+        select(WorkOrder).where(
+            WorkOrder.status.in_([WorkOrderStatus.running, WorkOrderStatus.paused]),
+            WorkOrder.machine_id.is_not(None),
+        )
+    ):
+        if wo.machine_id not in jobs or wo.status == WorkOrderStatus.running:
+            jobs[wo.machine_id] = wo
+    job_ids = [wo.id for wo in jobs.values()]
+    produced = _sum_by(db, ProductionLog.work_order_id, ProductionLog.work_order_id.in_(job_ids))
+    order_codes = dict(
+        db.execute(
+            select(Order.id, Order.code).where(Order.id.in_({wo.order_id for wo in jobs.values()}))
+        ).all()
+    )
+    today = _sum_by(
+        db, ProductionLog.machine_id, ProductionLog.at >= day_start(now.astimezone(IST).date())
+    )
+    queued = dict(
+        db.execute(
+            select(WorkOrder.machine_id, func.count())
+            .where(WorkOrder.status == WorkOrderStatus.queued)
+            .group_by(WorkOrder.machine_id)
+        ).all()
+    )
+    try:
+        shift_day, shift = current_shift(db, now)
+    except NotFound:
+        shift_day, shift = None, None
+    crew = defaultdict(list)
+    if shift:
+        for machine_id, name in db.execute(
+            select(CrewAssignment.machine_id, Worker.name)
+            .join(Worker, Worker.id == CrewAssignment.worker_id)
+            .where(
+                CrewAssignment.date == shift_day,
+                CrewAssignment.shift_id == shift.id,
+                CrewAssignment.to_at.is_(None),
+            )
+            .order_by(Worker.name)
+        ):
+            crew[machine_id].append(name)
+
+    tiles = []
+    for m in machines:
+        event, wo = latest.get(m.id), jobs.get(m.id)
+        tiles.append(
+            {
+                "machine_id": m.id,
+                "code": m.code,
+                "name": m.name,
+                "type": m.type,
+                "unit": m.output_unit,
+                "status": event.status if event else MachineStatus.off,
+                "since": event.at if event else None,
+                "reason": event.reason if event else None,
+                "job": {
+                    "work_order_id": wo.id,
+                    "code": wo.code,
+                    "order_id": wo.order_id,
+                    "order_code": order_codes[wo.order_id],
+                    "stage": wo.stage,
+                    "status": wo.status,
+                    "planned": wo.planned_qty,
+                    "produced": qty(produced.get(wo.id, 0)),
+                    "unit": wo.unit,
+                    "rework": wo.roll_id is not None,
+                }
+                if wo
+                else None,
+                "today_output": qty(today.get(m.id, 0)),
+                "queued": queued.get(m.id, 0),
+                "crew": crew[m.id],
+            }
+        )
+    return {"as_of": now, "shift_code": shift.code if shift else None, "machines": tiles}
+
+
+# one machine, one IST day: events, seconds per status, output logs
+def timeline(db: Session, machine_id: int, day: date, now: datetime | None = None) -> dict:
+    machine = db.get(Machine, machine_id)
+    if not machine:
+        raise NotFound(f"Machine {machine_id} not found")
+    start = day_start(day)
+    end = min(start + timedelta(days=1), _now(now))
+    by_machine = MachineEvent.machine_id == machine.id
+    before = db.scalar(
+        select(MachineEvent)
+        .where(by_machine, MachineEvent.at < start)
+        .order_by(MachineEvent.at.desc(), MachineEvent.id.desc())
+        .limit(1)
+    )
+    day_events = db.scalars(
+        select(MachineEvent)
+        .where(by_machine, MachineEvent.at >= start, MachineEvent.at < start + timedelta(days=1))
+        .order_by(MachineEvent.at, MachineEvent.id)
+    ).all()
+    points = [(e.at, e.status) for e in ([before] if before else []) + list(day_events)]
+    logs = db.scalars(
+        select(ProductionLog)
+        .where(
+            ProductionLog.machine_id == machine.id,
+            ProductionLog.at >= start,
+            ProductionLog.at < start + timedelta(days=1),
+        )
+        .order_by(ProductionLog.at)
+    ).all()
+    return {
+        "machine_id": machine.id,
+        "code": machine.code,
+        "date": day,
+        "unit": machine.output_unit,
+        "events": day_events,
+        "seconds": status_durations(points, start, end) if end > start else {},
+        "output": logs,
+        "total_output": qty(sum((log.qty for log in logs), Decimal(0))),
+    }
 
 
 # --- shared services (contract: docs/contracts.md). Never commit; caller owns the transaction.
