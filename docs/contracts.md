@@ -160,6 +160,8 @@ Pure helpers in `app.core.units`: `qty`, `rupees_to_paise`, `line_amount_paise`,
 | `POST /api/production/work-orders/{id}/{queue,unqueue,start,move,finish}`, `PUT /api/production/machines/{id}/queue` | supervisor |
 | `POST /api/production/machine-events`, `/output`, `/rolls`, `/rolls/{id}/process` | supervisor (machine feeds log in as one) |
 | `GET /api/quality/rolls` | any logged in |
+| `GET /api/quality/queue`, `/summary?days=`, `/rolls/{id}` | any logged in |
+| `POST /api/quality/rolls/{id}/checks` | qc |
 | `GET /api/workforce/attendance`, `/crew`, `/current-shift` | supervisor, accounts |
 | `PUT /api/workforce/attendance`, `POST /api/workforce/crew`, `POST /api/workforce/crew/{id}/end` | supervisor |
 | `GET /api/dispatch/dispatches[/{id}]`, `/finished-stock`, `/corner-check` | dispatch, accounts, supervisor |

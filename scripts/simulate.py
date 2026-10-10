@@ -61,7 +61,9 @@ from app.modules.production.models import (
     WorkOrderStatus,
 )
 from app.modules.production.schemas import MachineEventIn, OutputIn, RollIn, RollProcessIn
+from app.modules.quality import service as quality
 from app.modules.quality.models import QcCheck, QcDecision, Roll, RollBatch, RollStatus
+from app.modules.quality.schemas import QcCheckIn
 from app.modules.quality.service import ROLL_TRANSITIONS
 from app.modules.workforce import service as workforce
 from app.modules.workforce.models import AttendanceStatus, CrewAssignment
@@ -668,8 +670,7 @@ def issue_reserved_yarn(mill: Mill, wo: WorkOrder, t: datetime) -> None:
     db.commit()
 
 
-# TODO(swap): quality QC decision service (Razan); rework goes through the real
-# production.create_rework_work_order
+# inspector picks defects and decision; the real quality service writes it
 def qc_decision(mill: Mill, roll_id: int, at: datetime) -> None:
     db, rng = mill.db, mill.rng
     roll = db.get(Roll, roll_id)
@@ -701,61 +702,14 @@ def qc_decision(mill: Mill, roll_id: int, at: datetime) -> None:
     fabric = mill.fabric_by_id[
         db.scalar(select(Order.fabric_type_id).where(Order.id == roll.order_id))
     ]
-    db.add(
-        QcCheck(
-            roll_id=roll.id,
-            inspector_id=mill.user[Role.qc],
-            at=at,
-            attempt_no=attempt,
-            decision=decision,
-            defects=defects,
-            shade_band=band,
-            gsm=fabric.gsm + Decimal(rng.randint(-3, 3)) if band else None,
-            width_cm=fabric.width_cm if band else None,
-        )
+    body = QcCheckIn(
+        decision=decision,
+        defects=defects,
+        shade_band=band,
+        gsm=fabric.gsm + Decimal(rng.randint(-3, 3)) if band else None,
+        width_cm=fabric.width_cm if band else None,
     )
-    new = {
-        QcDecision.pass_: RollStatus.passed,
-        QcDecision.rework: RollStatus.rework,
-        QcDecision.reject: RollStatus.rejected,
-    }[decision]
-    check_transition(ROLL_TRANSITIONS, roll.status, new)
-    audit.record(db, mill.user[Role.qc], str(new), "rolls", roll.id, data={"attempt": attempt})
-    roll.status = new
-    if new == RollStatus.passed:
-        roll.shade_band, roll.passed_at, roll.location_id = band, at, mill.loc["FG-01"]
-        ref = ("roll", roll.id)
-        _move(
-            mill,
-            ItemKind.fabric,
-            roll.id,
-            roll.length_m,
-            "WIP",
-            "FG-01",
-            MoveReason.qc_pass,
-            at,
-            ref,
-            mill.user[Role.qc],
-        )
-    elif new == RollStatus.rejected:
-        roll.location_id = mill.loc["REJ"]
-        ref = ("roll", roll.id)
-        _move(
-            mill,
-            ItemKind.fabric,
-            roll.id,
-            roll.length_m,
-            "WIP",
-            "REJ",
-            MoveReason.qc_reject,
-            at,
-            ref,
-            mill.user[Role.qc],
-        )
-    else:
-        stage = fabric.stages[-1].stage
-        production.create_rework_work_order(db, roll.id, stage, mill.user[Role.qc])
-    db.commit()
+    quality.decide(db, roll.id, body, mill.user[Role.qc], at)
 
 
 # TODO(swap): dispatch create/load/confirm services (Ashil); one shade band per dispatch
