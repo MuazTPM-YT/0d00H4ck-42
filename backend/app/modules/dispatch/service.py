@@ -21,6 +21,7 @@ from app.modules.finance.models import Invoice
 from app.modules.inventory.models import ItemKind, MoveReason, StockMove
 from app.modules.masters.models import Buyer, FabricType, Location, LocationKind
 from app.modules.orders.models import Order, OrderStatus
+from app.modules.orders.service import ORDER_TRANSITIONS
 from app.modules.quality.models import Roll, RollStatus
 from app.modules.quality.service import ROLL_TRANSITIONS
 
@@ -485,10 +486,24 @@ def _scan_result(db: Session, d: Dispatch, roll_code: str) -> dict:
     }
 
 
+# a cancelled or closed order ships nothing more, even on a truck drafted before
+def _open_order(db: Session, order_id: int, lock: bool = False) -> Order:
+    stmt = select(Order).where(Order.id == order_id)
+    order = db.scalar(stmt.with_for_update() if lock else stmt)
+    if order.status != OrderStatus.confirmed:
+        raise Conflict(
+            f"Order {order.code} is {order.status}; nothing more ships on it",
+            field="order_id",
+            code="order_not_open",
+        )
+    return order
+
+
 # one roll onto the truck. Locks dispatch then roll, so two scanners cannot load one roll twice.
 def _load_roll(db: Session, user: User, dispatch_id: int, roll_code: str) -> dict:
     d = _get(db, dispatch_id, lock=True)
     _editable(d)
+    _open_order(db, d.order_id)
     roll = db.scalar(select(Roll).where(Roll.code == roll_code).with_for_update())
     if not roll:
         raise NotFound(f"No roll with code {roll_code}", field="roll_code")
@@ -597,6 +612,8 @@ def _roll_on_hand(db: Session, roll_id: int, location_id: int) -> Decimal:
 def confirm(db: Session, user: User, dispatch_id: int) -> dict:
     d = _get(db, dispatch_id, lock=True)
     check_transition(DISPATCH_TRANSITIONS, d.status, DispatchStatus.confirmed)
+    # order row lock: a cancel and this truck cannot pass each other
+    order = _open_order(db, d.order_id, lock=True)
     if not d.vehicle_no:
         raise Unprocessable("Vehicle number is needed before the truck leaves", field="vehicle_no")
     rolls = _loaded(db, d.id, lock=True)
@@ -641,6 +658,14 @@ def confirm(db: Session, user: User, dispatch_id: int) -> dict:
         d.id,
         data={"rolls": [r.code for r in rolls], "invoice": invoice.code},
     )
+    db.flush()
+    # this truck completes the order: close it, so lists and the forecast stop treating it as open
+    shipped = shipped_metres(db, order.id)
+    if shipped >= order.qty_m:
+        check_transition(ORDER_TRANSITIONS, order.status, OrderStatus.closed)
+        order.status = OrderStatus.closed
+        data = {"shipped_m": str(shipped), "dispatch": d.code}
+        audit.record(db, user.id, "closed", "orders", order.id, data=data)
     db.commit()
     for topic in ("dispatch", "stock", "orders"):
         events.publish(topic, {"type": "dispatched", "id": d.id})

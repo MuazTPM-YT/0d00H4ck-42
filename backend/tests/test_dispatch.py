@@ -304,3 +304,38 @@ def test_two_scanners_cannot_load_one_roll_twice(committed, password_hash):
     with Session(committed) as s:
         rid = s.scalar(select(Roll.id).where(Roll.code == code))
         assert len(s.scalars(select(DispatchRoll).where(DispatchRoll.roll_id == rid)).all()) == 1
+
+
+# the truck that completes the order closes it, so a shipped order stops showing as open or late
+def test_confirm_that_ships_the_whole_order_closes_it(client_as, db, mill, dispatch_for):
+    o = mill.order(150)
+    wo = mill.work_order(o)
+    first, second = mill.roll(wo, 100), mill.roll(wo, 60)
+    clerk = client_as(Role.dispatch)
+    d1 = dispatch_for(o)
+    scan(clerk, d1, first)
+    assert clerk.post(f"/api/dispatch/dispatches/{d1.id}/confirm").status_code == 200
+    db.refresh(o)
+    assert o.status == OrderStatus.confirmed
+    d2 = dispatch_for(o)
+    scan(clerk, d2, second)
+    assert clerk.post(f"/api/dispatch/dispatches/{d2.id}/confirm").status_code == 200
+    db.refresh(o)
+    assert o.status == OrderStatus.closed
+
+
+# a truck drafted before the order was cancelled can neither load nor leave with an invoice
+def test_cancelled_order_cannot_load_or_ship(client_as, db, mill, dispatch_for):
+    o = mill.order(200)
+    wo = mill.work_order(o)
+    loaded, spare = mill.roll(wo, 100), mill.roll(wo, 100)
+    d = dispatch_for(o)
+    clerk = client_as(Role.dispatch)
+    scan(clerk, d, loaded)
+    o.status = OrderStatus.cancelled
+    db.commit()
+    res = scan(clerk, d, spare)
+    assert res.status_code == 409 and res.json()["error"]["code"] == "order_not_open"
+    res = clerk.post(f"/api/dispatch/dispatches/{d.id}/confirm")
+    assert res.status_code == 409 and res.json()["error"]["code"] == "order_not_open"
+    assert db.scalar(select(Invoice).where(Invoice.dispatch_id == d.id)) is None
