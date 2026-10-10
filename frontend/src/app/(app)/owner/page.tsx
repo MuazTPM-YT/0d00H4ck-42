@@ -3,6 +3,7 @@
 import { Lightbulb } from "lucide-react";
 import Link from "next/link";
 
+import { DitherBand } from "@/components/dither/DitherBand";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Button } from "@/components/ui/button";
 import { AttentionList, BriefingCard } from "@/features/analytics/AttentionList";
@@ -27,7 +28,8 @@ export default function Page() {
       />
       <BriefingCard />
       <OwnerDashboard />
-      <div className="mt-8 grid gap-8 xl:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
+      <DitherBand className="my-8" direction="center" />
+      <div className="grid gap-8 xl:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
         <AttentionList />
         <section aria-labelledby="delivery-title" className="grid content-start gap-3">
           <h2 id="delivery-title" className="text-base font-semibold">

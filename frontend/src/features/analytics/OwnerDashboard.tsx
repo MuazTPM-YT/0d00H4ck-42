@@ -31,6 +31,8 @@ import {
   YAxis,
 } from "recharts";
 
+import { DitherPlate } from "@/components/dither/DitherPlate";
+import type { MotifName } from "@/components/dither/motifs";
 import { Skeleton } from "@/components/ui/skeleton";
 import { api } from "@/lib/api";
 import { inr } from "@/lib/format";
@@ -63,17 +65,17 @@ const lakh = (paise: number) => {
 const num = new Intl.NumberFormat("en-IN", { maximumFractionDigits: 0 });
 
 function Card({ className, children }: { className?: string; children: React.ReactNode }) {
-  return <section className={cn("rounded-3xl bg-card p-5 shadow-card", className)}>{children}</section>;
+  return <section className={cn("border border-border bg-card p-5", className)}>{children}</section>;
 }
 
 function CardTitle({ title, hint, icon: Icon }: { title: string; hint?: string; icon: LucideIcon }) {
   return (
     <div className="mb-4 flex items-start justify-between gap-3">
       <div>
-        <h2 className="text-[1.05rem] font-semibold">{title}</h2>
-        {hint && <p className="text-sm text-muted-foreground">{hint}</p>}
+        <h2 className="text-[1.55rem] font-normal">{title}</h2>
+        {hint && <p className="mt-0.5 text-sm text-muted-foreground">{hint}</p>}
       </div>
-      <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-muted text-foreground" aria-hidden>
+      <span className="grid size-9 shrink-0 place-items-center border border-border text-muted-foreground" aria-hidden>
         <Icon className="size-[1.1rem]" />
       </span>
     </div>
@@ -83,27 +85,47 @@ function CardTitle({ title, hint, icon: Icon }: { title: string; hint?: string; 
 function ChartTip({ active, payload, label, money }: { active?: boolean; payload?: { value: number }[]; label?: string; money?: boolean }) {
   if (!active || !payload?.length) return null;
   return (
-    <div className="rounded-xl border border-border/60 bg-card px-3 py-2 text-sm shadow-raised">
-      <p className="text-muted-foreground">{label}</p>
-      <p className="font-semibold tabular">{money ? inr(payload[0].value) : `${num.format(payload[0].value)} m`}</p>
+    <div className="border border-foreground bg-card px-3 py-2 text-sm">
+      <p className="label">{label}</p>
+      <p className="num font-medium">{money ? inr(payload[0].value) : `${num.format(payload[0].value)} m`}</p>
     </div>
   );
 }
 
-function Stat({ icon: Icon, label, value, sub, tone = "default" }: { icon: LucideIcon; label: string; value: string; sub: string; tone?: "default" | "good" | "bad" }) {
+// one ledger figure: mono label, big dotted numeral, a small print of where the number comes from
+function Stat({ icon: Icon, label, value, sub, motif, tone = "default" }: { icon: LucideIcon; label: string; value: string; sub: string; motif: MotifName; tone?: "default" | "good" | "bad" }) {
   return (
-    <Card className="flex flex-col gap-4">
-      <div className="flex items-center justify-between">
-        <span className="text-sm font-medium text-muted-foreground">{label}</span>
-        <span className="grid size-10 place-items-center rounded-2xl bg-primary text-primary-foreground" aria-hidden>
-          <Icon className="size-5" />
-        </span>
+    <Card className="relative flex flex-col gap-4 overflow-hidden border-t-foreground">
+      <DitherPlate motif={motif} seed={label} className="pointer-events-none absolute top-0 right-0 !h-24 !w-36 opacity-80 [mask-image:linear-gradient(to_left,#000_30%,transparent)]" />
+      <div className="relative flex items-center gap-2">
+        <Icon className="size-4 text-ember" aria-hidden />
+        <span className="label">{label}</span>
       </div>
-      <div>
-        <p className={cn("text-[2rem] leading-none font-bold tracking-tight tabular", tone === "good" && "text-success", tone === "bad" && "text-danger")}>{value}</p>
-        <p className="mt-2 text-sm text-muted-foreground">{sub}</p>
+      <div className="relative">
+        <p className={cn("dotnum text-[2.6rem]", tone === "good" && "text-success", tone === "bad" && "text-danger")}>{value}</p>
+        <p className="mt-2 text-sm text-body">{sub}</p>
       </div>
     </Card>
+  );
+}
+
+// 1-bit fills for the charts: ink at half density, like the dithered plates
+function Halftones() {
+  return (
+    <defs>
+      <pattern id="ink-dots" width="4" height="4" patternUnits="userSpaceOnUse">
+        <rect width="2" height="2" fill="var(--foreground)" />
+        <rect x="2" y="2" width="2" height="2" fill="var(--foreground)" />
+      </pattern>
+      <pattern id="ink-sparse" width="6" height="6" patternUnits="userSpaceOnUse">
+        <rect width="1.5" height="1.5" fill="var(--foreground)" />
+        <rect x="3" y="3" width="1.5" height="1.5" fill="var(--foreground)" />
+      </pattern>
+      <pattern id="ember-dots" width="4" height="4" patternUnits="userSpaceOnUse">
+        <rect width="2" height="2" fill="var(--ember)" />
+        <rect x="2" y="2" width="2" height="2" fill="var(--ember)" />
+      </pattern>
+    </defs>
   );
 }
 
@@ -175,7 +197,7 @@ export function OwnerDashboard() {
             role="radio"
             aria-checked={m === month}
             onClick={() => setPicked(m)}
-            className={cn("pressable h-10 rounded-full px-4 text-sm font-medium", m === month ? "bg-primary text-primary-foreground" : "bg-card text-foreground shadow-card hover:bg-accent")}
+            className={cn("pressable h-10 border px-4 font-mono text-[0.74rem] font-medium tracking-[0.1em] uppercase", m === month ? "border-primary bg-primary text-primary-foreground" : "border-input bg-card text-foreground hover:border-ember hover:text-ember")}
           >
             {monthName(m)}
           </button>
@@ -185,19 +207,20 @@ export function OwnerDashboard() {
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
         {v ? (
           <>
-            <Stat icon={TrendingUp} label="Invoiced" value={lakh(v.invoiced_paise)} sub={`${inr(v.invoiced_paise)} incl. GST`} />
-            <Stat icon={Banknote} label="Cash received" value={lakh(v.received_paise)} sub={v.invoiced_paise ? `${Math.round((v.received_paise / v.invoiced_paise) * 100)}% of invoiced collected` : "Nothing invoiced yet"} />
+            <Stat motif="orders" icon={TrendingUp} label="Invoiced" value={lakh(v.invoiced_paise)} sub={`${inr(v.invoiced_paise)} incl. GST`} />
+            <Stat motif="bars" icon={Banknote} label="Cash received" value={lakh(v.received_paise)} sub={v.invoiced_paise ? `${Math.round((v.received_paise / v.invoiced_paise) * 100)}% of invoiced collected` : "Nothing invoiced yet"} />
             <Stat
+              motif="mill"
               icon={Wallet}
               label="Month result (cash)"
               value={lakh(v.result_cash_paise)}
               sub={`Yarn ${lakh(v.yarn_bills_paise)} · wages ${lakh(v.wages_accrued_paise)} · other ${lakh(v.expenses_paise)}`}
               tone={v.result_cash_paise >= 0 ? "good" : "bad"}
             />
-            <Stat icon={Ruler} label="Fabric woven" value={`${num.format(wovenTotal)} m`} sub={`${fabricByDay.length} working days on the looms`} />
+            <Stat motif="loom" icon={Ruler} label="Fabric woven" value={`${num.format(wovenTotal)} m`} sub={`${fabricByDay.length} working days on the looms`} />
           </>
         ) : (
-          [0, 1, 2, 3].map((i) => <Skeleton key={i} className="h-40 rounded-3xl" />)
+          [0, 1, 2, 3].map((i) => <Skeleton key={i} className="h-40" />)
         )}
       </div>
 
@@ -208,11 +231,12 @@ export function OwnerDashboard() {
             {revenueByDay.length ? (
               <ResponsiveContainer>
                 <BarChart data={revenueByDay} margin={{ left: 0, right: 4, top: 4 }}>
+                  <Halftones />
                   <CartesianGrid vertical={false} stroke="var(--border)" />
                   <XAxis dataKey="day" tickLine={false} axisLine={false} tick={{ fill: "var(--muted-foreground)", fontSize: 12 }} minTickGap={12} />
                   <YAxis tickLine={false} axisLine={false} width={52} tick={{ fill: "var(--muted-foreground)", fontSize: 12 }} tickFormatter={lakh} />
                   <Tooltip cursor={{ fill: "var(--muted)" }} content={<ChartTip money />} />
-                  <Bar dataKey="paise" fill="var(--primary)" radius={[8, 8, 4, 4]} maxBarSize={28} />
+                  <Bar dataKey="paise" fill="url(#ink-dots)" stroke="var(--foreground)" strokeWidth={1} maxBarSize={28} />
                 </BarChart>
               </ResponsiveContainer>
             ) : (
@@ -227,17 +251,12 @@ export function OwnerDashboard() {
             {fabricByDay.length ? (
               <ResponsiveContainer>
                 <AreaChart data={fabricByDay} margin={{ left: 0, right: 4, top: 4 }}>
-                  <defs>
-                    <linearGradient id="woven" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor="var(--foreground)" stopOpacity={0.28} />
-                      <stop offset="100%" stopColor="var(--foreground)" stopOpacity={0.02} />
-                    </linearGradient>
-                  </defs>
+                  <Halftones />
                   <CartesianGrid vertical={false} stroke="var(--border)" />
                   <XAxis dataKey="day" tickLine={false} axisLine={false} tick={{ fill: "var(--muted-foreground)", fontSize: 12 }} minTickGap={12} />
                   <YAxis tickLine={false} axisLine={false} width={48} tick={{ fill: "var(--muted-foreground)", fontSize: 12 }} />
                   <Tooltip content={<ChartTip />} />
-                  <Area type="monotone" dataKey="metres" stroke="var(--foreground)" strokeWidth={2.25} fill="url(#woven)" />
+                  <Area type="step" dataKey="metres" stroke="var(--ember)" strokeWidth={2} fill="url(#ink-sparse)" />
                 </AreaChart>
               </ResponsiveContainer>
             ) : (
@@ -252,12 +271,13 @@ export function OwnerDashboard() {
             {machineRank.length ? (
               <ResponsiveContainer>
                 <BarChart data={machineRank} layout="vertical" margin={{ left: 4, right: 12 }}>
+                  <Halftones />
                   <XAxis type="number" hide />
-                  <YAxis type="category" dataKey="code" tickLine={false} axisLine={false} width={64} tick={{ fill: "var(--foreground)", fontSize: 13, fontWeight: 600 }} />
+                  <YAxis type="category" dataKey="code" tickLine={false} axisLine={false} width={64} tick={{ fill: "var(--foreground)", fontSize: 12, fontFamily: "var(--font-mono)" }} />
                   <Tooltip cursor={{ fill: "var(--muted)" }} content={<ChartTip />} />
-                  <Bar dataKey="metres" radius={[4, 10, 10, 4]} barSize={16}>
+                  <Bar dataKey="metres" barSize={14} strokeWidth={1}>
                     {machineRank.map((m, i) => (
-                      <Cell key={m.code} fill={i === 0 ? "var(--primary)" : `color-mix(in srgb, var(--primary) ${Math.max(28, 85 - i * 8)}%, transparent)`} />
+                      <Cell key={m.code} fill={i === 0 ? "url(#ember-dots)" : "url(#ink-dots)"} stroke={i === 0 ? "var(--ember)" : "var(--foreground)"} />
                     ))}
                   </Bar>
                 </BarChart>
@@ -274,7 +294,7 @@ export function OwnerDashboard() {
             {riskTotal ? (
               <ResponsiveContainer>
                 <PieChart>
-                  <Pie data={risk} dataKey="value" innerRadius="68%" outerRadius="100%" paddingAngle={3} cornerRadius={8} stroke="none">
+                  <Pie data={risk} dataKey="value" innerRadius="70%" outerRadius="100%" paddingAngle={2} stroke="var(--card)" strokeWidth={2}>
                     {risk.map((r) => <Cell key={r.key} fill={r.color} />)}
                   </Pie>
                 </PieChart>
@@ -285,17 +305,17 @@ export function OwnerDashboard() {
             {riskTotal > 0 && (
               <div className="pointer-events-none absolute inset-0 grid place-items-center text-center">
                 <span>
-                  <span className="block text-3xl font-bold tabular">{riskTotal}</span>
-                  <span className="text-xs text-muted-foreground">open orders</span>
+                  <span className="dotnum block text-4xl">{riskTotal}</span>
+                  <span className="label">open orders</span>
                 </span>
               </div>
             )}
           </div>
           <ul className="mt-4 grid gap-1.5 text-sm">
             {risk.map((r) => (
-              <li key={r.key} className="flex items-center justify-between">
-                <span className="flex items-center gap-2"><span className="size-2.5 rounded-full" style={{ background: r.color }} />{r.label}</span>
-                <span className="font-semibold tabular">{r.value}</span>
+              <li key={r.key} className="flex items-center justify-between border-t border-border pt-1.5 first:border-foreground">
+                <span className="flex items-center gap-2"><span className="dot size-2.5" style={{ background: r.color }} />{r.label}</span>
+                <span className="num font-medium">{r.value}</span>
               </li>
             ))}
           </ul>
@@ -303,12 +323,13 @@ export function OwnerDashboard() {
 
         <Card>
           <CardTitle title="Go to" icon={ArrowUpRight} />
-          <nav className="grid gap-2">
-            {ACTIONS.map(({ href, label, icon: Icon }) => (
-              <Link key={href} href={href} className="pressable flex h-12 items-center gap-3 rounded-2xl bg-muted/70 px-3 font-medium hover:bg-accent">
-                <span className="grid size-8 place-items-center rounded-xl bg-card shadow-card"><Icon className="size-4" /></span>
+          <nav className="grid">
+            {ACTIONS.map(({ href, label, icon: Icon }, i) => (
+              <Link key={href} href={href} className="dither-hover group flex h-12 items-center gap-3 border-t border-border px-1 font-medium first:border-foreground hover:text-ember">
+                <span className="num w-6 text-[0.78rem] text-ember">{String(i + 1).padStart(2, "0")}</span>
+                <Icon className="size-4" />
                 {label}
-                <ArrowUpRight className="ml-auto size-4 text-muted-foreground" />
+                <ArrowUpRight className="ml-auto size-4 text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
               </Link>
             ))}
           </nav>
@@ -319,6 +340,6 @@ export function OwnerDashboard() {
 }
 
 function EmptyChart({ loading, text }: { loading: boolean; text: string }) {
-  if (loading) return <Skeleton className="h-full w-full rounded-2xl" />;
-  return <div className="grid h-full place-items-center rounded-2xl bg-muted/50 text-sm text-muted-foreground">{text}</div>;
+  if (loading) return <Skeleton className="h-full w-full" />;
+  return <div className="label grid h-full place-items-center border border-dashed border-border">{text}</div>;
 }

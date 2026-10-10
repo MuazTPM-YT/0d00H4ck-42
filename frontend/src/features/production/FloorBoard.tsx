@@ -68,7 +68,7 @@ export function FloorBoard({ top }: { top?: ReactNode }) {
           <ul className="mb-4 flex flex-wrap gap-x-4 gap-y-2 text-sm" aria-label="Machines by status">
             {MACHINE_STATUSES.filter((s) => counts[s]).map((s) => (
               <li key={s} className="flex items-center gap-2">
-                <span className={`size-2.5 rounded-full ${STATUS_BAR[s]}`} aria-hidden />
+                <span className={`dot size-2.5 ${STATUS_BAR[s]}`} aria-hidden />
                 {humanize(s)} <span className="font-semibold tabular">{counts[s]}</span>
               </li>
             ))}

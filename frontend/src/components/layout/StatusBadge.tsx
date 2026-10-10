@@ -37,8 +37,8 @@ const LIVE = new Set(["running", "in_process", "loading"]);
 export function StatusBadge({ status, className }: { status: string; className?: string }) {
   const meaning = MEANING[status] ?? "neutral";
   return (
-    <span className={cn("inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[0.8rem] leading-none font-semibold whitespace-nowrap", STYLE[meaning], className)}>
-      <span className={cn("size-2 rounded-full bg-current", LIVE.has(status) && "ring-2 ring-current/25")} aria-hidden />
+    <span className={cn("inline-flex items-center gap-1.5 border border-current/25 px-2 py-1 font-mono text-[0.72rem] leading-none font-medium tracking-[0.08em] uppercase whitespace-nowrap", STYLE[meaning], className)}>
+      <span className={cn("dot size-2 bg-current", LIVE.has(status) && "ring-2 ring-current/25")} aria-hidden />
       {humanize(status)}
     </span>
   );

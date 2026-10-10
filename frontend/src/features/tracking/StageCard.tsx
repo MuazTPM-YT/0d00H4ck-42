@@ -116,7 +116,7 @@ export function Timeline({ events }: { events: Track["timeline"] }) {
       <ol className="grid gap-3 border-l pl-4">
         {events.map((e, i) => (
           <li key={i} className="relative text-sm">
-            <span className="absolute top-1.5 -left-[1.3rem] size-2 rounded-full bg-primary" aria-hidden />
+            <span className="dot absolute top-1.5 -left-[1.3rem] size-2 bg-primary" aria-hidden />
             <div>{e.title}</div>
             <div className="text-xs text-muted-foreground">{dateTime(e.at)}</div>
           </li>

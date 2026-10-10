@@ -87,7 +87,7 @@ export function LevelBadge({ level }: { level: keyof typeof LEVEL }) {
   const l = LEVEL[level];
   return (
     <span className={cn("inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium whitespace-nowrap", l.cls)}>
-      <span className="size-1.5 rounded-full bg-current" aria-hidden />
+      <span className="dot size-1.5 bg-current" aria-hidden />
       {l.text}
     </span>
   );
