@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 
 import { cn } from "@/lib/utils";
 
+// nothing here yet: a big calm icon, one sentence on why, and the action that fixes it
 export function EmptyState({
   icon: Icon = Inbox,
   title,
@@ -18,11 +19,13 @@ export function EmptyState({
   className?: string;
 }) {
   return (
-    <div className={cn("flex flex-col items-center gap-3 rounded-lg border border-dashed bg-card px-6 py-12 text-center", className)}>
-      <Icon className="size-8 text-muted-foreground" aria-hidden />
-      <h2 className="text-base font-semibold">{title}</h2>
-      {children && <div className="max-w-prose text-sm text-muted-foreground">{children}</div>}
-      {action}
+    <div className={cn("flex flex-col items-center gap-3 rounded-3xl bg-card px-6 py-14 text-center shadow-card", className)}>
+      <span className="mb-1 grid size-16 place-items-center rounded-2xl bg-muted text-muted-foreground" aria-hidden>
+        <Icon className="size-8" strokeWidth={1.7} />
+      </span>
+      <h2 className="text-lg font-semibold">{title}</h2>
+      {children && <div className="max-w-md text-[0.94rem] text-muted-foreground">{children}</div>}
+      {action && <div className="mt-2">{action}</div>}
     </div>
   );
 }

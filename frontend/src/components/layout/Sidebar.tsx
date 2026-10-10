@@ -4,6 +4,7 @@ import { LogOut } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
+import { BrandMark } from "@/components/layout/BrandMark";
 import { ROLE_LABEL, type User, useLogout } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 import { navFor, ROUTES } from "@/nav";
@@ -15,22 +16,33 @@ function isActive(pathname: string, href: string) {
   return !ROUTES.some((r) => r.nav && r.path !== href && r.path.startsWith(`${href}/`) && pathname.startsWith(r.path));
 }
 
+const initials = (name: string) =>
+  name
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((p) => p[0]?.toUpperCase())
+    .join("");
+
+// frosted sidebar: big tap targets, one filled pill marks where you are
 export function Sidebar({ user, onNavigate }: { user: User; onNavigate?: () => void }) {
   const pathname = usePathname();
   const logout = useLogout();
 
   return (
-    <div className="weave flex h-full flex-col text-sidebar-foreground">
-      <div className="px-5 pt-6 pb-4">
-        <p className="text-lg font-semibold tracking-tight text-white">Everest Textile Mills</p>
-        <p className="text-sm text-sidebar-muted">Yarn to dispatch</p>
+    <div className="material-strong flex h-full flex-col border-r border-border/70 text-sidebar-foreground">
+      <div className="flex items-center gap-3 px-5 pt-6 pb-5">
+        <BrandMark />
+        <div className="min-w-0 leading-tight">
+          <p className="truncate text-[1.05rem] font-semibold tracking-tight">Everest</p>
+          <p className="truncate text-[0.8rem] text-sidebar-muted">Textile Mills</p>
+        </div>
       </div>
 
       <nav aria-label="Main" className="flex-1 overflow-y-auto px-3 pb-4">
         {navFor(user.role).map(({ group, items }) => (
-          <div key={group} className="mt-4 first:mt-0">
-            <p className="px-2 pb-1 text-xs font-medium text-sidebar-muted">{group}</p>
-            <ul className="grid gap-0.5">
+          <div key={group} className="mt-5 first:mt-0">
+            <p className="px-3 pb-1.5 text-[0.75rem] font-semibold text-sidebar-muted">{group}</p>
+            <ul className="grid gap-1">
               {items.map((item) => {
                 const active = isActive(pathname, item.path);
                 const Icon = item.nav!.icon;
@@ -41,13 +53,14 @@ export function Sidebar({ user, onNavigate }: { user: User; onNavigate?: () => v
                       onClick={onNavigate}
                       aria-current={active ? "page" : undefined}
                       className={cn(
-                        "flex items-center gap-3 rounded-md border-l-2 border-transparent px-2 py-2 text-sm transition-colors",
-                        "hover:bg-sidebar-active hover:text-white focus-visible:outline-2 focus-visible:outline-sidebar-accent",
-                        active && "border-sidebar-accent bg-sidebar-active font-medium text-white",
+                        "pressable flex h-11 items-center gap-3 rounded-xl px-3 text-[0.94rem] font-medium",
+                        active
+                          ? "bg-sidebar-active text-sidebar-active-foreground shadow-sm"
+                          : "text-sidebar-foreground/85 hover:bg-sidebar-hover hover:text-sidebar-foreground",
                       )}
                     >
-                      <Icon className="size-4 shrink-0" aria-hidden />
-                      {item.title}
+                      <Icon className="size-5 shrink-0" strokeWidth={active ? 2.25 : 1.9} aria-hidden />
+                      <span className="truncate">{item.title}</span>
                     </Link>
                   </li>
                 );
@@ -57,16 +70,22 @@ export function Sidebar({ user, onNavigate }: { user: User; onNavigate?: () => v
         ))}
       </nav>
 
-      <div className="border-t border-white/10 px-5 py-4">
-        <p className="truncate text-sm font-medium text-white">{user.name}</p>
-        <p className="text-xs text-sidebar-muted">{ROLE_LABEL[user.role]}</p>
+      <div className="m-3 flex items-center gap-3 rounded-2xl bg-card/70 p-3 shadow-card">
+        <span className="grid size-10 shrink-0 place-items-center rounded-full bg-secondary text-sm font-semibold text-secondary-foreground" aria-hidden>
+          {initials(user.name)}
+        </span>
+        <div className="min-w-0 flex-1 leading-tight">
+          <p className="truncate text-[0.9rem] font-semibold">{user.name}</p>
+          <p className="truncate text-[0.78rem] text-sidebar-muted">{ROLE_LABEL[user.role]}</p>
+        </div>
         <button
           type="button"
           onClick={() => logout.mutate()}
-          className="mt-3 inline-flex items-center gap-2 text-sm text-sidebar-muted hover:text-white focus-visible:outline-2 focus-visible:outline-sidebar-accent"
+          aria-label="Log out"
+          title="Log out"
+          className="pressable grid size-10 shrink-0 place-items-center rounded-full text-sidebar-muted hover:bg-sidebar-hover hover:text-sidebar-foreground"
         >
-          <LogOut className="size-4" aria-hidden />
-          Log out
+          <LogOut className="size-[1.15rem]" aria-hidden />
         </button>
       </div>
     </div>

@@ -42,7 +42,7 @@ export function DataTable<T extends { id: number }>({
 
   const total = query.data?.total ?? 0;
   return (
-    <div className="rounded-lg border bg-card">
+    <div className="overflow-hidden rounded-2xl bg-card shadow-card">
       <div className="overflow-x-auto">
         <Table>
           <TableHeader>
@@ -69,7 +69,9 @@ export function DataTable<T extends { id: number }>({
                   <TableRow
                     key={row.id}
                     onClick={onRowClick && (() => onRowClick(row))}
-                    className={cn(onRowClick && "cursor-pointer")}
+                    tabIndex={onRowClick ? 0 : undefined}
+                    onKeyDown={onRowClick && ((e) => (e.key === "Enter" || e.key === " ") && (e.preventDefault(), onRowClick(row)))}
+                    className={cn(onRowClick && "cursor-pointer outline-none focus-visible:bg-info-soft active:bg-muted")}
                   >
                     {columns.map((c) => (
                       <TableCell key={c.key} className={c.className}>
@@ -81,15 +83,15 @@ export function DataTable<T extends { id: number }>({
           </TableBody>
         </Table>
       </div>
-      <div className="flex items-center justify-between gap-2 border-t px-4 py-2 text-sm text-muted-foreground">
+      <div className="flex items-center justify-between gap-2 border-t border-border/70 px-4 py-2.5 text-[0.88rem] text-muted-foreground">
         <span className="tabular">
           {total === 0 ? "…" : `${offset + 1}–${Math.min(offset + limit, total)} of ${total}`}
         </span>
-        <div className="flex gap-1">
-          <Button variant="ghost" size="icon" aria-label="Previous page" disabled={offset === 0} onClick={() => onOffsetChange(Math.max(0, offset - limit))}>
+        <div className="flex gap-2">
+          <Button variant="outline" size="icon-sm" aria-label="Previous page" disabled={offset === 0} onClick={() => onOffsetChange(Math.max(0, offset - limit))}>
             <ChevronLeft />
           </Button>
-          <Button variant="ghost" size="icon" aria-label="Next page" disabled={offset + limit >= total} onClick={() => onOffsetChange(offset + limit)}>
+          <Button variant="outline" size="icon-sm" aria-label="Next page" disabled={offset + limit >= total} onClick={() => onOffsetChange(offset + limit)}>
             <ChevronRight />
           </Button>
         </div>
