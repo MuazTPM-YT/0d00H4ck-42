@@ -28,6 +28,7 @@ from app.modules.dispatch.models import Dispatch, DispatchRoll, DispatchStatus
 from app.modules.dispatch.service import DISPATCH_TRANSITIONS
 from app.modules.finance.models import Invoice, InvoiceLine, InvoiceStatus, Payment, PaymentMode
 from app.modules.finance.service import INVOICE_TRANSITIONS
+from app.modules.inventory import service as inventory
 from app.modules.inventory.models import (
     BatchStatus,
     ItemKind,
@@ -50,6 +51,7 @@ from app.modules.masters.models import (
     Worker,
     YarnItem,
 )
+from app.modules.orders import service as order_service
 from app.modules.orders.models import Order, OrderStatus
 from app.modules.orders.service import ORDER_TRANSITIONS, yarn_components
 from app.modules.production import service as production
@@ -572,7 +574,7 @@ def new_order(mill: Mill, t: datetime) -> None:
     reserve_yarn(mill, order, t)
 
 
-# TODO(swap): inventory.reserve (Ammaar)
+# buys what is short (stand-in receipt), then the real reservation service takes the lots
 def reserve_yarn(mill: Mill, order: Order, t: datetime) -> None:
     db = mill.db
     fabric = mill.fabric_by_id[order.fabric_type_id]
@@ -592,12 +594,7 @@ def reserve_yarn(mill: Mill, order: Order, t: datetime) -> None:
         if free < need * spare:
             lot = Decimal(((int(need * spare - free) // 500) + 1) * 500 + 500)
             receive_yarn(mill, item, lot, t - timedelta(hours=6))
-        for batch, free in _free_batches(mill, item.id):
-            take = qty(min(free, need))
-            db.add(Reservation(yarn_batch_id=batch.id, order_id=order.id, kg=take))
-            need -= take
-            if need <= 0:
-                break
+    inventory.reserve(db, order.id, mill.user[Role.store])
     audit.record(db, mill.user[Role.store], "reserve", "orders", order.id)
     db.commit()
 
@@ -718,9 +715,9 @@ def dispatch_ready(mill: Mill, t: datetime) -> None:
         for band in sorted({r.shade_band for r in passed}):
             ship(mill, order, [r for r in passed if r.shade_band == band], t)
         if complete:
-            check_transition(ORDER_TRANSITIONS, order.status, OrderStatus.closed)
-            order.status = OrderStatus.closed
-            audit.record(db, mill.user[Role.dispatch], "closed", "orders", order.id)
+            short = order_service.shipped_m(db, order.id) < order.qty_m
+            reason = "Closed short: rejects not made up" if short else None
+            order_service.close_order(db, order.id, mill.user[Role.accounts], reason)
         db.commit()
 
 
