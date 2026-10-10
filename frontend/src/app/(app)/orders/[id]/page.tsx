@@ -1,5 +1,10 @@
-import { Placeholder } from "@/components/layout/Placeholder";
+"use client";
+
+import { useParams } from "next/navigation";
+
+import { OrderDetail } from "@/features/tracking/OrderDetail";
 
 export default function Page() {
-  return <Placeholder />;
+  const { id } = useParams<{ id: string }>();
+  return <OrderDetail id={id} />;
 }
