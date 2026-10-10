@@ -1,4 +1,5 @@
 from collections.abc import Callable, Iterator
+from contextlib import nullcontext
 from decimal import Decimal
 
 import pytest
@@ -16,7 +17,9 @@ from app.core.enums import Stage
 from app.core.security import create_token, hash_password
 from app.main import app
 from app.modules.auth.models import Role, User
+from app.modules.dispatch import service as dispatch
 from app.modules.masters.models import Buyer, FabricRecipe, FabricType, FabricTypeStage
+from app.modules.tracking import service as tracking
 
 PASSWORD = "demo1234"
 
@@ -67,6 +70,18 @@ def no_real_mail(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr(mail, "enabled", lambda: False)
     monkeypatch.setattr(mail, "send", refuse)
+
+
+# mail on, sends land in a list, and the after-response sends stay inside this test's transaction
+@pytest.fixture
+def outbox(db: Session, monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, str, str]]:
+    sent: list[tuple[str, str, str]] = []
+    monkeypatch.setattr(mail, "enabled", lambda: True)
+    monkeypatch.setattr(mail, "send", lambda to, subject, body: sent.append((to, subject, body)))
+    monkeypatch.setattr(get_settings(), "web_url", "http://mill.test/")
+    for module in (tracking, dispatch):
+        monkeypatch.setattr(module, "SessionLocal", lambda: nullcontext(db))
+    return sent
 
 
 @pytest.fixture

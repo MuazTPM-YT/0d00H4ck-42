@@ -8,8 +8,10 @@ from decimal import Decimal
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.core import audit, events
+from app.core import audit, events, mail
 from app.core.codes import next_code
+from app.core.config import get_settings
+from app.core.db import SessionLocal
 from app.core.enums import Unit
 from app.core.errors import Conflict, NotFound, Unprocessable
 from app.core.idempotency import run_once
@@ -214,6 +216,7 @@ def list_dispatches(
         {
             **{c: getattr(d, c) for c in ("id", "code", "order_id", "buyer_id", "vehicle_no")},
             **{c: getattr(d, c) for c in ("driver", "status", "confirmed_at", "created_at")},
+            "driver_email": d.driver_email,
             "delivered_at": d.delivered_at,
             "order_code": order_code,
             "buyer_name": buyer_name,
@@ -271,6 +274,7 @@ def get_detail(db: Session, dispatch_id: int) -> dict:
         **{c: getattr(d, c) for c in ("id", "code", "order_id", "buyer_id", "vehicle_no")},
         **{c: getattr(d, c) for c in ("driver", "status", "confirmed_at", "created_at")},
         **{c: getattr(d, c) for c in ("delivered_at", "received_by", "delivery_note")},
+        "driver_email": d.driver_email,
         "order_code": order.code,
         "buyer_name": buyer.name,
         "buyer_gstin": buyer.gstin,
@@ -291,6 +295,8 @@ def get_detail(db: Session, dispatch_id: int) -> dict:
         "delivery_token": d.delivery_token if d.status == DispatchStatus.confirmed else None,
         "has_code": d.delivery_otp is not None,
         "tries_left": _tries_left(d),
+        "mail_on": mail.enabled(),
+        "driver_mail": mail.last_attempt(db, "driver", ("dispatches", d.id)),
     }
 
 
@@ -435,7 +441,12 @@ def corner_check(db: Session, days: int = SHELF_DAYS) -> list[dict]:
 
 
 def create_dispatch(
-    db: Session, user: User, order_id: int, vehicle_no: str | None, driver: str | None
+    db: Session,
+    user: User,
+    order_id: int,
+    vehicle_no: str | None,
+    driver: str | None,
+    driver_email: str | None = None,
 ) -> Dispatch:
     order = db.get(Order, order_id)
     if not order:
@@ -450,6 +461,7 @@ def create_dispatch(
         buyer_id=order.buyer_id,
         vehicle_no=vehicle_no,
         driver=driver,
+        driver_email=driver_email,
         status=DispatchStatus.draft,
     )
     db.add(d)
@@ -468,11 +480,16 @@ def _editable(d: Dispatch) -> None:
 
 
 def set_vehicle(
-    db: Session, user: User, dispatch_id: int, vehicle_no: str, driver: str | None
+    db: Session,
+    user: User,
+    dispatch_id: int,
+    vehicle_no: str,
+    driver: str | None,
+    driver_email: str | None = None,
 ) -> dict:
     d = _get(db, dispatch_id, lock=True)
     _editable(d)
-    d.vehicle_no, d.driver = vehicle_no, driver
+    d.vehicle_no, d.driver, d.driver_email = vehicle_no, driver, driver_email
     audit.record(db, user.id, "set_vehicle", "dispatches", d.id, data={"vehicle_no": vehicle_no})
     db.commit()
     events.publish("dispatch", {"type": "updated", "id": d.id})
@@ -795,4 +812,61 @@ def new_code(db: Session, user: User, dispatch_id: int) -> dict:
     audit.record(db, user.id, "delivery_code_reissued", "dispatches", d.id)
     db.commit()
     events.publish("dispatch", {"type": "code_reissued", "id": d.id})
+    return get_detail(db, d.id)
+
+
+# --- driver link email
+
+
+def _driver_letter(db: Session, d: Dispatch) -> mail.Letter:
+    buyer = db.get(Buyer, d.buyer_id)
+    rolls = _loaded(db, d.id)
+    loaded_m = qty(sum((r.length_m for r in rolls), ZERO))
+    place = f"{buyer.name}, {buyer.city}" if buyer.city else buyer.name
+    url = f"{get_settings().web_url.rstrip('/')}/deliver/{d.delivery_token}"
+    body = (
+        f"Hello {d.driver or 'driver'},\n\n"
+        f"Delivery {d.code} on {d.vehicle_no}: {len(rolls)} rolls, "
+        f"{loaded_m.normalize():,f} m to {place}.\n\n"
+        "At the buyer's gate, open this page and count the rolls with the buyer:\n"
+        f"{url}\n\n"
+        "When the count is right, ask the buyer for the delivery code on their order page and "
+        "enter it with the name of the person who received the rolls.\n\n"
+        "Everest Textile Mills"
+    )
+    subject = f"Delivery {d.code} to {buyer.name}"
+    return mail.Letter(d.driver_email, subject, body, "No driver email on this truck")
+
+
+# shared service: email the driver their link (never the code); result is an audit row.
+# Caller commits.
+def email_driver(db: Session, dispatch_id: int, user_id: int | None) -> str:
+    d = _get(db, dispatch_id)
+    return mail.attempt(db, user_id, "driver", ("dispatches", d.id), _driver_letter(db, d))
+
+
+# after confirm, off the request on its own session: the truck leaves without waiting for mail
+def email_driver_later(dispatch_id: int, user_id: int) -> None:
+    if not mail.enabled():
+        return
+    with SessionLocal() as db:
+        email_driver(db, dispatch_id, user_id)
+        db.commit()
+    events.publish("dispatch", {"type": "driver_email", "id": dispatch_id})
+
+
+# resend, or a first send once the clerk fills in a missing or wrong address
+def resend_driver(db: Session, user: User, dispatch_id: int, driver_email: str | None) -> dict:
+    mail.require_on()
+    d = _get(db, dispatch_id, lock=True)
+    _has_left(d)
+    if d.delivered_at:
+        raise Conflict(f"{d.code} is already delivered", code="delivered")
+    if driver_email and driver_email != d.driver_email:
+        d.driver_email = driver_email
+        data = {"driver_email": driver_email}
+        audit.record(db, user.id, "set_driver_email", "dispatches", d.id, data=data)
+    email_driver(db, d.id, user.id)
+    db.commit()
+    events.publish("dispatch", {"type": "driver_email", "id": d.id})
     return get_detail(db, d.id)

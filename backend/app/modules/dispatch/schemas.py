@@ -2,7 +2,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Annotated
 
-from pydantic import BaseModel, ConfigDict, StringConstraints
+from pydantic import BaseModel, ConfigDict, EmailStr, StringConstraints
 
 from app.core.types import Name, Note
 from app.modules.dispatch.models import DispatchStatus
@@ -34,6 +34,7 @@ class DispatchOut(BaseModel):
     buyer_id: int
     vehicle_no: str | None
     driver: str | None
+    driver_email: str | None
     status: DispatchStatus
     confirmed_at: datetime | None
     created_at: datetime
@@ -54,11 +55,26 @@ class DispatchCreate(BaseModel):
     order_id: int
     vehicle_no: VehicleNo | None = None
     driver: Name | None = None
+    driver_email: EmailStr | None = None
 
 
 class VehicleIn(BaseModel):
     vehicle_no: VehicleNo
     driver: Name | None = None
+    driver_email: EmailStr | None = None
+
+
+# resend the driver link, optionally to a corrected address (the truck itself is locked)
+class DriverEmailIn(BaseModel):
+    driver_email: EmailStr | None = None
+
+
+# newest try at emailing the driver link
+class MailTry(BaseModel):
+    status: str
+    at: datetime
+    to: str | None
+    error: str | None
 
 
 class ScanIn(BaseModel):
@@ -142,6 +158,8 @@ class DispatchDetail(DispatchOut):
     delivery_note: str | None
     has_code: bool
     tries_left: int
+    mail_on: bool
+    driver_mail: MailTry | None
 
 
 # buyer's code, read off the buyer link; the office path takes the same body

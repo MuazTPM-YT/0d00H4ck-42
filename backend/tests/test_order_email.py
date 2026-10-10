@@ -1,5 +1,4 @@
 import smtplib
-from contextlib import nullcontext
 
 import pytest
 
@@ -8,19 +7,7 @@ from app.core.config import get_settings
 from app.modules.auth.models import Role
 from app.modules.masters.models import Buyer
 from app.modules.orders.models import Order, OrderStatus
-from app.modules.tracking import service
 from tests.mill import Mill
-
-
-# mail on, sends land in a list, and the after-response send stays inside this test's transaction
-@pytest.fixture
-def outbox(db, monkeypatch):
-    sent = []
-    monkeypatch.setattr(mail, "enabled", lambda: True)
-    monkeypatch.setattr(mail, "send", lambda to, subject, body: sent.append((to, subject, body)))
-    monkeypatch.setattr(get_settings(), "web_url", "http://mill.test/")
-    monkeypatch.setattr(service, "SessionLocal", lambda: nullcontext(db))
-    return sent
 
 
 @pytest.fixture
