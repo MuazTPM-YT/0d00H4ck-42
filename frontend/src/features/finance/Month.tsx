@@ -12,8 +12,9 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Table, TableBody, TableCell, TableFooter, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { api, ApiError, qs } from "@/lib/api";
-import { date, humanize, inr, kg, metres, rupeesToPaise } from "@/lib/format";
+import { date, humanize, inr, inr0, kg, metres, rupeesToPaise } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 import { type MachineProduction, type MonthKind, type MonthRecord, type MonthView, SELECT } from "./types";
@@ -55,6 +56,7 @@ export function Month() {
         <MonthCards v={view.data} onDrill={setDrill} />
       )}
 
+      <OrderCosts month={month} />
       <MachineTable month={month} />
 
       <Dialog open={drill !== null} onOpenChange={(o) => !o && setDrill(null)}>
@@ -83,7 +85,7 @@ function MonthCards({ v, onDrill }: { v: MonthView; onDrill: (k: MonthKind) => v
   const Row = ({ label, paise, kind, sign }: { label: string; paise: number; kind: MonthKind; sign?: "-" }) => (
     <button type="button" onClick={() => onDrill(kind)} className="flex w-full items-center justify-between gap-3 rounded-md px-2 py-2 text-left hover:bg-accent">
       <span>{label}</span>
-      <span className="tabular underline decoration-dotted underline-offset-4">{sign}{inr(paise)}</span>
+      <span className="tabular underline decoration-dotted underline-offset-4">{sign && paise > 0 ? "−" : ""}{inr(paise)}</span>
     </button>
   );
   const Result = ({ label, paise }: { label: string; paise: number }) => (
@@ -95,8 +97,8 @@ function MonthCards({ v, onDrill }: { v: MonthView; onDrill: (k: MonthKind) => v
   return (
     <div className="grid gap-4">
       <div className="grid gap-4 lg:grid-cols-2">
-        <section className="rounded-lg border bg-card p-4">
-          <h2 className="mb-1 font-medium">Invoiced basis</h2>
+        <section className="border border-border bg-card p-4">
+          <h2 className="mb-1 text-base">Invoiced basis</h2>
           <p className="mb-3 text-xs text-muted-foreground">What was earned and owed this month</p>
           <Row label="Sales invoiced (before GST)" paise={v.invoiced_ex_gst_paise} kind="invoiced" />
           <Row label="Yarn bills" paise={v.yarn_bills_paise} kind="yarn_bills" sign="-" />
@@ -104,8 +106,8 @@ function MonthCards({ v, onDrill }: { v: MonthView; onDrill: (k: MonthKind) => v
           <Row label="Other expenses" paise={v.expenses_paise} kind="expenses" sign="-" />
           <Result label="Result" paise={v.result_invoiced_paise} />
         </section>
-        <section className="rounded-lg border bg-card p-4">
-          <h2 className="mb-1 font-medium">Cash basis</h2>
+        <section className="border border-border bg-card p-4">
+          <h2 className="mb-1 text-base">Cash basis</h2>
           <p className="mb-3 text-xs text-muted-foreground">Money that actually came in and went out</p>
           <Row label="Received from buyers" paise={v.received_paise} kind="received" />
           <Row label="Yarn bills" paise={v.yarn_bills_paise} kind="yarn_bills" sign="-" />
@@ -185,43 +187,136 @@ function ExpenseForm({ onDone }: { onDone: () => void }) {
   );
 }
 
+type OrderCostRow = {
+  order_id: number;
+  order_code: string;
+  buyer_name: string;
+  status: string;
+  qty_m: string;
+  passed_m: string;
+  yarn_paise: number;
+  labour_paise: number;
+  machine_paise: number;
+  total_paise: number;
+  invoiced_paise: number;
+  margin_paise: number | null;
+  cost_per_m_paise: number | null;
+};
+
+// scene 7: what each order worked or billed this month actually cost, against what it earned
+function OrderCosts({ month }: { month: string }) {
+  const rows = useQuery({ queryKey: ["finance", "order-costs", month], queryFn: () => api<OrderCostRow[]>(`/finance/order-costs${qs({ month })}`) });
+  const sum = (k: keyof OrderCostRow) => (rows.data ?? []).reduce((t, r) => t + (Number(r[k]) || 0), 0);
+  return (
+    <section className="mt-8 border border-border bg-card">
+      <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-border px-4 py-3">
+        <h2 className="text-base">Cost per order</h2>
+        <p className="text-[0.85rem] text-muted-foreground">Orders worked or billed this month. Cost and invoiced are to date: yarn at GRN cost, labour, machine hours.</p>
+      </div>
+      {rows.isPending ? (
+        <Skeleton className="m-4 h-32" />
+      ) : rows.isError ? (
+        <p className="px-4 py-6 text-sm text-danger">{rows.error.message}</p>
+      ) : rows.data.length === 0 ? (
+        <p className="px-4 py-6 text-sm text-muted-foreground">No order was worked or billed this month.</p>
+      ) : (
+        <Table containerClassName="scroll-panel max-h-[30rem]" className="[&_td]:px-3 [&_th]:px-3">
+          <TableHeader className="sticky top-0 z-10 bg-card">
+            <TableRow>
+              <TableHead>Order</TableHead>
+              <TableHead className="text-right">Passed</TableHead>
+              <TableHead className="text-right">Yarn</TableHead>
+              <TableHead className="text-right">Labour</TableHead>
+              <TableHead className="text-right">Machine</TableHead>
+              <TableHead className="text-right">Total cost</TableHead>
+              <TableHead className="text-right">Cost / m</TableHead>
+              <TableHead className="text-right">Invoiced</TableHead>
+              <TableHead className="text-right">Margin</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {rows.data.map((r) => (
+              <TableRow key={r.order_id}>
+                <TableCell>
+                  <Link href={`/orders/${r.order_id}`} className="font-semibold hover:text-ember">
+                    {r.order_code}
+                  </Link>
+                  <span className="block text-[0.82rem] text-muted-foreground">{r.buyer_name}</span>
+                </TableCell>
+                <TableCell className="tabular text-right">
+                  {metres(r.passed_m)}
+                  <span className="block text-[0.78rem] text-muted-foreground">of {metres(r.qty_m)}</span>
+                </TableCell>
+                <TableCell className="tabular text-right">{inr0(r.yarn_paise)}</TableCell>
+                <TableCell className="tabular text-right">{inr0(r.labour_paise)}</TableCell>
+                <TableCell className="tabular text-right">{inr0(r.machine_paise)}</TableCell>
+                <TableCell className="tabular text-right font-semibold">{inr0(r.total_paise)}</TableCell>
+                <TableCell className="tabular text-right">{inr0(r.cost_per_m_paise)}</TableCell>
+                <TableCell className="tabular text-right">{r.invoiced_paise ? inr0(r.invoiced_paise) : "—"}</TableCell>
+                <TableCell className={cn("num text-right font-semibold", r.margin_paise !== null && (r.margin_paise >= 0 ? "text-success" : "text-danger"))}>{inr0(r.margin_paise)}</TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+          <TableFooter className="sticky bottom-0 bg-card">
+            <TableRow>
+              <TableCell className="font-semibold">{rows.data.length} orders</TableCell>
+              <TableCell />
+              <TableCell className="tabular text-right">{inr0(sum("yarn_paise"))}</TableCell>
+              <TableCell className="tabular text-right">{inr0(sum("labour_paise"))}</TableCell>
+              <TableCell className="tabular text-right">{inr0(sum("machine_paise"))}</TableCell>
+              <TableCell className="tabular text-right font-semibold">{inr0(sum("total_paise"))}</TableCell>
+              <TableCell />
+              <TableCell className="tabular text-right">{inr0(sum("invoiced_paise"))}</TableCell>
+              <TableCell />
+            </TableRow>
+          </TableFooter>
+        </Table>
+      )}
+    </section>
+  );
+}
+
 // metres (or kg) per machine this month, and where its hours went (R22)
 function MachineTable({ month }: { month: string }) {
   const rows = useQuery({ queryKey: ["machines", "production", month], queryFn: () => api<MachineProduction[]>(`/finance/machine-production${qs({ month })}`) });
   return (
-    <section className="mt-8 rounded-lg border bg-card">
-      <h2 className="border-b px-4 py-3 font-medium">Production per machine</h2>
+    <section className="mt-8 border border-border bg-card">
+      <h2 className="border-b border-border px-4 py-3 text-base">Production per machine</h2>
       {rows.isPending ? (
         <Skeleton className="m-4 h-32" />
       ) : rows.isError ? (
         <p className="px-4 py-6 text-sm text-danger">{rows.error.message}</p>
       ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="text-left text-muted-foreground">
-              <tr>
-                <th className="px-4 py-2 font-normal">Machine</th><th className="text-right font-normal">Output</th><th className="text-right font-normal">Best day</th>
-                <th className="text-right font-normal">Running h</th><th className="text-right font-normal">Idle h</th><th className="px-4 text-right font-normal">Breakdown h</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.data.map((m) => {
-                const best = m.days.reduce<{ day: string; qty: string } | null>((b, d) => (!b || Number(d.qty) > Number(b.qty) ? d : b), null);
-                const fmt = m.unit === "kg" ? kg : metres;
-                return (
-                  <tr key={m.machine_id} className="border-t">
-                    <td className="px-4 py-2"><span className="font-medium">{m.code}</span> <span className="text-muted-foreground">{m.name}</span></td>
-                    <td className="text-right tabular">{fmt(m.month_qty)}</td>
-                    <td className="text-right tabular">{best ? `${fmt(best.qty)} on ${date(best.day)}` : "—"}</td>
-                    <td className="text-right tabular">{m.hours.running}</td>
-                    <td className="text-right tabular">{m.hours.idle}</td>
-                    <td className={cn("px-4 text-right tabular", Number(m.hours.breakdown) > 0 && "font-semibold text-danger")}>{m.hours.breakdown}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Machine</TableHead>
+              <TableHead className="text-right">Output</TableHead>
+              <TableHead className="text-right">Best day</TableHead>
+              <TableHead className="text-right">Running h</TableHead>
+              <TableHead className="text-right">Idle h</TableHead>
+              <TableHead className="text-right">Breakdown h</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {rows.data.map((m) => {
+              const best = m.days.reduce<{ day: string; qty: string } | null>((b, d) => (!b || Number(d.qty) > Number(b.qty) ? d : b), null);
+              const fmt = m.unit === "kg" ? kg : metres;
+              return (
+                <TableRow key={m.machine_id}>
+                  <TableCell>
+                    <span className="num font-semibold">{m.code}</span> <span className="text-muted-foreground">{m.name}</span>
+                  </TableCell>
+                  <TableCell className="tabular text-right">{fmt(m.month_qty)}</TableCell>
+                  <TableCell className="tabular text-right">{best ? `${fmt(best.qty)} on ${date(best.day)}` : "—"}</TableCell>
+                  <TableCell className="tabular text-right">{m.hours.running}</TableCell>
+                  <TableCell className="tabular text-right">{m.hours.idle}</TableCell>
+                  <TableCell className={cn("tabular text-right", Number(m.hours.breakdown) > 0 && "font-semibold text-danger")}>{m.hours.breakdown}</TableCell>
+                </TableRow>
+              );
+            })}
+          </TableBody>
+        </Table>
       )}
     </section>
   );
