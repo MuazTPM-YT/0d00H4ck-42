@@ -489,3 +489,23 @@ def test_walk_in_label_needs_no_request(api, setup):
     assert line.json()["batch"]["status"] == "inspection"
     again = api(Role.store, "POST", "/api/inventory/labels/check", json={"payload": payload})
     assert again.json()["suggested_rate_paise_per_kg"] == 28500  # this supplier's last GRN rate
+
+
+# a Raw White job never gets Navy yarn, even with a reason typed: wrong yarn = wrong lineage
+def test_issue_refuses_yarn_the_order_does_not_use(db, setup, issuing, make_user):
+    user = make_user(Role.store)
+    navy = make_batch(db, setup["sup"], setup["navy40"], 100)
+    db.commit()
+    with pytest.raises(AppError) as e:
+        inv.issue_to_work_order(db, issuing["wo"].id, navy.id, D(10), user.id, reason="short")
+    assert e.value.status == 409 and e.value.code == "wrong_yarn"
+
+
+# a cancelled order's job takes no more yarn from the store
+def test_issue_refuses_a_cancelled_orders_job(db, issuing, make_user):
+    user = make_user(Role.store)
+    issuing["order"].status = OrderStatus.cancelled
+    db.commit()
+    with pytest.raises(AppError) as e:
+        inv.issue_to_work_order(db, issuing["wo"].id, issuing["batch"].id, D(10), user.id)
+    assert e.value.status == 409 and e.value.code == "order_not_open"
