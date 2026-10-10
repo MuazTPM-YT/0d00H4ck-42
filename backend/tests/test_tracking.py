@@ -235,6 +235,7 @@ def test_buyer_link_lists_trucks_that_left(client, db):
         driver="Suresh Kumar",
         status=DispatchStatus.confirmed,
         confirmed_at=datetime(2026, 10, 9, 6, 30, tzinfo=UTC),
+        delivery_otp="482913",
     )
     draft = Dispatch(code="DN-T2", order_id=o.id, buyer_id=o.buyer_id)
     db.add_all([left, draft])
@@ -252,5 +253,9 @@ def test_buyer_link_lists_trucks_that_left(client, db):
             "metres": "120.000",
             "vehicle_no": "KA 05 MN 4321",
             "driver": "Suresh Kumar",
+            "delivered_at": None,
+            "received_by": None,
+            "code": "482913",
+            "code_locked": False,
         }
     ]

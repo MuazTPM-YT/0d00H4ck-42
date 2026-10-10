@@ -10,6 +10,7 @@ from app.core.units import qty
 from app.modules.analytics import service as analytics
 from app.modules.auth.models import User
 from app.modules.dispatch.models import Dispatch, DispatchRoll, DispatchStatus
+from app.modules.dispatch.service import OTP_TRIES
 from app.modules.finance.models import Invoice, Payment
 from app.modules.masters.models import Buyer, FabricType
 from app.modules.orders.models import Order, OrderStatus, new_tracking_token
@@ -146,6 +147,10 @@ def _timeline(db: Session, order: Order, internal: bool) -> list[dict]:
         if d.status == DispatchStatus.confirmed:
             label = f"{d.code} on {d.vehicle_no}" if internal else "Dispatched"
             events.append({"at": d.confirmed_at, "title": f"{label}: {count} rolls, {metres} m"})
+        if d.delivered_at:
+            label = f"{d.code} delivered" if internal else "Delivered"
+            title = f"{label}, received by {d.received_by}"
+            events.append({"at": d.delivered_at, "title": title})
     return sorted(events, key=lambda e: e["at"])
 
 
@@ -222,7 +227,8 @@ def public_view(db: Session, token: str) -> dict:
     order = order_by_token(db, token)
     card = _card(db, order, internal=False)
     m = card["metres"]
-    # only trucks that left; a draft or loading truck is still the mill's business
+    # only trucks that left; a draft or loading truck is still the mill's business.
+    # the code shows here only, while the truck is on the way and the code still works
     deliveries = [
         {
             "challan": d.code,
@@ -231,6 +237,10 @@ def public_view(db: Session, token: str) -> dict:
             "metres": qty(metres),
             "vehicle_no": d.vehicle_no,
             "driver": d.driver,
+            "delivered_at": d.delivered_at,
+            "received_by": d.received_by,
+            "code": None if d.delivered_at or d.otp_tries >= OTP_TRIES else d.delivery_otp,
+            "code_locked": not d.delivered_at and d.otp_tries >= OTP_TRIES,
         }
         for d, count, metres in _dispatch_rows(db, order.id)
         if d.status == DispatchStatus.confirmed
@@ -290,6 +300,7 @@ def order_view(db: Session, order_id: int) -> dict:
                 "status": d.status,
                 "vehicle_no": d.vehicle_no,
                 "confirmed_at": d.confirmed_at,
+                "delivered_at": d.delivered_at,
                 "roll_count": count,
                 "metres": qty(metres),
             }
