@@ -13,7 +13,7 @@ from app.core.idempotency import run_once
 from app.core.pagination import Page, paginate
 from app.core.states import check_transition
 from app.core.units import qty, yarn_kg_for_fabric
-from app.modules.inventory.models import ItemKind, MoveReason, StockMove
+from app.modules.inventory.models import ItemKind, MoveReason, StockMove, YarnBatch
 from app.modules.masters.models import FabricType, Location, LocationKind, Machine, Worker
 from app.modules.orders.models import Order, OrderStatus
 from app.modules.production.models import (
@@ -478,6 +478,21 @@ def _publish_roll(result: dict) -> None:
         events.publish("quality", {"type": "roll", "id": result["id"]})
 
 
+# every yarn of the recipe (warp and weft) must be on the floor for this job before a roll exists
+def _check_recipe_issued(db: Session, wo: WorkOrder, order: Order, issued: dict) -> None:
+    from app.modules.inventory.service import order_needs  # inventory imports production
+
+    have = set(db.scalars(select(YarnBatch.yarn_item_id).where(YarnBatch.id.in_(issued))))
+    missing = [n for n in order_needs(db, order) if n["yarn_item_id"] not in have | {None}]
+    if missing:
+        names = ", ".join(f"{n['fibre']} {n['count']} {n['colour']}" for n in missing)
+        raise Conflict(
+            f"{names} not issued to {wo.code} yet. The store issues every yarn of the recipe.",
+            field="work_order_id",
+            code="recipe_not_issued",
+        )
+
+
 # woven metres drive progress and piece wages; a roll can't be longer than what was woven,
 # so a cut past the loom's logged metres logs the gap (tablet flow) and counter flow adds nothing
 def _log_uncounted_metres(db: Session, wo: WorkOrder, body: RollIn, when: datetime) -> None:
@@ -513,6 +528,7 @@ def cut_roll(db: Session, body: RollIn, user_id: int | None, at: datetime | None
         when = _now(at)
         order = db.get(Order, wo.order_id)
         fabric = db.get(FabricType, order.fabric_type_id)
+        _check_recipe_issued(db, wo, order, issued)
         _log_uncounted_metres(db, wo, body, when)
         roll = Roll(
             code=next_code(db, "R"),

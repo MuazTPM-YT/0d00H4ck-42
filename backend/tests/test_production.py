@@ -9,7 +9,8 @@ from app.core.enums import Source, Stage
 from app.core.errors import Conflict, Unprocessable
 from app.core.units import qty, yarn_kg_for_fabric
 from app.modules.auth.models import Role
-from app.modules.inventory.models import StockMove
+from app.modules.inventory.models import BatchStatus, StockMove, YarnBatch
+from app.modules.masters.models import YarnItem
 from app.modules.orders.models import Order
 from app.modules.production import service
 from app.modules.production.models import MachineStatus, WorkOrder, WorkOrderStatus
@@ -312,6 +313,33 @@ def test_cut_roll_tops_up_woven_metres_never_double_counts(db, floor):
     service.log_output(db, OutputIn(machine_id=floor.loom1.id, qty=Decimal(70)), None)
     cut(db, floor, wo, 50)  # counter flow: 110 woven, 90 cut, nothing added
     assert service.order_progress(db, floor.shirt_order.id)["weaving"]["produced"] == 110
+
+
+# poplin needs 40s warp and 30s weft: a roll can't be woven with only one of them issued
+def test_cut_roll_needs_every_recipe_yarn_issued(db, floor):
+    weft = YarnItem(fibre="Cotton", count="Ne 30/1", colour="Raw White")
+    db.add(weft)
+    db.flush()
+    first = floor.batches[0]
+    weft_batch = YarnBatch(
+        code="YB-T30",
+        yarn_item_id=weft.id,
+        supplier_id=first.supplier_id,
+        supplier_lot="LOT-30",
+        receipt_id=first.receipt_id,
+        received_kg=Decimal(500),
+        unit_cost_paise_per_kg=26000,
+        status=BatchStatus.approved,
+    )
+    db.add(weft_batch)
+    db.commit()
+    weave = run_on(db, floor, floor.dyed_weave, floor.loom1)
+    floor.issue(weave, first, 50)
+    with pytest.raises(Conflict) as half:
+        cut(db, floor, weave, 40)
+    assert half.value.code == "recipe_not_issued" and "Ne 30/1" in half.value.message
+    floor.issue(weave, weft_batch, 30)
+    assert cut(db, floor, weave, 40)["status"] == RollStatus.in_process
 
 
 # dyeing closing early would strand every roll still coming off the loom
