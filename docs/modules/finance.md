@@ -46,6 +46,8 @@ invoices, payments, receipts, wage_runs, expenses ─> month view + drilldown
 | No double wage payment | A run that overlaps an existing period → 409. DB: UNIQUE (period_start, period_end) and one line per worker per run. |
 | Wages are not typed | Lines are computed from attendance and logs. Only a draft can be recomputed; `final` locks the run. |
 | Money is exact | BIGINT paise everywhere. Rounding is half-up, once per line (`line_amount_paise`). |
+| Yarn rejected back to the supplier is not a cost of the month | `_yarn_bills` nets rejected batches off the receipt bill, in the total and the rows |
+| Wage runs never overlap, even when two are created at once | transaction lock `WAGE_RUN_LOCK`, then the overlap check |
 
 ## Cost allocation rule (also shown on screen)
 

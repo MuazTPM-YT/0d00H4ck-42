@@ -67,7 +67,7 @@ UI/API/logic done, `done` = UI + API + DB + validation + test.
 | # | Label | Requirement | Owner | Status |
 |---|---|---|---|---|
 | R26 | Core | Roles: owner, store, supervisor, QC, dispatch, accounts (sales merged into accounts, migration `0002`). Server enforces per endpoint. | Muaz (auth), every owner for their routes | done: login, `require_roles` on every route, role menus, migration test |
-| R27 | Expected | Activity log on orders and rolls | Muaz (`audit_log`), every owner writes rows | partial: `audit.record` done, used by masters and work orders |
+| R27 | Expected | Activity log on orders and rolls | Muaz (`audit_log`), every owner writes rows | partial: every module writes `audit.record` in the same transaction as the change; shown on the batch sheet, no order activity screen yet |
 | — | Core | Masters: suppliers, buyers, yarn items, fabric types, machines, workers, shifts | Muaz | done: CRUD API, validation, screens, tests |
 
 ## Differentiators

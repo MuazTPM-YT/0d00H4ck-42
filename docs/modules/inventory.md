@@ -62,6 +62,7 @@ Stock is never a stored number. It is always computed from `stock_moves`.
 | Release only by owner, with reason | Router `require_roles()` (owner only), `ReasonIn` rejects blank text. Test: `test_release_needs_owner_and_reason`. |
 | Status only by transition map | `BATCH_TRANSITIONS`, `RECEIPT_TRANSITIONS`, `EXPECTED_DELIVERY_TRANSITIONS`, `RESERVATION_TRANSITIONS` via `check_transition` (409). |
 | Every write audited | `audit.record` in the same transaction, with `reason` for quarantine, reject, release and over-issue. |
+| A job gets only yarn its order's recipe and colour need, and only while the order is confirmed | `issue_to_work_order`, 409 `wrong_yarn` / `order_not_open` |
 
 ## DSA (data structures and algorithms)
 
