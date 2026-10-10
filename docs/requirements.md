@@ -11,20 +11,20 @@ UI/API/logic done, `done` = UI + API + DB + validation + test.
 
 | # | Label | Requirement | Owner | Screen | Tables | Status |
 |---|---|---|---|---|---|---|
-| R1 | Core | Record a yarn receipt (GRN): supplier, yarn type, colour, kg, unit cost, optional order | Ammaar | `/store/receive` | `receipts`, `yarn_batches`, `stock_moves` | schema |
-| R2 | Core | Live raw material stock per yarn type and colour | Ammaar | `/store/stock` | `stock_moves`, `yarn_items` | schema |
-| R3 | Core | Low-stock warning against per-item reorder level, on the dashboard | Ammaar | `/store`, `/owner` | `yarn_items.reorder_level_kg` | schema |
-| R4 | Core | On a new order, show whether yarn covers it and the shortfall | Ammaar | `/orders/new` | `fabric_recipe`, `stock_moves` | partial: formula + `GET /api/orders/{id}/yarn-requirement` done, `free_stock` stub |
-| R5 | Expected | Reserve yarn so two orders cannot claim the same stock | Ammaar | `/orders/[id]` | `reservations` | schema |
+| R1 | Core | Record a yarn receipt (GRN): supplier, yarn type, colour, kg, unit cost, optional order | Ammaar | `/store/receive` | `receipts`, `yarn_batches`, `stock_moves` | done: QR scan, expected vs actual, quarantine on mismatch, tests |
+| R2 | Core | Live raw material stock per yarn type and colour | Ammaar | `/store/stock` | `stock_moves`, `yarn_items` | done: ledger sums, live via SSE `stock` |
+| R3 | Core | Low-stock warning against per-item reorder level, on the dashboard | Ammaar | `/store`, `/owner` | `yarn_items.reorder_level_kg` | partial: `/store` done (projected free vs reorder, live); `/owner` card needs Muaz to call `GET /api/inventory/stock/warnings` |
+| R4 | Core | On a new order, show whether yarn covers it and the shortfall | Ammaar | `/orders/new` | `fabric_recipe`, `stock_moves` | done: live needed/free/short panel, to-buy list |
+| R5 | Expected | Reserve yarn so two orders cannot claim the same stock | Ammaar | `/orders`, `/orders/new` | `reservations` | done: row-locked, best-fit lot, concurrency test. `OrderYarnPanel` ready for `/orders/[id]` |
 
 ## Scene 2: the production floor
 
 | # | Label | Requirement | Owner | Screen | Tables | Status |
 |---|---|---|---|---|---|---|
-| R6 | Core | Machines with type and status (running, idle, breakdown, maintenance) | Muaz | `/masters/machines`, `/floor` | `machines`, `machine_events` | partial: machine master done |
-| R7 | Core | Assign an order stage to a machine; show which order is on which machine and progress | Muaz | `/floor/work-orders` | `work_orders`, `production_logs` | partial: `create_work_orders` done |
-| R8 | Core | Live floor board: each machine's job, status, output today. No reload. | Muaz | `/floor` | `machine_events`, `production_logs` | partial: SSE channel done |
-| R9 | Expected | Breakdowns with reason and downtime; shifts and workers on machines | Muaz | `/floor`, `/floor/crew` | `machine_events`, `crew_assignments` | schema |
+| R6 | Core | Machines with type and status (running, idle, breakdown, maintenance) | Muaz | `/masters/machines`, `/floor` | `machines`, `machine_events` | done |
+| R7 | Core | Assign an order stage to a machine; show which order is on which machine and progress | Muaz | `/floor/work-orders` | `work_orders`, `production_logs` | done |
+| R8 | Core | Live floor board: each machine's job, status, output today. No reload. | Muaz | `/floor` | `machine_events`, `production_logs` | done |
+| R9 | Expected | Breakdowns with reason and downtime; shifts and workers on machines | Muaz | `/floor`, `/floor/crew` | `machine_events`, `crew_assignments` | done |
 
 ## Scene 3: quality check
 
@@ -55,7 +55,7 @@ UI/API/logic done, `done` = UI + API + DB + validation + test.
 
 | # | Label | Requirement | Owner | Screen | Tables | Status |
 |---|---|---|---|---|---|---|
-| R20 | Core | Attendance per shift (Muaz) and wages from it (Ashil) | Muaz, Ashil | `/floor/crew`, `/finance/wages` | `attendance`, `wage_runs`, `wage_lines` | wages done (Ashil); attendance entry is Muaz |
+| R20 | Core | Attendance per shift (Muaz) and wages from it (Ashil) | Muaz, Ashil | `/floor/crew`, `/finance/wages` | `attendance`, `wage_runs`, `wage_lines` | done: attendance capture (Muaz), wage runs (Ashil) |
 | R21 | Core | Cost per order: yarn + labour + machine, rule stated in the UI | Ashil | `/orders/[id]`, `/finance/month` | many | done: `finance.order_cost`, rule on screen |
 | R22 | Core | Production per machine for a period | Muaz | `/owner` | `production_logs` | partial: API + table on `/finance/month` (Ashil); `/owner` view is Muaz |
 | R23 | Core | Monthly profit: payments and invoices vs yarn bills and wages | Ashil | `/finance/month` | `invoices`, `payments`, `receipts`, `wage_lines`, `expenses` | done: invoiced + cash basis, drilldown |

@@ -1,7 +1,7 @@
 # Everest Textile Mills: one-command dev tasks.
 # Fresh clone: make db-up migrate seed dev
 
-.PHONY: install db-up db-down migrate seed dev test lint
+.PHONY: install db-up db-down db-reset migrate seed simulate simulate-live dev test lint
 
 .env:
 	python3 scripts/init_env.py
@@ -24,6 +24,18 @@ migrate: .env
 
 seed: .env
 	cd backend && PYTHONPATH=. uv run python ../scripts/seed.py
+
+# 30 simulated days through the real services; needs an empty DB (make db-reset migrate first)
+simulate: .env
+	cd backend && PYTHONPATH=. uv run python ../scripts/simulate.py
+
+# machine feed into the running API every few seconds (needs make dev in another terminal)
+simulate-live: .env
+	cd backend && PYTHONPATH=. uv run python ../scripts/simulate.py --live
+
+# DESTRUCTIVE: drops and recreates the dev database. All local data is lost.
+db-reset: .env
+	docker compose exec -T db sh -c 'dropdb -U "$$POSTGRES_USER" --force "$$POSTGRES_DB" && createdb -U "$$POSTGRES_USER" "$$POSTGRES_DB"'
 
 # api on :8000, web on :3000 (web proxies /api to api). Ctrl+C stops both.
 dev: .env frontend/node_modules

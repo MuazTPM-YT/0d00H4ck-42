@@ -1,5 +1,5 @@
-import { Placeholder } from "@/components/layout/Placeholder";
+import { BatchList } from "@/features/inventory/BatchList";
 
 export default function Page() {
-  return <Placeholder />;
+  return <BatchList />;
 }

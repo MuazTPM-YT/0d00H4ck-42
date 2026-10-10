@@ -1,5 +1,5 @@
-import { Placeholder } from "@/components/layout/Placeholder";
+import { CrewBoard } from "@/features/workforce/CrewBoard";
 
 export default function Page() {
-  return <Placeholder />;
+  return <CrewBoard />;
 }

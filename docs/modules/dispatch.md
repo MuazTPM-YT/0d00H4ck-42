@@ -89,6 +89,6 @@ It was left out because greedy is easy to explain and the clerk can adjust the s
    As an audit row (`action = shade_override`, with the reason and user). A proper column is
    requested in `schema-requests.md`.
 5. **Why does dispatch write stock moves and roll status, which belong to other modules?**
-   Agreed with the team (decision 21). Confirm must be one transaction. The write uses the
+   Agreed with the team (decision 22). Confirm must be one transaction. The write uses the
    quality module's transition map and the ledger's own rules, and is listed in
    `contracts.md`.

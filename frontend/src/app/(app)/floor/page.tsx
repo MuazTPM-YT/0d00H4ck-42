@@ -1,5 +1,5 @@
-import { Placeholder } from "@/components/layout/Placeholder";
+import { FloorBoard } from "@/features/production/FloorBoard";
 
 export default function Page() {
-  return <Placeholder />;
+  return <FloorBoard />;
 }
