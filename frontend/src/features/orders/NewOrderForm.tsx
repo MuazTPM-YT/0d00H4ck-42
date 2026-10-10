@@ -20,7 +20,8 @@ import { OrderYarnPanel } from "./OrderYarnPanel";
 import type { Order, YarnLine } from "./types";
 
 const METRES_RE = /^\d+(\.\d{1,3})?$/;
-const tomorrow = () => new Date(Date.now() + 86_400_000).toISOString().slice(0, 10);
+// IST tomorrow; UTC gave today before 5:30 am, which the server rejects
+const tomorrow = () => new Date(Date.now() + 86_400_000).toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
 
 // wait until typing pauses before asking the server
 function useDebounced<T>(value: T, ms = 300): T {
