@@ -2,7 +2,7 @@
 
 import { AlertTriangle, ClipboardList, Factory, Users } from "lucide-react";
 import Link from "next/link";
-import { useState } from "react";
+import { type ReactNode, useState } from "react";
 
 import { EmptyState } from "@/components/layout/EmptyState";
 import { PageHeader } from "@/components/layout/PageHeader";
@@ -18,7 +18,7 @@ import { MachineTile, STATUS_BAR } from "./MachineTile";
 const GRID = "grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4";
 
 // R8: every machine at a glance, pushed live over SSE topic "machines"
-export function FloorBoard() {
+export function FloorBoard({ top }: { top?: ReactNode }) {
   useSSE(["machines", "quality"]);
   const board = useBoard();
   const now = useNow();
@@ -47,6 +47,7 @@ export function FloorBoard() {
           </>
         }
       />
+      {top}
 
       {board.isError ? (
         <EmptyState icon={AlertTriangle} title="Could not load the floor" action={<Button variant="outline" onClick={() => board.refetch()}>Try again</Button>}>
