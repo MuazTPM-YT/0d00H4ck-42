@@ -1,5 +1,7 @@
 "use client";
 
+import { Select } from "@/components/ui/select";
+
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus, Truck } from "lucide-react";
 import { useRouter } from "next/navigation";
@@ -61,11 +63,13 @@ export function DispatchList() {
   const [offset, setOffset] = useState(0);
   const [filters, setFilters] = useState({ status: "", vehicle: "", date_from: "", date_to: "" });
   const [creating, setCreating] = useState(false);
+  const validRange = (!filters.date_from || /^\d{4}-\d{2}-\d{2}$/.test(filters.date_from)) && (!filters.date_to || /^\d{4}-\d{2}-\d{2}$/.test(filters.date_to)) && (!filters.date_from || !filters.date_to || filters.date_from <= filters.date_to);
 
   const query = useQuery({
     queryKey: ["dispatch", "list", filters, offset],
     queryFn: () => api<Paged<DispatchRow>>(`/dispatch/dispatches${qs({ ...filters, limit: LIMIT, offset })}`),
     placeholderData: keepPreviousData,
+    enabled: validRange,
   });
   const set = (k: keyof typeof filters) => (e: { target: { value: string } }) => {
     setFilters((f) => ({ ...f, [k]: e.target.value }));
@@ -81,16 +85,17 @@ export function DispatchList() {
         actions={canLoad && <Button size="lg" onClick={() => setCreating(true)}><Plus /> New dispatch</Button>}
       />
       <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <select aria-label="Status" className={SELECT} value={filters.status} onChange={set("status")}>
+        <Select aria-label="Status" className={SELECT} value={filters.status} onChange={set("status")}>
           <option value="">All statuses</option>
           <option value="draft">Draft</option>
           <option value="loading">Loading</option>
           <option value="confirmed">Confirmed</option>
-        </select>
+        </Select>
         <Input aria-label="Vehicle" placeholder="Vehicle no." maxLength={20} value={filters.vehicle} onChange={set("vehicle")} />
-        <Input aria-label="From date" type="date" value={filters.date_from} onChange={set("date_from")} />
+        <Input aria-label="From date" type="date" value={filters.date_from} max={filters.date_to || undefined} onChange={set("date_from")} />
         <Input aria-label="To date" type="date" value={filters.date_to} min={filters.date_from || undefined} onChange={set("date_to")} />
       </div>
+      {!validRange && <p role="alert" className="mb-4 text-sm text-danger">Enter valid dates with the end on or after the start.</p>}
       <DataTable
         columns={columns}
         query={query}
@@ -145,14 +150,14 @@ export function CreateDispatchForm({ onDone, orderId }: { onDone: (id: number) =
       setErrors((p) => ({ ...p, [el.name]: el.validity.patternMismatch ? el.title : el.validationMessage }));
     }} className="grid gap-4">
       <FormField name="order_id" label="Order" required error={errors.order_id}>
-        <select id="order_id" name="order_id" required defaultValue={orderId ?? ""} className={`${SELECT} h-12 text-base`} aria-invalid={!!errors.order_id}>
+        <Select id="order_id" name="order_id" required defaultValue={orderId ?? ""} className={`${SELECT} h-12 text-base`} aria-invalid={!!errors.order_id}>
           <option value="" disabled>{shelf.isPending ? "Loading orders…" : ready.length ? "Choose an order" : "No order has rolls ready"}</option>
           {ready.map((g) => (
             <option key={g.order_id} value={g.order_id}>
               {g.order_code} · {g.buyer_name} · {metres(g.free_m)} free{Number(g.on_truck_m) > 0 ? ` · ${metres(g.on_truck_m)} on a truck` : ""}
             </option>
           ))}
-        </select>
+        </Select>
       </FormField>
       <FormField name="vehicle_no" label="Vehicle no." error={errors.vehicle_no} hint="e.g. KA-01-AB-1234">
         <Input id="vehicle_no" name="vehicle_no" className="h-12 text-base uppercase" maxLength={20} pattern={VEHICLE_RE} title="Letters, digits, spaces or dashes, 5 to 20 long" aria-invalid={!!errors.vehicle_no} />

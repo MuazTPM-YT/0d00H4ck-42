@@ -140,16 +140,16 @@ def remove_line(receipt_id: int, batch_id: int, db: Session = Depends(get_db), u
     return receiving.remove_line(db, user, receipt_id, batch_id)
 
 
-# drop a draft truck that has no lots
-@router.delete("/receipts/{receipt_id}", status_code=204)
-def discard_receipt(receipt_id: int, db: Session = Depends(get_db), user: User = Store):
-    receiving.discard_receipt(db, user, receipt_id)
-    return Response(status_code=204)
-
-
 @router.post("/receipts/{receipt_id}/confirm", response_model=s.ReceiptOut)
 def confirm_receipt(receipt_id: int, db: Session = Depends(get_db), user: User = Store):
     return receiving.confirm_receipt(db, user, receipt_id)
+
+
+@router.post("/receipts/{receipt_id}/discard", status_code=204)
+def discard_receipt(
+    receipt_id: int, data: s.ReasonIn, db: Session = Depends(get_db), user: User = Store
+):
+    receiving.discard_receipt(db, user, receipt_id, data.reason)
 
 
 # --- issue to production

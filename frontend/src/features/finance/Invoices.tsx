@@ -1,5 +1,7 @@
 "use client";
 
+import { Select } from "@/components/ui/select";
+
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { AlertTriangle, FileText, Printer } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
@@ -49,12 +51,12 @@ export function Invoices() {
     <>
       <PageHeader title="Invoices" description="One invoice per truck, made from exactly the rolls loaded." />
       <div className="mb-4 max-w-xs">
-        <select aria-label="Status" className={SELECT} value={status} onChange={(e) => { setStatus(e.target.value); setOffset(0); }}>
+        <Select aria-label="Status" className={SELECT} value={status} onChange={(e) => { setStatus(e.target.value); setOffset(0); }}>
           <option value="">All statuses</option>
           <option value="issued">Issued</option>
           <option value="part_paid">Part paid</option>
           <option value="paid">Paid</option>
-        </select>
+        </Select>
       </div>
       <DataTable
         columns={invoiceColumns}

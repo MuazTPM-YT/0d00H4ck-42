@@ -9,8 +9,8 @@ from app.core.enums import Source, Stage, Unit
 from app.core.errors import Conflict, Unprocessable
 from app.core.units import qty, yarn_kg_for_fabric
 from app.modules.auth.models import Role
-from app.modules.inventory.models import ItemKind, MoveReason, StockMove
-from app.modules.masters.models import LocationKind
+from app.modules.inventory.models import BatchStatus, ItemKind, MoveReason, StockMove, YarnBatch
+from app.modules.masters.models import LocationKind, YarnItem
 from app.modules.orders.models import Order, OrderStatus
 from app.modules.production import service
 from app.modules.production.models import MachineEvent, MachineStatus, WorkOrder, WorkOrderStatus
@@ -321,16 +321,16 @@ def test_output_needs_yarn_issued_to_the_order(db, floor):
     assert e.value.code == "no_yarn_issued"
 
 
-def test_cut_cannot_roll_more_than_was_woven(db, floor):
+# a cut past the logged metres logs only the gap: woven always covers what was cut, once
+def test_cut_past_logged_metres_logs_only_the_gap(db, floor):
     wo = run_on(db, floor, floor.shirt_weave, floor.loom1)
-    with pytest.raises(Conflict) as e:
-        cut(db, floor, wo, 10)
-    assert e.value.code == "more_than_woven"
+    cut(db, floor, wo, 10)  # nothing logged: 10 m logged by the cut
     log(db, floor, floor.loom1, 100)
-    cut(db, floor, wo, 60)
-    with pytest.raises(Conflict) as e:
-        cut(db, floor, wo, 50)
-    assert e.value.field == "length_m"
+    cut(db, floor, wo, 60)  # 110 woven, 70 cut: nothing added
+    cut(db, floor, wo, 50)  # 120 cut: the 10 m gap is logged
+    made = service.order_progress(db, floor.shirt_order.id)["weaving"]["produced"]
+    rolled = db.scalar(select(func.sum(Roll.length_m)).where(Roll.work_order_id == wo.id))
+    assert made == rolled == 120
 
 
 def test_finish_cuts_the_tail_into_a_roll(db, floor):
@@ -559,6 +559,85 @@ def test_repair_resumes_the_job_the_breakdown_hit(db, floor):
     report(db, floor, floor.loom1, MachineStatus.running)
     assert rework.status == WorkOrderStatus.running
     assert floor.shirt_weave.status == WorkOrderStatus.paused
+
+
+# a roll longer than the metres logged at the loom logs the gap, so woven >= cut always
+def test_cut_roll_tops_up_woven_metres_never_double_counts(db, floor):
+    wo = run_on(db, floor, floor.shirt_weave, floor.loom1)
+    floor.issue(wo, floor.batches[0], 50)
+    cut(db, floor, wo, 40)  # tablet flow: nothing logged before the cut
+    assert service.order_progress(db, floor.shirt_order.id)["weaving"]["produced"] == 40
+    service.log_output(db, OutputIn(machine_id=floor.loom1.id, qty=Decimal(70)), None)
+    cut(db, floor, wo, 50)  # counter flow: 110 woven, 90 cut, nothing added
+    assert service.order_progress(db, floor.shirt_order.id)["weaving"]["produced"] == 110
+
+
+# poplin needs 40s warp and 30s weft: a roll can't be woven with only one of them issued
+def test_cut_roll_needs_every_recipe_yarn_issued(db, floor):
+    weft = YarnItem(fibre="Cotton", count="Ne 30/1", colour="Raw White")
+    db.add(weft)
+    db.flush()
+    first = floor.batches[0]
+    weft_batch = YarnBatch(
+        code="YB-T30",
+        yarn_item_id=weft.id,
+        supplier_id=first.supplier_id,
+        supplier_lot="LOT-30",
+        receipt_id=first.receipt_id,
+        received_kg=Decimal(500),
+        unit_cost_paise_per_kg=26000,
+        status=BatchStatus.approved,
+    )
+    db.add(weft_batch)
+    db.commit()
+    weave = run_on(db, floor, floor.dyed_weave, floor.loom1)
+    floor.issue(weave, first, 50)
+    with pytest.raises(Conflict) as half:
+        cut(db, floor, weave, 40)
+    assert half.value.code == "recipe_not_issued" and "Ne 30/1" in half.value.message
+    floor.issue(weave, weft_batch, 30)
+    assert cut(db, floor, weave, 40)["status"] == RollStatus.in_process
+
+
+# dyeing closing early would strand every roll still coming off the loom
+def test_dyeing_cannot_finish_while_rolls_still_need_it(db, floor):
+    weave = run_on(db, floor, floor.dyed_weave, floor.loom1)
+    roll = cut(db, floor, weave, 40)
+    dye = run_on(db, floor, floor.dyed_dye, floor.jigger)  # a roll waits, so dyeing can start
+    with pytest.raises(Conflict) as open_weave:
+        service.finish_work_order(db, dye.id, None)
+    assert open_weave.value.code == "stage_order"
+
+    service.finish_work_order(db, weave.id, None)
+    with pytest.raises(Conflict) as waiting:
+        service.finish_work_order(db, dye.id, None)
+    assert waiting.value.code == "rolls_waiting"
+
+    service.process_roll(db, roll["id"], RollProcessIn(work_order_id=dye.id), None)
+    db.refresh(dye)
+    assert dye.status == WorkOrderStatus.done  # weaving done, nothing left to dye: by itself
+
+
+# rework job is one roll: done once that roll is back in QC, so a second rework opens fresh
+def test_rework_job_closes_itself_and_a_second_rework_gets_a_new_job(db, floor):
+    wo = run_on(db, floor, floor.shirt_weave, floor.loom1)
+    floor.issue(wo, floor.batches[0], 50)
+    roll = db.get(Roll, cut(db, floor, wo, 40)["id"])
+    roll.status = RollStatus.rework
+    db.commit()
+    first = service.create_rework_work_order(db, roll.id, Stage.weaving, None)
+    db.commit()
+    run_on(db, floor, first, floor.loom2)
+    service.process_roll(db, roll.id, RollProcessIn(work_order_id=first.id), None)
+    db.refresh(first)
+    assert first.status == WorkOrderStatus.done and first.finished_at is not None
+    assert service.machine_status(db, floor.loom2.id) == MachineStatus.idle
+
+    db.refresh(roll)
+    roll.status = RollStatus.rework  # QC sends it back again
+    db.commit()
+    second = service.create_rework_work_order(db, roll.id, Stage.weaving, None)
+    assert second.id != first.id and second.status == WorkOrderStatus.waiting
 
 
 def test_finish_consumes_yarn_left_on_the_floor(db, floor):

@@ -4,6 +4,7 @@ from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from app.core.dates import mill_today
 from app.core.errors import FieldError
 from app.core.types import Note, Paise, ShortText
 from app.modules.orders.models import OrderStatus
@@ -27,7 +28,7 @@ class OrderOut(BaseModel):
     fabric_type_id: int
     colour: str
     qty_m: Decimal
-    rate_paise_per_m: int
+    rate_paise_per_m: int | None  # None for roles that do not see money
     deadline: date
     status: OrderStatus
     confirmed_at: datetime | None
@@ -68,7 +69,7 @@ class OrderIn(RequirementIn):
     @field_validator("deadline")
     @classmethod
     def deadline_ahead(cls, v: date) -> date:
-        today = date.today()
+        today = mill_today()
         if v <= today:
             raise FieldError("deadline", "Deadline must be after today")
         if v > today + timedelta(days=730):

@@ -6,7 +6,7 @@ export type Order = {
   fabric_type_id: number;
   colour: string;
   qty_m: string;
-  rate_paise_per_m: number;
+  rate_paise_per_m: number | null; // null for roles that do not see money
   deadline: string;
   status: "draft" | "confirmed" | "cancelled" | "closed";
   confirmed_at: string | null;

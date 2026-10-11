@@ -13,7 +13,7 @@ from app.core.idempotency import run_once
 from app.core.pagination import Page, paginate
 from app.core.states import check_transition
 from app.core.units import qty, yarn_kg_for_fabric
-from app.modules.inventory.models import ItemKind, MoveReason, StockMove
+from app.modules.inventory.models import ItemKind, MoveReason, StockMove, YarnBatch
 from app.modules.masters.models import FabricType, Location, LocationKind, Machine, Worker
 from app.modules.orders.models import Order, OrderStatus
 from app.modules.production.models import (
@@ -705,6 +705,37 @@ def _publish_roll(result: dict) -> None:
         events.publish("quality", {"type": "roll", "id": result["id"]})
 
 
+# every yarn of the recipe (warp and weft) must be on the floor for this job before a roll exists
+def _check_recipe_issued(db: Session, wo: WorkOrder, order: Order, issued: dict) -> None:
+    from app.modules.inventory.service import order_needs  # inventory imports production
+
+    have = set(db.scalars(select(YarnBatch.yarn_item_id).where(YarnBatch.id.in_(issued))))
+    missing = [n for n in order_needs(db, order) if n["yarn_item_id"] not in have | {None}]
+    if missing:
+        names = ", ".join(f"{n['fibre']} {n['count']} {n['colour']}" for n in missing)
+        raise Conflict(
+            f"{names} not issued to {wo.code} yet. The store issues every yarn of the recipe.",
+            field="work_order_id",
+            code="recipe_not_issued",
+        )
+
+
+# woven metres drive progress and piece wages; a roll can't be longer than what was woven,
+# so a cut past the loom's logged metres logs the gap (tablet flow) and counter flow adds nothing
+def _log_uncounted_metres(db: Session, wo: WorkOrder, body: RollIn, when: datetime) -> None:
+    woven = db.scalar(
+        select(func.coalesce(func.sum(ProductionLog.qty), 0)).where(
+            ProductionLog.work_order_id == wo.id
+        )
+    )
+    cut = db.scalar(
+        select(func.coalesce(func.sum(Roll.length_m), 0)).where(Roll.work_order_id == wo.id)
+    )
+    gap = cut + body.length_m - woven
+    if gap > 0:
+        _add_log(db, wo, wo.machine_id, gap, when, body.source, body.shift_id, body.weaver_id)
+
+
 # new roll identity off a loom job: yarn lineage, fabric enters WIP. Never more than was woven.
 def _cut(
     db: Session,
@@ -723,6 +754,8 @@ def _cut(
     issued = _order_issued(db, wo.order_id)
     if not issued:
         raise _no_yarn(db, wo.order_id)
+    order = db.get(Order, wo.order_id)
+    _check_recipe_issued(db, wo, order, issued)
     free = _produced(db, wo.id) - _rolled(db, wo.id)
     if length > free:
         raise Conflict(
@@ -730,7 +763,6 @@ def _cut(
             field="length_m",
             code="more_than_woven",
         )
-    order = db.get(Order, wo.order_id)
     fabric = db.get(FabricType, order.fabric_type_id)
     roll = Roll(
         code=next_code(db, "R"),
@@ -784,9 +816,12 @@ def cut_roll(db: Session, body: RollIn, user_id: int | None, at: datetime | None
     def work():
         wo = _lock_work_order(db, body.work_order_id)
         _require_open_order(db, wo)
+        when = _now(at)
+        _log_uncounted_metres(db, wo, body, when)  # no counter on the loom: the cut is the count
         roll = _cut(
-            db, wo, body.length_m, user_id, _now(at), body.source, body.shift_id, body.weaver_id
+            db, wo, body.length_m, user_id, when, body.source, body.shift_id, body.weaver_id
         )
+        _settle(db, wo.order_id, user_id, at, body.source)  # a top-up can reach the plan
         advance(db, user_id, at)  # a first woven roll can let dyeing start
         return RollOut.model_validate(roll)
 

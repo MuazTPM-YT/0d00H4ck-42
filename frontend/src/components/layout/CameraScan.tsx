@@ -111,7 +111,7 @@ function Viewfinder({ onRead }: { onRead: (value: string) => void }) {
       </p>
     );
   return (
-    <div className="relative aspect-square w-full overflow-hidden bg-foreground">
+    <div className="relative mx-auto aspect-square max-h-[55dvh] w-full overflow-hidden bg-foreground">
       <video ref={video} muted playsInline className="size-full object-cover" />
       <span className="pointer-events-none absolute inset-[18%] border-2 border-ember" aria-hidden />
     </div>

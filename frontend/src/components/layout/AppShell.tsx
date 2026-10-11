@@ -59,12 +59,20 @@ export function AppShell({ children }: { children: ReactNode }) {
       </aside>
 
       <div className="flex min-w-0 flex-col">
-        <header className="material sticky top-0 z-30 flex h-14 items-center gap-3 border-b border-border/60 px-3 md:hidden">
-          <Button variant="ghost" size="icon" aria-label="Open menu" onClick={() => setMenuOpen(true)}>
-            <Menu className="size-6" />
-          </Button>
-          <BrandMark className="size-8" />
-          <span className="text-[1.05rem] font-semibold tracking-tight">{route?.title ?? "Everest"}</span>
+        <header className="material sticky top-0 z-30 grid min-h-16 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-1 border-b border-border/60 px-2 py-2 md:hidden">
+          <div className="flex min-w-0 items-center gap-1">
+            <Button variant="ghost" size="icon" aria-label="Open menu" aria-expanded={menuOpen} onClick={() => setMenuOpen(true)}>
+              <Menu className="size-6" />
+            </Button>
+            <span className="min-w-0 text-[1.125rem] leading-tight font-semibold tracking-tight [overflow-wrap:anywhere]">{route?.title ?? "Everest"}</span>
+          </div>
+          <Link
+            href={roleHome(user.role)}
+            aria-label="Go to home page"
+            className="relative block size-8 outline-none before:absolute before:-inset-1.5 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+          >
+            <BrandMark className="size-8" />
+          </Link>
         </header>
         <Sheet open={menuOpen} onOpenChange={setMenuOpen}>
           <SheetContent side="left" className="w-72 border-0 p-0" showCloseButton={false}>
@@ -73,7 +81,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           </SheetContent>
         </Sheet>
 
-        <main className="mx-auto w-full max-w-7xl flex-1 px-4 pt-6 pb-16 sm:px-6 lg:px-10 lg:pt-10">
+        <main className="mx-auto min-w-0 w-full max-w-7xl flex-1 px-4 pt-6 pb-16 sm:px-6 lg:px-10 lg:pt-10">
           {allowed ? (
             children
           ) : (

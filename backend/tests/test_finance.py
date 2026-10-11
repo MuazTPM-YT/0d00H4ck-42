@@ -3,6 +3,7 @@ from decimal import Decimal
 
 import pytest
 
+from app.core.dates import mill_today
 from app.core.enums import Source, Stage, Unit
 from app.modules.auth.models import Role
 from app.modules.dispatch.models import Dispatch, DispatchStatus
@@ -795,3 +796,40 @@ def test_overlapping_wage_runs_at_once_never_both_land(committed, password_hash)
     for t in threads:
         t.join()
     assert sorted(outcomes) == ["ok", "period_start"]
+
+
+# month-end close: a past month locks; nothing dated in it changes until the owner reopens it
+def test_closed_month_refuses_backdated_books(client_as, db):
+    mill = Mill(db)
+    db.commit()
+    this_month = mill_today().replace(day=1)
+    last_day = this_month - timedelta(days=1)
+    month = f"{last_day:%Y-%m}"
+    accounts = client_as(Role.accounts)
+    closes = "/api/finance/month-closes"
+    assert accounts.post(closes, json={"month": f"{this_month:%Y-%m}"}).status_code == 422
+    assert accounts.post(closes, json={"month": month}).status_code == 201
+    assert accounts.post(closes, json={"month": month}).status_code == 409
+    assert accounts.get(closes).json() == [month]
+
+    expense = {"date": str(last_day), "category": "power", "amount_paise": 50000}
+    res = accounts.post("/api/finance/expenses", json=expense)
+    assert res.status_code == 409 and res.json()["error"]["code"] == "month_closed"
+    run = {"period_start": str(last_day.replace(day=1)), "period_end": str(last_day)}
+    assert accounts.post("/api/finance/wage-runs", json=run).status_code == 409
+    mark = {
+        "date": str(last_day),
+        "shift_id": mill.shift.id,
+        "worker_id": mill.weaver.id,
+        "status": "present",
+        "reason": "Late entry",
+    }
+    supervisor = client_as(Role.supervisor)  # same test client, header now supervisor
+    res = supervisor.put("/api/workforce/attendance", json=mark)
+    assert res.status_code == 409 and res.json()["error"]["code"] == "month_closed"
+    assert supervisor.post(f"{closes}/{month}/reopen", json={"reason": "x"}).status_code == 403
+
+    owner = client_as(Role.owner)
+    reopen = owner.post(f"{closes}/{month}/reopen", json={"reason": "Power bill came late"})
+    assert reopen.status_code == 200 and reopen.json() == []
+    assert owner.post("/api/finance/expenses", json=expense).status_code == 201

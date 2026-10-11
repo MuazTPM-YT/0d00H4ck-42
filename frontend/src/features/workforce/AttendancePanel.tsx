@@ -1,5 +1,7 @@
 "use client";
 
+import { Select } from "@/components/ui/select";
+
 import { UserMinus, Users } from "lucide-react";
 import { useState } from "react";
 
@@ -95,7 +97,7 @@ export function AttendanceDialog({
         >
           <div className="grid grid-cols-3 gap-2" role="radiogroup" aria-label="Status">
             {ATTENDANCE.map((s) => (
-              <Button key={s} type="button" role="radio" aria-checked={status === s} variant={status === s ? "default" : "outline"} className="h-12" onClick={() => setStatus(s)}>
+              <Button key={s} type="button" role="radio" aria-checked={status === s} variant={status === s ? "default" : "outline"} className="h-12 min-w-0 px-2" onClick={() => setStatus(s)}>
                 {humanize(s)}
               </Button>
             ))}
@@ -196,7 +198,7 @@ function Row({
             submit();
           }}
         >
-          <select
+          <Select
             id={`assign-${worker.id}`}
             aria-label={crew ? `Move ${worker.name} to` : `Put ${worker.name} on`}
             value={machineId}
@@ -213,7 +215,7 @@ function Row({
           >
             <option value="">{crew ? "Move to…" : "Machine…"}</option>
             <MachineOptions machines={machines} except={crew?.machine_id} />
-          </select>
+          </Select>
           <Button type="submit" size="sm" variant="outline" disabled={!machineId || assign.isPending}>
             {crew ? "Move" : "Assign"}
           </Button>

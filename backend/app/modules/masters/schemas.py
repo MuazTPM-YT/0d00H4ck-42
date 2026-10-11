@@ -2,7 +2,7 @@ from datetime import time
 from decimal import Decimal
 from typing import Annotated
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field, model_validator
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, StringConstraints, model_validator
 
 from app.core.enums import Stage, Unit
 from app.core.errors import FieldError
@@ -85,7 +85,7 @@ class StageIn(BaseModel):
 
 class RecipeIn(BaseModel):
     fibre: ShortText
-    count: Annotated[str, Field(min_length=1, max_length=20)]
+    count: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=20)]
     share_pct: Pct
 
 
@@ -163,7 +163,7 @@ class MachineOut(Out):
     code: str
     name: str
     type: Stage
-    hourly_cost_paise: int
+    hourly_cost_paise: int | None  # None for roles that do not see money
     rated_output_per_hour: Decimal
     output_unit: Unit
     active: bool

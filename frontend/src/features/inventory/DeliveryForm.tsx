@@ -1,5 +1,7 @@
 "use client";
 
+import { Select } from "@/components/ui/select";
+
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { type FormEvent, useState } from "react";
 
@@ -7,8 +9,9 @@ import { FormField } from "@/components/layout/FormField";
 import { Button } from "@/components/ui/button";
 import { DialogFooter } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { api, ApiError, type Paged } from "@/lib/api";
+import { api, apiAll, ApiError } from "@/lib/api";
 import { paiseToRupees, rupeesToPaise } from "@/lib/format";
+import { millDate, validDate, validQuantity } from "@/lib/validation";
 
 import { selectClass, useMaster, type NamedOption, type YarnItemOption } from "./ui";
 
@@ -21,7 +24,8 @@ export type DeliveryPrefill = {
   order_code?: string;
 };
 
-const inDays = (n: number) => new Date(Date.now() + n * 86_400_000).toISOString().slice(0, 10);
+// IST calendar day n days out; UTC would give yesterday before 5:30 am
+const inDays = millDate;
 
 // what a supplier is sending; used by store on receive and by sales from the to-buy list
 export function DeliveryForm({ prefill = {}, onDone }: { prefill?: DeliveryPrefill; onDone: () => void }) {
@@ -31,7 +35,7 @@ export function DeliveryForm({ prefill = {}, onDone }: { prefill?: DeliveryPrefi
   // yarn can be bought for one order: approved lots are then reserved for it
   const orders = useQuery({
     queryKey: ["orders", "options", "confirmed"],
-    queryFn: () => api<Paged<{ id: number; code: string; buyer: { name: string } | null; colour: string }>>("/orders?status=confirmed&limit=200"),
+    queryFn: () => apiAll<{ id: number; code: string; buyer: { name: string } | null; colour: string }>("/orders?status=confirmed"),
     enabled: !prefill.order_id,
   });
   const [v, setV] = useState({
@@ -60,10 +64,12 @@ export function DeliveryForm({ prefill = {}, onDone }: { prefill?: DeliveryPrefi
     const errs: Record<string, string> = {};
     if (!v.supplier_id) errs.supplier_id = "Pick the supplier";
     if (!v.yarn_item_id) errs.yarn_item_id = "Pick the yarn";
-    if (!/^\d+(\.\d{1,3})?$/.test(v.expected_kg) || Number(v.expected_kg) <= 0) errs.expected_kg = "Kilos above 0, up to 3 decimals";
+    if (!validQuantity(v.expected_kg, 100_000)) errs.expected_kg = "Enter 0.001 to 100,000 kg, up to 3 decimals";
     const paise = rupeesToPaise(v.rate);
     if (!paise) errs.rate = "Rupees per kg above 0, e.g. 285 or 285.50";
     if (!v.expected_date) errs.expected_date = "Pick a date";
+    else if (v.expected_date < inDays(0)) errs.expected_date = "Date cannot be before today";
+    else if (!validDate(v.expected_date, inDays(0), inDays(365))) errs.expected_date = "Pick a valid date within the next year";
     setErrors(errs);
     if (Object.keys(errs).length) return;
     save.mutate({
@@ -82,20 +88,20 @@ export function DeliveryForm({ prefill = {}, onDone }: { prefill?: DeliveryPrefi
     <form onSubmit={submit} noValidate className="grid gap-4">
       {prefill.order_code && <p className="text-sm text-muted-foreground">Tagged to order {prefill.order_code}: approved yarn is reserved for it automatically.</p>}
       <FormField name="supplier_id" label="Supplier" error={errors.supplier_id} required>
-        <select id="supplier_id" value={v.supplier_id} onChange={(e) => set("supplier_id", e.target.value)} className={selectClass} {...a11y("supplier_id")}>
+        <Select id="supplier_id" value={v.supplier_id} onChange={(e) => set("supplier_id", e.target.value)} className={selectClass} {...a11y("supplier_id")}>
           <option value="">Choose…</option>
           {suppliers.data?.items.map((s) => (
             <option key={s.id} value={s.id}>{`${s.code} · ${s.name}`}</option>
           ))}
-        </select>
+        </Select>
       </FormField>
       <FormField name="yarn_item_id" label="Yarn" error={errors.yarn_item_id} required>
-        <select id="yarn_item_id" value={v.yarn_item_id} onChange={(e) => set("yarn_item_id", e.target.value)} className={selectClass} {...a11y("yarn_item_id")}>
+        <Select id="yarn_item_id" value={v.yarn_item_id} onChange={(e) => set("yarn_item_id", e.target.value)} className={selectClass} {...a11y("yarn_item_id")}>
           <option value="">Choose…</option>
           {items.data?.items.map((i) => (
             <option key={i.id} value={i.id}>{`${i.fibre} ${i.count} ${i.colour}`}</option>
           ))}
-        </select>
+        </Select>
       </FormField>
       <div className="grid gap-4 sm:grid-cols-2">
         <FormField name="expected_kg" label="Kilos" error={errors.expected_kg} required>
@@ -107,16 +113,16 @@ export function DeliveryForm({ prefill = {}, onDone }: { prefill?: DeliveryPrefi
       </div>
       {!prefill.order_id && (
         <FormField name="order_id" label="For order" error={errors.order_id} hint="Optional. Tagged yarn is reserved for that order once approved.">
-          <select id="order_id" value={v.order_id} onChange={(e) => set("order_id", e.target.value)} className={selectClass} {...a11y("order_id")}>
+          <Select id="order_id" value={v.order_id} onChange={(e) => set("order_id", e.target.value)} className={selectClass} {...a11y("order_id")}>
             <option value="">General stock, no order</option>
             {orders.data?.items.map((o) => (
               <option key={o.id} value={o.id}>{`${o.code} · ${o.buyer?.name ?? ""} · ${o.colour}`}</option>
             ))}
-          </select>
+          </Select>
         </FormField>
       )}
       <FormField name="expected_date" label="Expected on" error={errors.expected_date} required>
-        <Input id="expected_date" type="date" value={v.expected_date} onChange={(e) => set("expected_date", e.target.value)} {...a11y("expected_date")} />
+        <Input id="expected_date" type="date" min={inDays(0)} max={inDays(365)} value={v.expected_date} onChange={(e) => set("expected_date", e.target.value)} {...a11y("expected_date")} />
       </FormField>
       {errors.form && <p role="alert" className="text-sm text-danger">{errors.form}</p>}
       <DialogFooter>

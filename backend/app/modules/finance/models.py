@@ -133,3 +133,13 @@ class Expense(Base):
     category: Mapped[ExpenseCategory] = mapped_column(str_enum(ExpenseCategory, "expense_category"))
     amount_paise: Mapped[int] = mapped_column(BigInteger)
     note: Mapped[str | None] = mapped_column(Text)
+
+
+# a closed month: nothing dated in it (payments, expenses, wage runs, attendance) changes until
+# the owner reopens it with a reason
+class MonthClose(Base):
+    __tablename__ = "month_closes"
+    __table_args__ = (CheckConstraint("extract(day from month) = 1", name="first_of_month"),)
+
+    month: Mapped[date] = mapped_column(Date, unique=True)
+    closed_by: Mapped[int] = mapped_column(ForeignKey("users.id"))

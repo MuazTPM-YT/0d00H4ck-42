@@ -11,6 +11,7 @@ from pydantic import (
     model_validator,
 )
 
+from app.core.dates import mill_today
 from app.core.enums import Source
 from app.core.errors import FieldError
 from app.core.types import Note, Paise, PositiveQty, ShortText
@@ -101,9 +102,9 @@ class ExpectedDeliveryIn(BaseModel):
     @field_validator("expected_date")
     @classmethod
     def date_in_range(cls, v: date) -> date:
-        today = date.today()
-        if v < today - timedelta(days=7):
-            raise FieldError("expected_date", "Date is more than a week in the past")
+        today = mill_today()
+        if v < today:
+            raise FieldError("expected_date", "Date cannot be before today")
         if v > today + timedelta(days=365):
             raise FieldError("expected_date", "Date is more than a year away")
         return v

@@ -60,7 +60,8 @@ type MachineProduction = { machine_id: number; code: string; name: string; type:
 
 const monthKey = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 const monthName = (key: string) => new Date(`${key}-01T00:00:00`).toLocaleDateString("en-IN", { month: "long", year: "numeric" });
-const shortDay = (iso: string) => new Date(`${iso.slice(0, 10)}T00:00:00`).toLocaleDateString("en-IN", { day: "numeric", month: "short" });
+const shortMonth = (key: string) => new Date(`${key}-01T00:00:00`).toLocaleDateString("en-IN", { month: "short", year: "numeric" });
+const shortDay =(iso: string) => new Date(`${iso.slice(0, 10)}T00:00:00`).toLocaleDateString("en-IN", { day: "numeric", month: "short" });
 // short rupees for headlines: ₹26.2L, ₹480k, −₹20.8L (the sign goes before the symbol)
 const lakh = (paise: number) => {
   const r = Math.abs(paise / 100);
@@ -70,7 +71,7 @@ const lakh = (paise: number) => {
 const num = new Intl.NumberFormat("en-IN", { maximumFractionDigits: 0 });
 
 function Card({ className, children }: { className?: string; children: React.ReactNode }) {
-  return <section className={cn("border border-border bg-card p-5", className)}>{children}</section>;
+  return <section className={cn("min-w-0 border border-border bg-card p-5", className)}>{children}</section>;
 }
 
 function CardTitle({ title, hint, icon: Icon }: { title: string; hint?: string; icon: LucideIcon }) {
@@ -195,17 +196,20 @@ export function OwnerDashboard() {
 
   return (
     <div className="grid gap-4">
-      <div className="flex flex-wrap items-center gap-2" role="radiogroup" aria-label="Month">
+      {/* one row always: equal thirds on a phone with short names, full names from sm up */}
+      <div className="flex items-center gap-2" role="radiogroup" aria-label="Month">
         {months.map((m) => (
           <button
             key={m}
             type="button"
             role="radio"
             aria-checked={m === month}
+            aria-label={monthName(m)}
             onClick={() => setPicked(m)}
-            className={cn("pressable h-10 border px-4 text-[0.88rem] font-medium", m === month ? "border-primary bg-primary text-primary-foreground" : "border-input bg-card text-foreground hover:border-foreground")}
+            className={cn("pressable h-10 min-w-0 flex-1 whitespace-nowrap border px-2 text-[0.88rem] font-medium sm:flex-none sm:px-4", m === month ? "border-primary bg-primary text-primary-foreground" : "border-input bg-card text-foreground hover:border-foreground")}
           >
-            {monthName(m)}
+            <span className="sm:hidden">{shortMonth(m)}</span>
+            <span className="hidden sm:inline">{monthName(m)}</span>
           </button>
         ))}
       </div>

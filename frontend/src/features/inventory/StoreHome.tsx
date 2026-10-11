@@ -10,7 +10,7 @@ import { StatStrip } from "@/components/layout/StatStrip";
 import { StatusBadge } from "@/components/layout/StatusBadge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { api, type Paged } from "@/lib/api";
+import { api, apiAll, type Paged } from "@/lib/api";
 import { date, humanize, kg } from "@/lib/format";
 import { useSSE } from "@/lib/useSSE";
 
@@ -32,7 +32,7 @@ export function StoreHome() {
   const [issueWo, setIssueWo] = useState<{ code: string; n: number } | null>(null);
   const [deliveries, ...queues] = useQueries({
     queries: [
-      { queryKey: ["stock", "deliveries", "open"], queryFn: () => api<Paged<Delivery>>("/inventory/expected-deliveries?open_only=true&limit=100") },
+      { queryKey: ["stock", "deliveries", "open"], queryFn: () => apiAll<Delivery>("/inventory/expected-deliveries?open_only=true") },
       ...QUEUES.map((q) => ({ queryKey: ["stock", "batches", { status: q.status, count: true }], queryFn: () => api<Paged<Batch>>(`/inventory/batches?status=${q.status}&limit=1`) })),
     ],
   });

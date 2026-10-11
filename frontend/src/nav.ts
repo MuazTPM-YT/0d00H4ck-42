@@ -40,21 +40,21 @@ export const ROUTES: AppRoute[] = [
   { path: "/store", title: "Store", roles: ["store"], module: "inventory", owner: "Ammaar", nav: { group: "Yarn store", icon: Warehouse } },
   { path: "/store/receive", title: "Receive yarn", roles: ["store"], module: "inventory", owner: "Ammaar", nav: { group: "Yarn store", icon: PackageOpen } },
   { path: "/store/receive/labels", title: "Sample labels", roles: ["store"], module: "inventory", owner: "Ammaar" },
-  { path: "/store/batches", title: "Yarn batches", roles: ["store"], module: "inventory", owner: "Ammaar", nav: { group: "Yarn store", icon: Layers } },
+  { path: "/store/batches", title: "Yarn batches", roles: ["store", "owner"], module: "inventory", owner: "Ammaar", nav: { group: "Yarn store", icon: Layers } },
   { path: "/store/stock", title: "Yarn stock", roles: ["store"], module: "inventory", owner: "Ammaar", nav: { group: "Yarn store", icon: Boxes } },
 
   { path: "/orders", title: "Orders", roles: ["accounts", "owner"], module: "orders", owner: "Ammaar", nav: { group: "Sales", icon: ShoppingCart } },
   { path: "/orders/new", title: "New order", roles: ["accounts", "owner"], module: "orders", owner: "Ammaar" },
   { path: "/orders/[id]", title: "Order", roles: ["accounts", "owner", "dispatch"], module: "tracking", owner: "Ashil" },
 
-  { path: "/floor", title: "Floor board", roles: ["supervisor"], module: "production", owner: "Muaz", nav: { group: "Production", icon: Factory } },
+  { path: "/floor", title: "Floor board", roles: ["supervisor", "owner"], module: "production", owner: "Muaz", nav: { group: "Production", icon: Factory } },
   { path: "/floor/work-orders", title: "Work orders", roles: ["supervisor"], module: "production", owner: "Muaz", nav: { group: "Production", icon: ClipboardList } },
   { path: "/floor/crew", title: "Crew and attendance", roles: ["supervisor"], module: "workforce", owner: "Muaz", nav: { group: "Production", icon: Users } },
 
   { path: "/qc", title: "QC queue", roles: ["qc"], module: "quality", owner: "Razan", nav: { group: "Quality", icon: ClipboardCheck } },
   { path: "/qc/rolls/[id]", title: "Roll", roles: ["qc", "supervisor", "dispatch", "accounts"], module: "quality", owner: "Razan" },
 
-  { path: "/dispatch", title: "Dispatches", roles: ["dispatch"], module: "dispatch", owner: "Ashil", nav: { group: "Dispatch", icon: Truck } },
+  { path: "/dispatch", title: "Dispatches", roles: ["dispatch", "supervisor"], module: "dispatch", owner: "Ashil", nav: { group: "Dispatch", icon: Truck } },
   { path: "/dispatch/[id]", title: "Dispatch", roles: ["dispatch", "supervisor", "accounts"], module: "dispatch", owner: "Ashil" },
   { path: "/stock/finished", title: "Finished stock", roles: ["dispatch"], module: "dispatch", owner: "Ashil", nav: { group: "Dispatch", icon: PackageCheck } },
 

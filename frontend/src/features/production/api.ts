@@ -3,7 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 
-import { api, ApiError, type Paged } from "@/lib/api";
+import { api, apiAll, ApiError } from "@/lib/api";
 
 export type Stage = "spinning" | "weaving" | "dyeing";
 export type MachineStatus = "running" | "idle" | "breakdown" | "maintenance" | "off";
@@ -92,7 +92,7 @@ export const useOpenWorkOrders = () =>
 export const useMachines = () =>
   useQuery({
     queryKey: ["machines", "list"],
-    queryFn: () => api<Paged<Machine>>("/masters/machines?active=true&limit=200"),
+    queryFn: () => apiAll<Machine>("/masters/machines?active=true"),
     staleTime: 300_000,
   });
 
@@ -100,7 +100,7 @@ export const useMachines = () =>
 export const useRollsToProcess = (orderId: number | null) =>
   useQuery({
     queryKey: ["quality", "rolls", "in_process", orderId],
-    queryFn: () => api<Paged<Roll>>(`/quality/rolls?status=in_process&order_id=${orderId}&limit=200`),
+    queryFn: () => apiAll<Roll>(`/quality/rolls?status=in_process&order_id=${orderId}`),
     enabled: orderId !== null,
   });
 

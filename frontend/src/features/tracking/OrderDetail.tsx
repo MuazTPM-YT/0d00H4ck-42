@@ -7,6 +7,7 @@ import { type ReactNode, useState } from "react";
 
 import { EmptyState } from "@/components/layout/EmptyState";
 import { PageHeader } from "@/components/layout/PageHeader";
+import { ReasonAction } from "@/components/layout/ReasonAction";
 import { StatusBadge } from "@/components/layout/StatusBadge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -40,6 +41,7 @@ export function OrderDetail({ id, costPanel, yarnPanel }: { id: string; costPane
   useSSE(["orders", "dispatch", "quality", "machines"]);
   const role = useMe().data?.role;
   const view = useQuery({ queryKey: ["orders", "view", id], queryFn: () => api<OrderView>(`/track/orders/${id}`) });
+  const qc = useQueryClient();
 
   if (view.isPending) return <Skeleton className="h-96 w-full" />;
   if (view.isError) {
@@ -54,10 +56,10 @@ export function OrderDetail({ id, costPanel, yarnPanel }: { id: string; costPane
   return (
     <>
       <PageHeader title={`${o.order_code} · ${o.buyer_name}`} actions={<StatusBadge status={o.order_status} className="text-sm" />} />
-      <div className="grid gap-6 lg:grid-cols-[1fr_20rem]">
-        <div className="grid content-start gap-6">
+      <div className="grid min-w-0 gap-6 xl:grid-cols-[minmax(0,1fr)_20rem]">
+        <div className="grid min-w-0 content-start gap-6">
           <StageCard t={o} />
-          {yarnPanel && <section className="border border-border bg-card p-4">{yarnPanel}</section>}
+          {yarnPanel && <section className="min-w-0 border border-border bg-card p-4">{yarnPanel}</section>}
           {costPanel}
           <Section title={`Rolls (${o.rolls.length})`} empty="No rolls woven yet.">
             {o.rolls.length > 0 && (
@@ -120,7 +122,14 @@ export function OrderDetail({ id, costPanel, yarnPanel }: { id: string; costPane
             )}
           </Section>
         </div>
-        <div className="grid content-start gap-6">
+        <div className="grid min-w-0 content-start gap-6">
+          {(role === "accounts" || role === "owner") && (o.order_status === "draft" || o.order_status === "confirmed") && (
+            <section className="grid gap-2 border border-border bg-card p-4">
+              <h2 className="text-base">Cancel order</h2>
+              <p className="text-sm text-muted-foreground">Frees reserved yarn and takes queued jobs off the machines. A job still running is finished on the floor first.</p>
+              <ReasonAction label="Cancel order" question="Why is this order cancelled?" url={`/orders/${o.order_id}/cancel`} onDone={() => qc.invalidateQueries({ queryKey: ["orders"] })} />
+            </section>
+          )}
           <BuyerLink o={o} canRotate={role === "accounts" || role === "owner"} />
           <Timeline events={o.timeline} />
         </div>
@@ -131,7 +140,7 @@ export function OrderDetail({ id, costPanel, yarnPanel }: { id: string; costPane
 
 function Section({ title, empty, children }: { title: string; empty: string; children: ReactNode }) {
   return (
-    <section className="border border-border bg-card">
+    <section className="min-w-0 border border-border bg-card">
       <h2 className="border-b border-border px-4 py-3 text-base">{title}</h2>
       <div className="overflow-x-auto">{children || <p className="px-4 py-6 text-sm text-muted-foreground">{empty}</p>}</div>
     </section>

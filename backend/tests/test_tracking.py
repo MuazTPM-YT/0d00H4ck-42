@@ -353,3 +353,16 @@ def test_buyer_link_lists_trucks_that_left(client, db):
             "code_locked": False,
         }
     ]
+
+
+# a cancelled order says so on its timeline; staff see why, the buyer only that it stopped
+def test_cancel_shows_on_timeline(client_as, client, db):
+    o = Mill(db).order()
+    db.commit()
+    accounts = client_as(Role.accounts)
+    res = accounts.post(f"/api/orders/{o.id}/cancel", json={"reason": "Buyer pulled out"})
+    assert res.status_code == 200
+    staff = accounts.get(f"/api/track/orders/{o.id}").json()
+    assert staff["timeline"][-1]["title"] == "Order cancelled: Buyer pulled out"
+    public = client.get(f"/api/track/{o.tracking_token}").json()
+    assert public["timeline"][-1]["title"] == "Order cancelled"

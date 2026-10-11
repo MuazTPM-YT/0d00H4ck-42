@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from app.core import audit, events
 from app.core.errors import Conflict, NotFound, Unprocessable
 from app.core.pagination import Page, paginate
+from app.modules.finance import closing
 from app.modules.finance.service import locking_run
 from app.modules.masters.models import Machine, Shift, Worker
 from app.modules.workforce.models import (
@@ -101,9 +102,10 @@ def list_crew(db: Session, on: date, shift_id: int) -> list[dict]:
     ]
 
 
-# wages for this day are final or paid: changing who worked, or what they made, would no
-# longer match the payout
+# wages for this day are final or paid, or its month is closed: changing who worked, or
+# what they made, would no longer match the books
 def payroll_open(db: Session, day: date) -> None:
+    closing.ensure_open(db, day)
     run = locking_run(db, day)
     if run:
         raise Conflict(

@@ -187,6 +187,11 @@
   * {
     @apply border-border outline-ring/50;
   }
+  /* a grid with no column template sizes its one column to the widest child, so a wide table
+     inside pushes the page sideways. One shrinkable column instead; grid-cols-* still wins */
+  .grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
   /* 17px root: Apple's body size. Every rem-based size and gap grows with it, so touch
      targets get bigger too, and a user's browser text size still scales the whole layout */
   html {
@@ -198,6 +203,7 @@
     @apply bg-background text-foreground antialiased;
     font-family: var(--font-sans);
     line-height: 1.55;
+    overflow-wrap: anywhere;
     /* a faint Bayer stipple under everything: the paper the ledger is printed on */
     background-image: radial-gradient(color-mix(in srgb, var(--foreground) 9%, transparent) 0.6px, transparent 0.9px);
     background-size: 8px 8px;
@@ -263,6 +269,8 @@
   }
   /* native selects match inputs: same border, radius and an SF-style chevron */
   select {
+    min-width: 0;
+    max-width: 100%;
     appearance: none;
     border-radius: var(--radius-md);
     background-color: var(--card);

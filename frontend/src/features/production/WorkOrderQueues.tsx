@@ -1,5 +1,7 @@
 "use client";
 
+import { Select } from "@/components/ui/select";
+
 import { AlertTriangle, ArrowDown, ArrowUp, ClipboardList, Play, Square, Undo2 } from "lucide-react";
 import { useState } from "react";
 
@@ -58,7 +60,7 @@ function WaitingRow({ wo, machines }: { wo: OpenWorkOrder; machines: BoardTile[]
           if (machineId) queue.mutate({ id: wo.id, machine_id: Number(machineId) });
         }}
       >
-        <select aria-label={`Machine for ${wo.code}`} required value={machineId} onChange={(e) => setMachineId(e.target.value)} className={`${selectClass} min-w-0 flex-1`}>
+        <Select aria-label={`Machine for ${wo.code}`} required value={machineId} onChange={(e) => setMachineId(e.target.value)} className={`${selectClass} min-w-0 flex-1`}>
           <option value="">Pick a {wo.stage} machine</option>
           {usable.map((m) => (
             <option key={m.machine_id} value={m.machine_id} disabled={m.status === "breakdown" || m.status === "maintenance"}>
@@ -66,7 +68,7 @@ function WaitingRow({ wo, machines }: { wo: OpenWorkOrder; machines: BoardTile[]
               {m.queued ? ` · ${m.queued} queued` : ""}
             </option>
           ))}
-        </select>
+        </Select>
         <Button type="submit" className="h-12" disabled={!machineId || queue.isPending}>
           Queue
         </Button>
@@ -97,14 +99,14 @@ function MoveDialog({ wo, machines, onClose }: { wo: OpenWorkOrder | null; machi
           }}
         >
           <FormField name="machine_id" label="To machine" required error={move.errors.machine_id}>
-            <select id="machine_id" required value={machineId} onChange={(e) => setMachineId(e.target.value)} className={selectClass}>
+            <Select id="machine_id" required value={machineId} onChange={(e) => setMachineId(e.target.value)} className={selectClass}>
               <option value="">Pick a machine</option>
               {targets.map((m) => (
                 <option key={m.machine_id} value={m.machine_id} disabled={m.status === "breakdown" || m.status === "maintenance"}>
                   {m.code} · {humanize(m.status)}
                 </option>
               ))}
-            </select>
+            </Select>
           </FormField>
           <FormField name="reason" label="Reason" required error={move.errors.reason} hint="e.g. LM-03 down, motor burnt">
             <Input id="reason" required maxLength={2000} value={reason} onChange={(e) => setReason(e.target.value)} className="h-12" />

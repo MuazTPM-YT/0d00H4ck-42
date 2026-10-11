@@ -58,7 +58,7 @@ UI/API/logic done, `done` = UI + API + DB + validation + test.
 | R20 | Core | Attendance per shift (Muaz) and wages from it (Ashil) | Muaz, Ashil | `/floor/crew`, `/finance/wages` | `attendance`, `wage_runs`, `wage_lines` | done: attendance capture (Muaz), wage runs (Ashil) |
 | R21 | Core | Cost per order: yarn + labour + machine, rule stated in the UI | Ashil | `/orders/[id]`, `/finance/month` | many | done: `finance.order_cost`, rule on screen; month-end lists every order worked or billed (`/api/finance/order-costs`) |
 | R22 | Core | Production per machine for a period | Muaz | `/owner` | `production_logs` | done: `/finance/month` table (output, best day, running, idle, breakdown hours) and `/owner` output-by-machine chart |
-| R23 | Core | Monthly profit: payments and invoices vs yarn bills and wages | Ashil | `/finance/month` | `invoices`, `payments`, `receipts`, `wage_lines`, `expenses` | done: invoiced + cash basis, drilldown |
+| R23 | Core | Monthly profit: payments and invoices vs yarn bills and wages | Ashil | `/finance/month` | `invoices`, `payments`, `receipts`, `wage_lines`, `expenses`, `month_closes` | done: invoiced + cash basis, drilldown; close an ended month (payments, expenses, wage runs, attendance dated in it locked), owner reopens with a reason |
 | R24 | Expected | Buyer payments against invoices; outstanding receivables | Ashil | `/finance/payments` | `payments` | done |
 | R25 | Stretch | Export reports (CSV or PDF) | Ashil | finance pages | none | todo |
 
@@ -66,7 +66,7 @@ UI/API/logic done, `done` = UI + API + DB + validation + test.
 
 | # | Label | Requirement | Owner | Status |
 |---|---|---|---|---|
-| R26 | Core | Roles: owner, store, supervisor, QC, dispatch, accounts (sales merged into accounts, migration `0002`). Server enforces per endpoint. | Muaz (auth), every owner for their routes | done: login, `require_roles` on every route, role menus, migration test |
+| R26 | Core | Roles: owner, store, supervisor, QC, dispatch, accounts (sales merged into accounts, migration `0002`). Server enforces per endpoint. | Muaz (auth), every owner for their routes | done: login, `require_roles` on every route, role menus, migration test; buyer rates, wage rates and machine cost blanked for roles other than owner and accounts (`hide_money`) |
 | R27 | Expected | Activity log on orders and rolls | Muaz (`audit_log`), every owner writes rows | partial: every module writes `audit.record` in the same transaction as the change; shown on the batch sheet, no order activity screen yet |
 | — | Core | Masters: suppliers, buyers, yarn items, fabric types, machines, workers, shifts | Muaz | done: CRUD API, validation, screens, tests |
 

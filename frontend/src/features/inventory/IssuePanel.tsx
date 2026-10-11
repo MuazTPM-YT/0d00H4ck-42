@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input";
 import { api } from "@/lib/api";
 import { date, humanize, kg } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import { useOpenWorkOrders } from "@/features/production/api";
 
 import { type IssuePlan, newIdemKey, type PlanLine } from "./types";
 import { ErrorText, ScanField } from "./ui";
@@ -56,6 +57,7 @@ export function IssuePanel({ initialWo = null }: { initialWo?: string | null }) 
           setScanError(null);
         }}
       />
+      {!woCode && <YarnJobs onPick={setWoCode} />}
       <ErrorText error={plan.error} />
       {plan.data && (
         <>
@@ -118,6 +120,35 @@ export function IssuePanel({ initialWo = null }: { initialWo?: string | null }) 
   );
 }
 
+// each order's first-stage job takes the yarn (it waits for it before a machine takes it);
+// tap one instead of scanning its code
+function YarnJobs({ onPick }: { onPick: (code: string) => void }) {
+  const open = useOpenWorkOrders();
+  const route = (open.data ?? []).filter((w) => !w.roll_id);
+  const first = new Map<number, number>();
+  for (const w of route) first.set(w.order_id, Math.min(first.get(w.order_id) ?? w.seq, w.seq));
+  const jobs = route.filter((w) => w.seq === first.get(w.order_id));
+  if (open.isError) return <ErrorText error={open.error} />;
+  if (!open.data) return null;
+  if (jobs.length === 0) return <p className="text-sm text-muted-foreground">No job is waiting for yarn.</p>;
+  return (
+    <div className="grid gap-2">
+      <p className="text-sm font-medium">Jobs that take yarn</p>
+      <ul className="scroll-panel grid max-h-60 gap-2">
+        {jobs.map((w) => (
+          <li key={w.id}>
+            <button type="button" onClick={() => onPick(w.code)} className="pressable flex w-full flex-wrap items-center gap-2 border p-2 text-left text-sm [@media(hover:hover)]:hover:border-input">
+              <span className="font-medium tabular">{w.code}</span>
+              <span className="text-muted-foreground">{humanize(w.stage)} · {w.order_code}</span>
+              <StatusBadge status={w.status} className="ml-auto" />
+            </button>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 function IssueForm({ line, workOrderId, onDone }: { line: PlanLine; workOrderId: number; onDone: (msg: string) => void }) {
   const reserved = Number(line.reserved_for_order_kg);
   const [amount, setAmount] = useState(reserved > 0 ? line.reserved_for_order_kg : "");
@@ -139,7 +170,7 @@ function IssueForm({ line, workOrderId, onDone }: { line: PlanLine; workOrderId:
   function submit(e: FormEvent) {
     e.preventDefault();
     const errs: Record<string, string> = {};
-    if (!KG_RE.test(amount) || Number(amount) <= 0) errs.kg = "Kilos above 0, up to 3 decimals";
+    if (!KG_RE.test(amount) || Number(amount) <= 0 || Number(amount) > Number(line.store_kg)) errs.kg = `Enter kilos above 0, up to ${kg(line.store_kg)}, with up to 3 decimals`;
     if (over && !reason.trim()) errs.reason = `More than the ${kg(line.reserved_for_order_kg)} reserved: say why`;
     setErrors(errs);
     if (!Object.keys(errs).length) issue.mutate();
@@ -165,6 +196,7 @@ function ReturnList({ plan, onDone }: { plan: IssuePlan; onDone: (msg: string) =
   const qc = useQueryClient();
   const [open, setOpen] = useState<number | null>(null);
   const [amount, setAmount] = useState("");
+  const [error, setError] = useState<string>();
   const [key, setKey] = useState(newIdemKey);
   const back = useMutation({
     mutationFn: (batchId: number) => api("/inventory/returns", { method: "POST", json: { work_order_id: plan.work_order.id, yarn_batch_id: batchId, kg: amount, idempotency_key: key } }),
@@ -187,10 +219,18 @@ function ReturnList({ plan, onDone }: { plan: IssuePlan; onDone: (msg: string) =
           {open === f.yarn_batch_id && (
             <form
               noValidate
-              onSubmit={(e) => { e.preventDefault(); if (KG_RE.test(amount) && Number(amount) > 0) back.mutate(f.yarn_batch_id); }}
+              onSubmit={(e) => {
+                e.preventDefault();
+                if (!KG_RE.test(amount) || Number(amount) <= 0 || Number(amount) > Number(f.kg)) {
+                  setError(`Enter kilos above 0, up to ${kg(f.kg)}, with up to 3 decimals`);
+                  return;
+                }
+                setError(undefined);
+                back.mutate(f.yarn_batch_id);
+              }}
               className="flex flex-wrap items-end gap-2"
             >
-              <FormField name={`ret-${f.yarn_batch_id}`} label="Kilos back to store">
+              <FormField name={`ret-${f.yarn_batch_id}`} label="Kilos back to store" error={error}>
                 <Input id={`ret-${f.yarn_batch_id}`} inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} className="h-11 w-32" />
               </FormField>
               <Button type="submit" className="h-11" disabled={back.isPending}>Return</Button>

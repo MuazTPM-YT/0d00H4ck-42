@@ -493,15 +493,18 @@ def remove_line(db: Session, user: User, receipt_id: int, batch_id: int) -> dict
     return receipt_row(db, r)
 
 
-# drop an empty draft truck (opened by mistake)
-def discard_receipt(db: Session, user: User, receipt_id: int) -> None:
+# truck entered by mistake: draft lots never reached the ledger, so they go; the audit row stays
+def discard_receipt(db: Session, user: User, receipt_id: int, reason: str) -> None:
     r = _draft_receipt(db, receipt_id)
-    if db.scalar(select(YarnBatch.id).where(YarnBatch.receipt_id == r.id).limit(1)):
-        raise Conflict(f"Remove the lots on {r.code} first", field="batches")
-    audit.record(db, user.id, "discard", "receipts", r.id, data={"code": r.code})
+    batches = db.scalars(select(YarnBatch).where(YarnBatch.receipt_id == r.id)).all()
+    lots = [b.supplier_lot or b.code for b in batches]
+    audit.record(db, user.id, "discard", "receipts", r.id, reason=reason, data={"lots": lots})
+    for b in batches:
+        db.delete(b)
+    db.flush()
     db.delete(r)
     db.commit()
-    events.publish("stock", {"type": "receipt_discarded", "id": receipt_id})
+    events.publish("stock", {"type": "receipt", "id": receipt_id})
 
 
 # truck done: every lot moves supplier -> inspection (or quarantine), bill stored, all or nothing.

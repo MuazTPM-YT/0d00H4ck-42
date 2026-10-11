@@ -4,7 +4,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, Query
 from sqlalchemy.orm import Session
 
 from app.core.db import get_db
-from app.core.deps import get_current_user, require_roles
+from app.core.deps import get_current_user, hide_money, require_roles
 from app.core.pagination import Paged, PageDep
 from app.modules.auth.models import Role, User
 from app.modules.inventory import service as inventory
@@ -25,6 +25,7 @@ from app.modules.tracking import service as tracking
 router = APIRouter(prefix="/orders", tags=["orders"], dependencies=[Depends(get_current_user)])
 
 Sales = Depends(require_roles(Role.accounts))
+MONEY = ("rate_paise_per_m",)
 
 
 @router.get("", response_model=Paged[OrderOut])
@@ -33,8 +34,10 @@ def list_orders(
     status: OrderStatus | None = None,
     q: Annotated[str | None, Query(max_length=60)] = None,
     db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
 ):
-    return service.list_orders(db, page, status, q)
+    rows = service.list_orders(db, page, status, q)
+    return {**rows, "items": hide_money(OrderOut, rows["items"], user, MONEY)}
 
 
 @router.post("", response_model=OrderOut, status_code=201)
@@ -58,8 +61,8 @@ def to_buy(db: Session = Depends(get_db)):
 
 
 @router.get("/{order_id}", response_model=OrderOut)
-def get_order(order_id: int, db: Session = Depends(get_db)):
-    return service.get_order(db, order_id)
+def get_order(order_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    return hide_money(OrderOut, [service.get_order(db, order_id)], user, MONEY)[0]
 
 
 @router.get("/{order_id}/yarn-requirement", response_model=list[YarnLine])

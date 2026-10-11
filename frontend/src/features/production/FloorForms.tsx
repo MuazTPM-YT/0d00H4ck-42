@@ -1,11 +1,14 @@
 "use client";
 
+import { Select } from "@/components/ui/select";
+
 import { type SubmitEvent, useState } from "react";
 
 import { FormField } from "@/components/layout/FormField";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { humanize, metres } from "@/lib/format";
+import { validQuantity } from "@/lib/validation";
 
 import { type BoardTile, DOWNTIME, MACHINE_STATUSES, type MachineStatus, useFloorAction, useRollsToProcess } from "./api";
 
@@ -85,6 +88,7 @@ export function OutputForm({ tile }: { tile: BoardTile }) {
       className="grid gap-3"
       onSubmit={(e) => {
         if (!checked(e, setLocal)) return;
+        if (!validQuantity(value)) return setLocal({ qty: QTY_TITLE });
         save.mutate({ machine_id: tile.machine_id, work_order_id: job.work_order_id, qty: value, source: "manual" }, { onSuccess: () => setValue("") });
       }}
     >
@@ -110,6 +114,7 @@ export function RollForm({ tile }: { tile: BoardTile }) {
       className="grid gap-3"
       onSubmit={(e) => {
         if (!checked(e, setLocal)) return;
+        if (!validQuantity(value, 1000)) return setLocal({ length_m: "Enter 0.001 to 1000 metres, up to 3 decimals" });
         save.mutate({ work_order_id: tile.job!.work_order_id, length_m: value, source: "manual" }, { onSuccess: () => setValue("") });
       }}
     >
@@ -144,14 +149,14 @@ export function ProcessRollForm({ tile, reworkRollId }: { tile: BoardTile; rewor
     >
       {!reworkRollId && (
         <FormField name="roll" label="Roll" required error={rolls.isError ? rolls.error.message : undefined} hint={rolls.isSuccess && options.length === 0 ? "No woven rolls of this order are waiting." : undefined}>
-          <select id="roll" name="roll" required value={rollId} onChange={(e) => setRollId(e.target.value)} className={selectClass} disabled={rolls.isPending}>
+          <Select id="roll" name="roll" required value={rollId} onChange={(e) => setRollId(e.target.value)} className={selectClass} disabled={rolls.isPending}>
             <option value="">{rolls.isPending ? "Loading rolls…" : "Pick a roll"}</option>
             {options.map((r) => (
               <option key={r.id} value={r.id}>
                 {r.code} · {metres(r.length_m)}
               </option>
             ))}
-          </select>
+          </Select>
         </FormField>
       )}
       <FormError message={save.errors.form ?? save.errors.work_order_id} />
