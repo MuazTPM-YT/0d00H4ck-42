@@ -43,6 +43,14 @@ async function mains(orderId: number) {
   return r.items.filter((w) => w.roll_id === null).sort((a, b) => a.seq - b.seq);
 }
 
+type NeedsYarn = { order_id: number; wo_code: string; status: string; machine_code: string | null; kg_needed: string; kg_issued: string };
+
+// the order's yarn still in the store, if any: the one fact both the store and the floor wait on
+async function yarnStillToIssue(orderId: number) {
+  const rows = await api<NeedsYarn[]>("/inventory/needs-yarn");
+  return rows.find((r) => r.order_id === orderId) ?? null;
+}
+
 async function rolls(orderId: number) {
   const r = await api<Paged<Roll>>(`/quality/rolls?order_id=${orderId}&limit=200`);
   const count = (...st: string[]) => r.items.filter((x) => st.includes(x.status)).length;
@@ -157,10 +165,13 @@ export const STEPS: Step[] = [
       `${v.orderCode ?? "The order"} is now on the Needs yarn list. Press Issue, check the reserved lots it suggests, and press Issue to floor.`,
       "That is the only hand-off a person makes: once the yarn is on the floor, the job goes to the least busy working loom and starts by itself.",
     ],
+    // done when the yarn is on the floor, not when the job is merely on a machine: a job can be
+    // queued by hand with its yarn still in the store, and then it can never start
     check: async (s) => {
+      const owed = await yarnStillToIssue(s.vars.orderId!);
+      if (owed) return { done: false, detail: `${owed.wo_code}: ${kg(owed.kg_issued)} of ${kg(owed.kg_needed)} issued${owed.machine_code ? `, already queued on ${owed.machine_code} but it cannot start without yarn` : ""}` };
       const [first] = await mains(s.vars.orderId!);
-      if (!first) return { done: false };
-      return { done: first.status !== "waiting", detail: first.status === "waiting" ? `${first.code} waiting for yarn` : `${first.code} is ${first.status}` };
+      return { done: true, detail: first ? `Yarn is on the floor; ${first.code} is ${first.status}` : "Yarn is on the floor" };
     },
   },
   {
@@ -182,6 +193,8 @@ export const STEPS: Step[] = [
         const line = `${tile.code} · ${tile.job.stage} ${metres(tile.job.produced)} of ${metres(tile.job.planned)}`;
         return { done: tile.job.status === "running", detail: line, vars: { loom: tile.code } };
       }
+      const owed = await yarnStillToIssue(s.vars.orderId!);
+      if (owed) return { done: false, detail: `No yarn on the floor for ${owed.wo_code}: the store has not issued it, so no loom can start it. Go Back to the store step.` };
       const [first] = await mains(s.vars.orderId!);
       if (first?.status === "queued") return { done: false, detail: `${first.code} is number ${first.queue_position} in a busy loom's queue. Move it to a free loom from Work orders.` };
       if (first?.status === "done") return { done: true, detail: `${first.code} already done` };
