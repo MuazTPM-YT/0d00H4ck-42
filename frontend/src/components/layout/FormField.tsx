@@ -4,7 +4,8 @@ import { CircleAlert } from "lucide-react";
 
 import { Label } from "@/components/ui/label";
 
-// label + control + inline error; the error id is wired to aria-describedby by the caller
+// label + control + inline error; the error id is wired to aria-describedby by the caller.
+// Pinned to the top, so a taller neighbour (one with a hint) never pushes this label down
 export function FormField({
   name,
   label,
@@ -21,7 +22,7 @@ export function FormField({
   children: ReactNode;
 }) {
   return (
-    <div className="grid min-w-0 gap-2">
+    <div className="grid min-w-0 content-start gap-2">
       <Label htmlFor={name}>
         {label}
         {required && <span className="text-danger" aria-hidden>*</span>}

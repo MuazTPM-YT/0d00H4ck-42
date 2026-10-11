@@ -28,7 +28,7 @@ export function useMaster<T extends Option>(path: "suppliers" | "buyers" | "yarn
 export type YarnItemOption = { id: number; fibre: string; count: string; colour: string; reorder_level_kg: string };
 export type NamedOption = { id: number; code: string; name: string };
 
-// USB / Bluetooth scanners type the code and press Enter; people can type too
+// USB / Bluetooth scanners type the code and press Enter; people can type, or read it with the camera
 export function ScanField({
   id,
   label,
@@ -62,7 +62,7 @@ export function ScanField({
         {label}
       </label>
       <div className="flex gap-2">
-        <div className="relative flex-1">
+        <div className="relative min-w-0 flex-1">
           <ScanLine className="pointer-events-none absolute top-1/2 left-3 size-5 -translate-y-1/2 text-muted-foreground" aria-hidden />
           <Input
             id={id}

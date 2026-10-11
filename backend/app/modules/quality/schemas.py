@@ -107,6 +107,7 @@ class RollRowOut(BaseModel):
     shade_band: str | None
     order_id: int
     order_code: str
+    order_status: str
     buyer_name: str
     fabric_name: str
     fabric_gsm: Decimal

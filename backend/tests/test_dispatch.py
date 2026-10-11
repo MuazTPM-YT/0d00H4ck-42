@@ -13,8 +13,9 @@ from app.modules.dispatch.models import Dispatch, DispatchRoll, DispatchStatus
 from app.modules.finance.models import Invoice, InvoiceLine
 from app.modules.inventory.models import MoveReason, StockMove
 from app.modules.orders.models import OrderStatus
+from app.modules.production.models import WorkOrderStatus
 from app.modules.quality.models import Roll, RollStatus
-from tests.mill import Mill
+from tests.mill import NOW, Mill
 
 
 def r(id_, length, band="A"):
@@ -297,6 +298,144 @@ def test_two_scanners_cannot_load_one_roll_twice(committed, password_hash):
         assert len(s.scalars(select(DispatchRoll).where(DispatchRoll.roll_id == rid)).all()) == 1
 
 
+# --- one open truck per order, cancel truck, shelf split, order lock, close helper
+
+
+def test_create_dispatch_returns_the_open_one(client_as, db, mill):
+    o = mill.order()
+    db.commit()
+    clerk = client_as(Role.dispatch)
+    first = clerk.post("/api/dispatch/dispatches", json={"order_id": o.id})
+    second = clerk.post("/api/dispatch/dispatches", json={"order_id": o.id})
+    assert first.status_code == 201 and second.json()["id"] == first.json()["id"]
+    assert len(db.scalars(select(Dispatch).where(Dispatch.order_id == o.id)).all()) == 1
+
+
+def test_cancel_truck_unloads_rolls_and_deletes_it(client_as, db, mill, dispatch_for):
+    from app.core.audit import AuditLog
+
+    o = mill.order()
+    wo = mill.work_order(o)
+    r1, r2 = mill.roll(wo, 100), mill.roll(wo, 90)
+    d = dispatch_for(o)
+    clerk = client_as(Role.dispatch)
+    scan(clerk, d, r1)
+    scan(clerk, d, r2)
+    res = clerk.delete(f"/api/dispatch/dispatches/{d.id}")
+    assert res.status_code == 204, res.text
+    assert db.get(Dispatch, d.id) is None
+    assert (
+        db.scalars(select(DispatchRoll).where(DispatchRoll.roll_id.in_([r1.id, r2.id]))).all() == []
+    )
+    row = db.scalar(
+        select(AuditLog).where(AuditLog.entity_type == "dispatches", AuditLog.action == "cancel")
+    )
+    assert row.entity_id == d.id and sorted(row.data["rolls"]) == sorted([r1.code, r2.code])
+    # both rolls free again for the next truck
+    assert {r.id for r in service.finished_stock(db, o.id)} == {r1.id, r2.id}
+
+
+def test_confirmed_or_foreign_truck_cannot_be_cancelled(client_as, mill, dispatch_for):
+    o = mill.order()
+    roll = mill.roll(mill.work_order(o), 100)
+    d = dispatch_for(o)
+    clerk = client_as(Role.dispatch)
+    scan(clerk, d, roll)
+    assert clerk.post(f"/api/dispatch/dispatches/{d.id}/confirm").status_code == 200
+    res = clerk.delete(f"/api/dispatch/dispatches/{d.id}")
+    assert res.status_code == 409 and res.json()["error"]["code"] == "illegal_transition"
+    assert client_as(Role.accounts).delete(f"/api/dispatch/dispatches/{d.id}").status_code == 403
+
+
+def test_rolls_on_an_open_truck_are_not_on_the_shelf(client_as, db, mill, dispatch_for):
+    o = mill.order(500)
+    wo = mill.work_order(o)
+    loaded, free = mill.roll(wo, 100), mill.roll(wo, 60)
+    d = dispatch_for(o)
+    clerk = client_as(Role.dispatch)
+    scan(clerk, d, loaded)
+    assert [r.id for r in service.finished_stock(db, o.id)] == [free.id]
+    group = next(
+        g for g in clerk.get("/api/dispatch/finished-stock").json() if g["order_id"] == o.id
+    )
+    assert Decimal(group["free_m"]) == 60 and Decimal(group["on_truck_m"]) == 100
+    on = {x["code"]: x["dispatch_code"] for x in group["rolls"]}
+    assert on == {loaded.code: d.code, free.code: None}
+
+
+def test_cancelled_order_cannot_be_loaded_or_confirmed(client_as, db, mill, dispatch_for):
+    from app.modules.orders.models import Order
+
+    o = mill.order()
+    wo = mill.work_order(o)
+    r1, r2 = mill.roll(wo, 100), mill.roll(wo, 90)
+    d = dispatch_for(o)
+    clerk = client_as(Role.dispatch)
+    scan(clerk, d, r1)
+    db.get(Order, o.id).status = OrderStatus.cancelled
+    db.commit()
+    res = scan(clerk, d, r2)
+    assert res.status_code == 409 and res.json()["error"]["code"] == "order_not_open"
+    res = clerk.post(f"/api/dispatch/dispatches/{d.id}/confirm")
+    assert res.status_code == 409 and res.json()["error"]["code"] == "order_not_open"
+    assert db.scalar(select(Invoice).where(Invoice.dispatch_id == d.id)) is None
+
+
+def test_order_fully_shipped_within_tolerance(client_as, db, mill, dispatch_for):
+    o = mill.order(1000)
+    wo = mill.work_order(o)
+    big, small = mill.roll(wo, 975), mill.roll(wo, 10)
+    d = dispatch_for(o)
+    clerk = client_as(Role.dispatch)
+    scan(clerk, d, big)
+    assert service.order_fully_shipped(db, o.id) is False  # loaded is not shipped
+    clerk.post(f"/api/dispatch/dispatches/{d.id}/confirm")
+    assert service.order_fully_shipped(db, o.id) is False  # 975 < 980
+    d2 = dispatch_for(o)
+    scan(clerk, d2, small)
+    clerk.post(f"/api/dispatch/dispatches/{d2.id}/confirm")
+    assert service.order_fully_shipped(db, o.id) is True  # 985 >= 1000 x 0.98
+
+
+def test_corner_check_lists_stale_open_trucks(client_as, db, mill, dispatch_for):
+    from datetime import UTC, datetime, timedelta
+
+    o = mill.order()
+    roll = mill.roll(mill.work_order(o), 100, days_ago=1)
+    stale, fresh = dispatch_for(o), dispatch_for(o)
+    clerk = client_as(Role.dispatch)
+    scan(clerk, stale, roll)
+    stale.created_at = datetime.now(UTC) - timedelta(hours=13)
+    db.commit()
+    items = clerk.get("/api/dispatch/corner-check").json()
+    trucks = [i for i in items if i["kind"] == "dispatch"]
+    assert [i["dispatch_code"] for i in trucks] == [stale.code]
+    assert Decimal(trucks[0]["length_m"]) == 100 and trucks[0]["roll_code"] is None
+    assert fresh.code not in {i["dispatch_code"] for i in items}
+
+
+# confirm will call the helper before commit: the truck it just confirmed must count
+def test_order_fully_shipped_sees_the_truck_confirmed_in_this_transaction(db, mill, dispatch_for):
+    o = mill.order(100)
+    roll = mill.roll(mill.work_order(o), 100)
+    d = dispatch_for(o)
+    db.add(DispatchRoll(dispatch_id=d.id, roll_id=roll.id))
+    db.flush()
+    d.status, d.confirmed_at = DispatchStatus.confirmed, NOW  # unflushed, as in confirm
+    assert service.order_fully_shipped(db, o.id) is True
+
+
+def test_last_truck_closes_the_order(client_as, db, mill, dispatch_for):
+    o = mill.order(200)
+    wo = mill.work_order(o)
+    r1, r2 = mill.roll(wo, 100), mill.roll(wo, 98)  # 198 m is within 2% of 200
+    d = dispatch_for(o)
+    clerk = client_as(Role.dispatch)
+    scan(clerk, d, r1)
+    scan(clerk, d, r2)
+    assert clerk.post(f"/api/dispatch/dispatches/{d.id}/confirm").status_code == 200
+
+
 # the truck that completes the order closes it, so a shipped order stops showing as open or late
 def test_confirm_that_ships_the_whole_order_closes_it(client_as, db, mill, dispatch_for):
     o = mill.order(150)
@@ -315,6 +454,25 @@ def test_confirm_that_ships_the_whole_order_closes_it(client_as, db, mill, dispa
     assert o.status == OrderStatus.closed
 
 
+def test_short_truck_or_busy_loom_keeps_the_order_open(client_as, db, mill, dispatch_for):
+    short = mill.order(300)
+    d = dispatch_for(short)
+    clerk = client_as(Role.dispatch)
+    scan(clerk, d, mill.roll(mill.work_order(short), 100))
+    assert clerk.post(f"/api/dispatch/dispatches/{d.id}/confirm").status_code == 200
+    db.refresh(short)
+    assert short.status == OrderStatus.confirmed
+
+    busy = mill.order(100)
+    roll = mill.roll(mill.work_order(busy), 100)
+    mill.work_order(busy, WorkOrderStatus.running, seq=2)  # the loom still runs this order
+    d2 = dispatch_for(busy)
+    scan(clerk, d2, roll)
+    assert clerk.post(f"/api/dispatch/dispatches/{d2.id}/confirm").status_code == 200
+    db.refresh(busy)
+    assert busy.status == OrderStatus.confirmed
+
+
 # a truck drafted before the order was cancelled can neither load nor leave with an invoice
 def test_cancelled_order_cannot_load_or_ship(client_as, db, mill, dispatch_for):
     o = mill.order(200)
@@ -330,3 +488,50 @@ def test_cancelled_order_cannot_load_or_ship(client_as, db, mill, dispatch_for):
     res = clerk.post(f"/api/dispatch/dispatches/{d.id}/confirm")
     assert res.status_code == 409 and res.json()["error"]["code"] == "order_not_open"
     assert db.scalar(select(Invoice).where(Invoice.dispatch_id == d.id)) is None
+
+
+# --- no single shade band covers the rest (SO-000019): one band per truck, truck after truck
+
+
+def open_trucks(db, order):
+    return db.scalars(
+        select(Dispatch).where(
+            Dispatch.order_id == order.id, Dispatch.status != DispatchStatus.confirmed
+        )
+    ).all()
+
+
+def test_finished_order_gets_a_truck_in_the_closest_band(db, mill):
+    o = mill.order(200)
+    wo = mill.work_order(o, WorkOrderStatus.running)
+    mill.roll(wo, 100, band="A")
+    mill.roll(wo, 98, band="B")
+    mill.db.commit()
+    assert service.auto_draft(db, o.id, None) is None  # still weaving: a covering band may come
+    wo.status = WorkOrderStatus.done
+    db.commit()
+    d = service.auto_draft(db, o.id, None)
+    assert d is not None and d.status == DispatchStatus.draft
+
+
+def test_confirm_drafts_the_next_truck_and_the_last_closes_the_order(client_as, db, mill):
+    o = mill.order(200)
+    wo = mill.work_order(o)
+    a, b = mill.roll(wo, 100, band="A"), mill.roll(wo, 98, band="B")  # 198 m within 2%
+    first = service.auto_draft(db, o.id, None)
+    db.commit()
+    clerk = client_as(Role.dispatch)
+    vehicle = {"vehicle_no": "KA-01-AB-1234"}
+    assert scan(clerk, first, a).status_code == 200
+    assert (
+        clerk.put(f"/api/dispatch/dispatches/{first.id}/vehicle", json=vehicle).status_code == 200
+    )
+    assert clerk.post(f"/api/dispatch/dispatches/{first.id}/confirm").status_code == 200
+    (second,) = open_trucks(db, o)  # drafted by the confirm, for the rest
+    assert scan(clerk, second, b).status_code == 200
+    assert (
+        clerk.put(f"/api/dispatch/dispatches/{second.id}/vehicle", json=vehicle).status_code == 200
+    )
+    assert clerk.post(f"/api/dispatch/dispatches/{second.id}/confirm").status_code == 200
+    db.refresh(o)
+    assert o.status == OrderStatus.closed and open_trucks(db, o) == []

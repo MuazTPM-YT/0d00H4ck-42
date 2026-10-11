@@ -25,7 +25,7 @@ from app.modules.inventory.models import (
     StockMove,
     YarnBatch,
 )
-from app.modules.masters.models import Location, LocationKind, YarnItem
+from app.modules.masters.models import Location, LocationKind, Machine, YarnItem
 from app.modules.orders.models import Order, OrderStatus
 from app.modules.production.models import WorkOrder, WorkOrderStatus
 
@@ -173,7 +173,8 @@ def _work_order_net(db: Session, work_order_id: int, batch_id: int, minus) -> De
     return qty(sum((kg if r == MoveReason.issue else -kg for r, kg in rows), ZERO))
 
 
-# kg received so far against one expected delivery (confirmed receipts only)
+# kg received so far against one expected delivery (confirmed receipts only). Rejected and
+# quarantined lots are not what was ordered, so they do not fill the delivery.
 def delivery_received_kg(db: Session, delivery_id: int) -> Decimal:
     kg = db.scalar(
         select(func.coalesce(func.sum(YarnBatch.received_kg), 0))
@@ -181,9 +182,25 @@ def delivery_received_kg(db: Session, delivery_id: int) -> Decimal:
         .where(
             Receipt.expected_delivery_id == delivery_id,
             Receipt.status == ReceiptStatus.confirmed,
+            YarnBatch.status.not_in([BatchStatus.rejected, BatchStatus.quarantined]),
         )
     )
     return qty(kg)
+
+
+# per item kg still to arrive on open deliveries that are not tied to an order
+def untagged_on_order(db: Session) -> dict[int, Decimal]:
+    out: dict[int, Decimal] = defaultdict(lambda: ZERO)
+    for d in db.scalars(
+        select(ExpectedDelivery).where(
+            ExpectedDelivery.order_id.is_(None),
+            ExpectedDelivery.status.in_(
+                [ExpectedDeliveryStatus.open, ExpectedDeliveryStatus.partially_received]
+            ),
+        )
+    ):
+        out[d.yarn_item_id] += max(d.expected_kg - delivery_received_kg(db, d.id), ZERO)
+    return {k: qty(v) for k, v in out.items()}
 
 
 # what an order needs per yarn component, with the matching yarn item (None if not in masters)
@@ -357,9 +374,22 @@ def reserve(db: Session, order_id: int, user_id: int | None) -> list[Reservation
                 )
             )
         )
+        # yarn bought for another live order stays with that order
+        theirs = set(
+            db.scalars(
+                select(YarnBatch.id)
+                .join(Order, Order.id == YarnBatch.order_id)
+                .where(
+                    YarnBatch.id.in_(batch_ids),
+                    YarnBatch.order_id != order.id,
+                    Order.status.in_([OrderStatus.draft, OrderStatus.confirmed]),
+                )
+            )
+        )
         lots = [
             (b, store.get(b, {}).get(LocationKind.store, ZERO) - taken.get(b, ZERO))
             for b in batch_ids
+            if b not in theirs
         ]
         picks = pick_lots(remaining, [lot for lot in lots if lot[0] in tagged])
         left = remaining - sum((kg for _, kg in picks), ZERO)
@@ -403,17 +433,58 @@ def release_order(db: Session, order_id: int, user_id: int | None, reason: str) 
     return _release_reservations(db, Reservation.order_id == order_id, user_id, reason)
 
 
+# any line still lacking yarn (needed - reserved - issued > 0)? plain reads, no locks
+def _is_short(db: Session, order: Order) -> bool:
+    reserved = reserved_by_item(db, order.id)
+    issued = issued_by_item(db, order.id)
+    for n in order_needs(db, order):
+        item_id = n["yarn_item_id"]
+        if item_id and n["kg_needed"] - reserved.get(item_id, ZERO) - issued.get(item_id, ZERO) > 0:
+            return True
+    return False
+
+
+# stock just freed or arrived: confirmed orders still short reserve it, earliest deadline first
+def reserve_short_orders(db: Session, user_id: int | None) -> list[Reservation]:
+    created: list[Reservation] = []
+    confirmed = select(Order).where(Order.status == OrderStatus.confirmed)
+    for order in db.scalars(confirmed.order_by(Order.deadline, Order.id)).all():
+        if _is_short(db, order):
+            created += reserve(db, order.id, user_id)
+    return created
+
+
+# after commit: one orders event per order whose reservations changed
+def publish_orders(order_ids, kind: str = "reserved") -> None:
+    for order_id in sorted(set(order_ids)):
+        events.publish("orders", {"type": kind, "id": order_id})
+
+
+def first_stage_work_order(db: Session, order_id: int) -> WorkOrder | None:
+    return db.scalar(
+        select(WorkOrder)
+        .where(WorkOrder.order_id == order_id, WorkOrder.roll_id.is_(None))
+        .order_by(WorkOrder.seq)
+        .limit(1)
+    )
+
+
+# yarn enters the route at its first stage only; later stages and rework jobs take fabric
+def _check_first_stage(db: Session, wo: WorkOrder, field: str) -> None:
+    first = first_stage_work_order(db, wo.order_id)
+    if first is not None and first.id == wo.id:
+        return
+    order = db.get(Order, wo.order_id)
+    lead = "Dyeing work orders take fabric, not yarn. " if wo.stage == Stage.dyeing else ""
+    where = f"{first.code} ({first.stage})" if first else "the first work order"
+    raise Conflict(f"{lead}Issue yarn to {where}, the first stage of {order.code}", field=field)
+
+
 def _check_work_order_for_yarn(db: Session, work_order_id: int) -> WorkOrder:
     wo = db.get(WorkOrder, work_order_id)
     if not wo:
         raise NotFound(f"Work order {work_order_id} not found", field="work_order_id")
-    # rolls take their yarn lineage from the weaving job; spinning and dyeing get none
-    if wo.stage != Stage.weaving or wo.roll_id:
-        raise Conflict(
-            f"{wo.code} is {wo.stage}; yarn is issued to the order's weaving job",
-            field="work_order_id",
-            code="not_weaving",
-        )
+    _check_first_stage(db, wo, "work_order_id")
     if wo.status == WorkOrderStatus.done:
         raise Conflict(f"{wo.code} is already done", field="work_order_id")
     order = db.get(Order, wo.order_id)
@@ -481,25 +552,19 @@ def issue_to_work_order(
             field="reason",
         )
 
-    left = kg
-    for r in db.scalars(
-        select(Reservation)
-        .where(
-            Reservation.yarn_batch_id == batch.id,
-            Reservation.order_id == wo.order_id,
-            Reservation.status == ReservationStatus.active,
-        )
-        .order_by(Reservation.id)
-    ).all():
-        if left <= 0:
-            break
-        take = min(r.kg, left)
-        if take < r.kg:
-            db.add(Reservation(yarn_batch_id=batch.id, order_id=wo.order_id, kg=r.kg - take))
-            r.kg = take
-        check_transition(RESERVATION_TRANSITIONS, r.status, ReservationStatus.consumed)
-        r.status = ReservationStatus.consumed
-        left -= take
+    left = _consume_reservations(
+        db,
+        db.scalars(
+            select(Reservation)
+            .where(
+                Reservation.yarn_batch_id == batch.id,
+                Reservation.order_id == wo.order_id,
+                Reservation.status == ReservationStatus.active,
+            )
+            .order_by(Reservation.id)
+        ).all(),
+        kg,
+    )
 
     move = move_yarn(
         db,
@@ -522,7 +587,83 @@ def issue_to_work_order(
         reason=reason.strip() if reason else None,
         data={"work_order": wo.code, "kg": str(kg), "over_issue": kg > mine},
     )
+    if left > 0:
+        _consume_surplus(db, wo.order_id, batch, left, user_id)
     return move
+
+
+# mark reservations consumed, oldest first, splitting the last one; returns kg not covered
+def _consume_reservations(db: Session, rows, kg: Decimal) -> Decimal:
+    left = kg
+    for r in rows:
+        if left <= 0:
+            break
+        take = min(r.kg, left)
+        if take < r.kg:
+            db.add(Reservation(yarn_batch_id=r.yarn_batch_id, order_id=r.order_id, kg=r.kg - take))
+            r.kg = take
+        check_transition(RESERVATION_TRANSITIONS, r.status, ReservationStatus.consumed)
+        r.status = ReservationStatus.consumed
+        left -= take
+    db.flush()
+    return left
+
+
+# active kg reserved for one order, per yarn item
+def reserved_by_item(db: Session, order_id: int) -> dict[int, Decimal]:
+    rows = db.execute(
+        select(YarnBatch.yarn_item_id, func.sum(Reservation.kg))
+        .join(YarnBatch, YarnBatch.id == Reservation.yarn_batch_id)
+        .where(Reservation.order_id == order_id, Reservation.status == ReservationStatus.active)
+        .group_by(YarnBatch.yarn_item_id)
+    ).all()
+    return {item_id: qty(kg) for item_id, kg in rows}
+
+
+def _need_for_item(db: Session, order: Order, item_id: int) -> Decimal:
+    return sum(
+        (n["kg_needed"] for n in order_needs(db, order) if n["yarn_item_id"] == item_id), ZERO
+    )
+
+
+# kilos came from a lot the order had not reserved: its reservations on other lots of the
+# same yarn that are now more than it still needs get consumed, so none stays orphaned
+def _consume_surplus(
+    db: Session, order_id: int, batch: YarnBatch, upto: Decimal, user_id: int | None
+) -> None:
+    order = db.get(Order, order_id)
+    item_id = batch.yarn_item_id
+    surplus = (
+        reserved_by_item(db, order.id).get(item_id, ZERO)
+        + issued_by_item(db, order.id).get(item_id, ZERO)
+        - _need_for_item(db, order, item_id)
+    )
+    kg = min(upto, surplus)
+    if kg <= 0:
+        return
+    rows = db.scalars(
+        select(Reservation)
+        .join(YarnBatch, YarnBatch.id == Reservation.yarn_batch_id)
+        .where(
+            Reservation.order_id == order.id,
+            Reservation.status == ReservationStatus.active,
+            Reservation.yarn_batch_id != batch.id,
+            YarnBatch.yarn_item_id == item_id,
+        )
+        .order_by(Reservation.id)
+    ).all()
+    _consume_reservations(db, rows, kg)
+    for r in rows:
+        if r.status == ReservationStatus.consumed:
+            audit.record(
+                db,
+                user_id,
+                "consume",
+                "reservations",
+                r.id,
+                reason=f"Covered by issue from {batch.code}",
+                data={"kg": str(r.kg)},
+            )
 
 
 # unused yarn back from the floor to the store; becomes free stock again
@@ -560,7 +701,38 @@ def return_to_store(
     audit.record(
         db, user_id, "return", "yarn_batches", batch.id, data={"work_order": wo.code, "kg": str(kg)}
     )
+    _restore_reservation(db, wo, batch, kg, user_id)
     return move
+
+
+# returned yarn goes back on hold for its order, up to what the order still lacks
+def _restore_reservation(
+    db: Session, wo: WorkOrder, batch: YarnBatch, kg: Decimal, user_id: int | None
+) -> None:
+    order = db.get(Order, wo.order_id)
+    if order.status != OrderStatus.confirmed or batch.status != BatchStatus.approved:
+        return
+    item_id = batch.yarn_item_id
+    gap = (
+        _need_for_item(db, order, item_id)
+        - reserved_by_item(db, order.id).get(item_id, ZERO)
+        - issued_by_item(db, order.id).get(item_id, ZERO)
+    )
+    back = qty(min(kg, gap))
+    if back <= 0:
+        return
+    r = Reservation(yarn_batch_id=batch.id, order_id=order.id, kg=back)
+    db.add(r)
+    db.flush()
+    audit.record(
+        db,
+        user_id,
+        "reserve",
+        "reservations",
+        r.id,
+        reason=f"Returned from {wo.code}",
+        data={"kg": str(back), "order": order.id},
+    )
 
 
 # per item kg that confirmed orders still need and have neither reserved nor been issued
@@ -599,6 +771,7 @@ def stock_overview(db: Session) -> dict:
     approved = [b for b, _, s in batches if s == BatchStatus.approved]
     reserved = reserved_by_batch(db, approved) if approved else {}
     need = outstanding_need(db)
+    coming = untagged_on_order(db)
 
     per = defaultdict(lambda: defaultdict(lambda: ZERO))
     unidentified = ZERO
@@ -618,7 +791,8 @@ def stock_overview(db: Session) -> dict:
     for item in items:
         p = per[item.id]
         free = p["on_hand"] - p["reserved"]
-        projected = free - need.get(item.id, ZERO)
+        # the one low-stock rule: free - still needed by confirmed orders + untagged yarn on order
+        projected = free - need.get(item.id, ZERO) + coming.get(item.id, ZERO)
         if projected < 0:
             level = "short"
         elif projected < item.reorder_level_kg:
@@ -639,6 +813,7 @@ def stock_overview(db: Session) -> dict:
                 "quarantined_kg": qty(p["quarantined"]),
                 "wip_kg": qty(p["wip"]),
                 "needed_by_orders_kg": qty(need.get(item.id, ZERO)),
+                "on_order_kg": qty(coming.get(item.id, ZERO)),
                 "projected_free_kg": qty(projected),
                 "reorder_level_kg": qty(item.reorder_level_kg),
                 "level": level,
@@ -695,6 +870,7 @@ def order_allocation(db: Session, order_id: int) -> dict:
                 "count": need["count"],
                 "colour": need["colour"],
                 "yarn_item_id": item_id,
+                "not_in_masters": item_id is None,
                 "kg_needed": need["kg_needed"],
                 "kg_reserved": qty(reserved),
                 "kg_issued": qty(done),
@@ -719,6 +895,8 @@ def order_allocation(db: Session, order_id: int) -> dict:
 def to_buy(db: Session) -> list[dict]:
     rows = []
     free_left: dict[int, Decimal] = {}
+    # untagged yarn already on order is shared out like free stock, so it is never bought twice
+    coming_left = untagged_on_order(db)
     orders = db.scalars(
         select(Order)
         .where(Order.status == OrderStatus.confirmed)
@@ -745,6 +923,13 @@ def to_buy(db: Session) -> list[dict]:
                     )
                 ):
                     on_order += max(d.expected_kg - delivery_received_kg(db, d.id), ZERO)
+                pooled = min(
+                    max(line["kg_short"] - from_free - on_order, ZERO),
+                    coming_left.get(item_id, ZERO),
+                )
+                if pooled > 0:
+                    coming_left[item_id] -= pooled
+                    on_order += pooled
                 last = db.scalar(
                     select(YarnBatch)
                     .where(YarnBatch.yarn_item_id == item_id)
@@ -867,10 +1052,10 @@ def _to_store(db: Session, batch: YarnBatch, user: User, action: str, reason: st
     order = db.get(Order, batch.order_id) if batch.order_id else None
     if order and order.status == OrderStatus.confirmed:
         reserved = reserve(db, order.id, user.id)
+    reserved += reserve_short_orders(db, user.id)
     db.commit()
     events.publish("stock", {"type": action, "id": batch.id})
-    if reserved:
-        events.publish("orders", {"type": "reserved", "id": order.id})
+    publish_orders(r.order_id for r in reserved)
     return batch
 
 
@@ -898,14 +1083,24 @@ def quarantine_batch(db: Session, batch_id: int, user: User, reason: str) -> Yar
     kg = batch_kg_at(db, batch.id, frm)
     if kg > 0:
         move_yarn(db, batch, kg, frm, LocationKind.quarantine, MoveReason.quarantine, user.id)
-    freed = _release_reservations(
+    hit = set(
+        db.scalars(
+            select(Reservation.order_id).where(
+                Reservation.yarn_batch_id == batch.id,
+                Reservation.status == ReservationStatus.active,
+            )
+        )
+    )
+    _release_reservations(
         db, Reservation.yarn_batch_id == batch.id, user.id, f"Batch quarantined: {reason}"
     )
     audit.record(db, user.id, "quarantine", "yarn_batches", batch.id, reason=reason)
+    db.flush()
+    reserved = reserve_short_orders(db, user.id)
     db.commit()
     events.publish("stock", {"type": "quarantine", "id": batch.id})
-    if freed:
-        events.publish("orders", {"type": "reservations_released", "id": batch.id})
+    publish_orders(hit, "reservations_released")
+    publish_orders({r.order_id for r in reserved} - hit)
     return batch
 
 
@@ -968,6 +1163,7 @@ def issue_plan(db: Session, work_order_code: str) -> dict:
     wo = db.scalar(select(WorkOrder).where(WorkOrder.code == work_order_code.strip().upper()))
     if not wo:
         raise NotFound(f"No work order {work_order_code.strip()}", field="work_order")
+    _check_first_stage(db, wo, "work_order")
     order = db.get(Order, wo.order_id)
     item_ids = [n["yarn_item_id"] for n in order_needs(db, order) if n["yarn_item_id"]]
     batches = db.scalars(
@@ -1024,6 +1220,46 @@ def issue_plan(db: Session, work_order_code: str) -> dict:
     }
 
 
+NEEDS_YARN_RANK = {
+    WorkOrderStatus.running: 0,
+    WorkOrderStatus.paused: 1,
+    WorkOrderStatus.queued: 2,
+    WorkOrderStatus.waiting: 3,
+}
+
+
+# store to-do: first-stage jobs of confirmed orders that have not had all their yarn yet
+def needs_yarn(db: Session) -> list[dict]:
+    rows = []
+    for order in db.scalars(select(Order).where(Order.status == OrderStatus.confirmed)).all():
+        wo = first_stage_work_order(db, order.id)
+        if wo is None or wo.status not in NEEDS_YARN_RANK:
+            continue
+        needed = sum((n["kg_needed"] for n in order_needs(db, order)), ZERO)
+        issued = sum(issued_by_item(db, order.id).values(), ZERO)
+        if issued >= needed:
+            continue
+        machine = db.get(Machine, wo.machine_id) if wo.machine_id else None
+        rows.append(
+            {
+                "work_order_id": wo.id,
+                "wo_code": wo.code,
+                "order_id": order.id,
+                "order_code": order.code,
+                "buyer": order.buyer.name,
+                "stage": wo.stage,
+                "machine_code": machine.code if machine else None,
+                "status": wo.status,
+                "kg_needed": qty(needed),
+                "kg_issued": qty(issued),
+                "kg_reserved": qty(sum(reserved_by_item(db, order.id).values(), ZERO)),
+                "deadline": order.deadline,
+            }
+        )
+    rows.sort(key=lambda r: (NEEDS_YARN_RANK[r["status"]], r["deadline"], r["work_order_id"]))
+    return rows
+
+
 # issue / return routes: shared service + commit + live update
 def issue(db: Session, user: User, data) -> StockMove:
     move = issue_to_work_order(
@@ -1036,8 +1272,15 @@ def issue(db: Session, user: User, data) -> StockMove:
         idempotency_key=data.idempotency_key,
         reason=data.reason,
     )
+    # yarn on the floor puts the first-stage job on a machine; late import: production imports
+    # quality, which imports this module
+    from app.modules.production import service as production
+
+    started = production.advance(db, user.id)
     db.commit()
     events.publish("stock", {"type": "issue", "id": move.yarn_batch_id})
+    for wo in started:
+        events.publish("machines", {"type": "started", "id": wo.machine_id})
     return move
 
 
@@ -1045,6 +1288,9 @@ def give_back(db: Session, user: User, data) -> StockMove:
     move = return_to_store(
         db, data.work_order_id, data.yarn_batch_id, data.kg, user.id, data.idempotency_key
     )
+    reserved = reserve_short_orders(db, user.id)
+    wo = db.get(WorkOrder, move.ref_id)
     db.commit()
     events.publish("stock", {"type": "return", "id": move.yarn_batch_id})
+    publish_orders({wo.order_id, *(r.order_id for r in reserved)})
     return move

@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.core import audit, events, mail
@@ -17,15 +17,17 @@ from app.core.errors import Conflict, NotFound, Unprocessable
 from app.core.idempotency import run_once
 from app.core.pagination import Page
 from app.core.states import check_transition
-from app.core.units import qty
+from app.core.units import fully_shipped, qty
 from app.modules.auth.models import User
 from app.modules.dispatch.models import Dispatch, DispatchRoll, DispatchStatus
 from app.modules.finance import service as finance
 from app.modules.finance.models import Invoice
+from app.modules.inventory import service as inventory
 from app.modules.inventory.models import ItemKind, MoveReason, StockMove
 from app.modules.masters.models import Buyer, FabricType, Location, LocationKind
+from app.modules.orders import service as orders
 from app.modules.orders.models import Order, OrderStatus
-from app.modules.orders.service import ORDER_TRANSITIONS
+from app.modules.production.models import WorkOrder, WorkOrderStatus
 from app.modules.quality.models import Roll, RollStatus
 from app.modules.quality.service import ROLL_TRANSITIONS
 
@@ -35,6 +37,10 @@ DISPATCH_TRANSITIONS = {
 }
 # corner check: a passed roll older than this on the shelf needs a look
 SHELF_DAYS = 7
+# corner check: a truck open (draft or loading) longer than this is forgotten
+STALE_TRUCK_HOURS = 12
+# an order counts as fully shipped within this short fall (rolls never cut exact)
+OPEN = (DispatchStatus.draft, DispatchStatus.loading)
 # wrong delivery codes before the code locks; 6 digits and 5 tries leave a 1 in 200,000 guess
 OTP_TRIES = 5
 ZERO = Decimal(0)
@@ -61,6 +67,20 @@ def _get(db: Session, dispatch_id: int, lock: bool = False) -> Dispatch:
     if not d:
         raise NotFound(f"Dispatch {dispatch_id} not found")
     return d
+
+
+# order row lock: a cancel or close waits for the truck, and the truck sees the new status
+def _open_order(db: Session, order_id: int, field: str | None = None) -> Order:
+    order = db.scalar(select(Order).where(Order.id == order_id).with_for_update())
+    if not order:
+        raise NotFound(f"Order {order_id} not found", field=field)
+    if order.status != OrderStatus.confirmed:
+        raise Conflict(
+            f"Order {order.code} is {order.status}, only confirmed orders ship",
+            field=field,
+            code="order_not_open",
+        )
+    return order
 
 
 def _loaded(db: Session, dispatch_id: int, lock: bool = False) -> list[Roll]:
@@ -322,11 +342,15 @@ def _free_rolls(db: Session, order_id: int, band: str | None = None) -> list[Rol
     return list(db.scalars(stmt))
 
 
-# finished goods shelf grouped by order; closed or cancelled orders flagged
+# finished goods shelf grouped by order: free rolls and rolls already on an open truck
 def shelf(db: Session) -> list[dict]:
     now = _now()
     locs = _location_codes(db)
-    rolls = finished_stock(db)
+    rolls = list(
+        db.scalars(
+            select(Roll).where(Roll.status == RollStatus.passed).order_by(Roll.passed_at, Roll.id)
+        )
+    )
     on_dispatch = dict(
         db.execute(
             select(DispatchRoll.roll_id, Dispatch.code)
@@ -348,7 +372,12 @@ def shelf(db: Session) -> list[dict]:
                 "order_open": order.status == OrderStatus.confirmed,
                 "ordered_m": order.qty_m,
                 "shipped_m": shipped_metres(db, order.id),
-                "on_shelf_m": qty(sum((r.length_m for r in order_rolls), ZERO)),
+                "free_m": qty(
+                    sum((r.length_m for r in order_rolls if r.id not in on_dispatch), ZERO)
+                ),
+                "on_truck_m": qty(
+                    sum((r.length_m for r in order_rolls if r.id in on_dispatch), ZERO)
+                ),
                 "rolls": [
                     {
                         **_roll_row(r, locs),
@@ -367,8 +396,33 @@ def shelf(db: Session) -> list[dict]:
 # --- shared services (contract: docs/contracts.md). Never commit; caller owns the transaction.
 
 
-# QC pass that lets one shade band cover the rest of the order: draft a truck for dispatch.
-# order row lock so two inspectors passing at once cannot open two trucks
+# orders the floor or QC still owe rolls to: a job not done, or a roll not yet decided
+def _jobs_open():
+    return select(WorkOrder.order_id).where(WorkOrder.status != WorkOrderStatus.done)
+
+
+def _rolls_open():
+    return select(Roll.order_id).where(
+        Roll.status.in_([RollStatus.in_process, RollStatus.awaiting_qc, RollStatus.rework])
+    )
+
+
+def _still_making(db: Session, order_id: int) -> bool:
+    return bool(
+        db.scalar(
+            select(func.count())
+            .select_from(Order)
+            .where(
+                Order.id == order_id,
+                or_(Order.id.in_(_jobs_open()), Order.id.in_(_rolls_open())),
+            )
+        )
+    )
+
+
+# draft the order's next truck: one shade band that covers the rest, or, once nothing more is
+# coming, the band that gets closest (the rest goes on the next truck, still one band each).
+# Runs on a QC decision and after a truck is confirmed. Order row lock: never two open trucks
 def auto_draft(
     db: Session, order_id: int, user_id: int, at: datetime | None = None
 ) -> Dispatch | None:
@@ -382,7 +436,7 @@ def auto_draft(
         return None
     shipped, _ = _order_metres(db, order.id)
     pick = pick_rolls(_free_rolls(db, order.id), qty(order.qty_m - shipped))
-    if not pick or pick.short > 0:
+    if not pick or (pick.short > 0 and _still_making(db, order.id)):
         return None
     d = Dispatch(
         code=next_code(db, "DN"),
@@ -399,11 +453,84 @@ def auto_draft(
     return d
 
 
+# what waits on the dispatch desk and the floor: open trucks with rolls to load or ready to
+# send, trucks whose rest needs another shade band (a supervisor's call), and passed rolls of
+# an open order with no truck at all (no single band covered it, so none was drafted)
+def open_truck_work(db: Session) -> list[dict]:
+    out = []
+    trucks = db.execute(
+        select(Dispatch, Order)
+        .join(Order, Order.id == Dispatch.order_id)
+        .where(Dispatch.status != DispatchStatus.confirmed, Order.status == OrderStatus.confirmed)
+        .order_by(Dispatch.id)
+    ).all()
+    with_truck = {o.id for _, o in trucks}
+    for d, order in trucks:
+        loaded = _loaded(db, d.id)
+        free = _free_rolls(db, order.id)
+        shipped, on_trucks = _order_metres(db, order.id)
+        need = order.qty_m - shipped - on_trucks
+        bands = {r.shade_band for r in loaded}
+        same = [r for r in free if r.shade_band in bands]
+        if not loaded:  # empty truck: what its proposal would load, one band
+            pick = pick_rolls(free, qty(need))
+            same = pick.rolls if pick else []
+        if loaded and need <= 0:
+            kind = "confirm"
+        elif same:
+            kind = "load"
+        elif free and bands and not _has_override(db, d.id):
+            kind = "shade"
+        else:
+            continue
+        out.append(
+            {
+                "kind": kind,
+                "dispatch_id": d.id,
+                "code": d.code,
+                "order_id": order.id,
+                "order_code": order.code,
+                "rolls": len(same) if kind == "load" else len(free),
+                "since": d.created_at,
+            }
+        )
+    # nothing left to make or check: the floor and QC are finished with the order
+    for order in db.scalars(
+        select(Order)
+        .where(
+            Order.status == OrderStatus.confirmed,
+            Order.id.not_in(with_truck or {0}),
+            Order.id.not_in(_jobs_open()),
+            Order.id.not_in(_rolls_open()),
+        )
+        .order_by(Order.deadline, Order.id)
+    ):
+        free = _free_rolls(db, order.id)
+        if free:
+            out.append(
+                {
+                    "kind": "no_truck",
+                    "dispatch_id": None,
+                    "code": None,
+                    "order_id": order.id,
+                    "order_code": order.code,
+                    "rolls": len(free),
+                    "since": min(r.passed_at or r.created_at for r in free),
+                }
+            )
+    return out
+
+
 # rolls on the shelf: passed QC, not on any dispatch; optional order / shade band filter
 def finished_stock(
     db: Session, order_id: int | None = None, shade_band: str | None = None
 ) -> list[Roll]:
-    stmt = select(Roll).where(Roll.status == RollStatus.passed).order_by(Roll.passed_at, Roll.id)
+    stmt = (
+        select(Roll)
+        .outerjoin(DispatchRoll, DispatchRoll.roll_id == Roll.id)
+        .where(Roll.status == RollStatus.passed, DispatchRoll.id.is_(None))
+        .order_by(Roll.passed_at, Roll.id)
+    )
     if order_id:
         stmt = stmt.where(Roll.order_id == order_id)
     if shade_band:
@@ -411,7 +538,53 @@ def finished_stock(
     return list(db.scalars(stmt))
 
 
-# rolls forgotten in a corner: too long on shelf, order not open, or order already fully shipped
+# shipped (confirmed trucks) covers the order, by the one fully-shipped rule
+def order_fully_shipped(db: Session, order_id: int) -> bool:
+    db.flush()  # confirm calls this before commit: its own truck must count
+    order = db.get(Order, order_id)
+    if not order:
+        raise NotFound(f"Order {order_id} not found")
+    return fully_shipped(shipped_metres(db, order_id), order.qty_m)
+
+
+# trucks left open: started long ago and never sent, or their order is no longer open
+def _stale_trucks(db: Session, now: datetime) -> list[dict]:
+    rows = db.execute(
+        select(Dispatch, Order, func.coalesce(func.sum(Roll.length_m), 0))
+        .join(Order, Order.id == Dispatch.order_id)
+        .outerjoin(DispatchRoll, DispatchRoll.dispatch_id == Dispatch.id)
+        .outerjoin(Roll, Roll.id == DispatchRoll.roll_id)
+        .where(Dispatch.status.in_(OPEN))
+        .group_by(Dispatch.id, Order.id)
+        .order_by(Dispatch.created_at, Dispatch.id)
+    ).all()
+    items = []
+    for d, order, metres in rows:
+        hours = int((now - d.created_at).total_seconds() // 3600)
+        reasons = []
+        if hours >= STALE_TRUCK_HOURS:
+            reasons.append(f"truck open {hours} h, not sent")
+        if order.status != OrderStatus.confirmed:
+            reasons.append(f"order is {order.status}")
+        if reasons:
+            items.append(
+                {
+                    "kind": "dispatch",
+                    "roll_id": None,
+                    "roll_code": None,
+                    "dispatch_id": d.id,
+                    "dispatch_code": d.code,
+                    "order_code": order.code,
+                    "length_m": qty(metres),
+                    "days_on_shelf": hours // 24,
+                    "reasons": reasons,
+                }
+            )
+    return items
+
+
+# rolls forgotten in a corner: too long on shelf, order not open, or order already fully
+# shipped; trucks left open come first
 def corner_check(db: Session, days: int = SHELF_DAYS) -> list[dict]:
     now = _now()
     items = []
@@ -426,25 +599,29 @@ def corner_check(db: Session, days: int = SHELF_DAYS) -> list[dict]:
             reasons.append(f"on shelf over {days} days")
         if order.status != OrderStatus.confirmed:
             reasons.append(f"order is {order.status}")
-        elif shipped >= order.qty_m:
+        elif fully_shipped(shipped, order.qty_m):
             reasons.append("leftover: order already fully shipped")
         if reasons:
             items.append(
                 {
+                    "kind": "roll",
                     "roll_id": r.id,
                     "roll_code": r.code,
+                    "dispatch_id": None,
+                    "dispatch_code": None,
                     "order_code": order.code,
                     "length_m": r.length_m,
                     "days_on_shelf": _days_on_shelf(r, now),
                     "reasons": reasons,
                 }
             )
-    return sorted(items, key=lambda i: -i["days_on_shelf"])
+    return _stale_trucks(db, now) + sorted(items, key=lambda i: -i["days_on_shelf"])
 
 
 # --- writes: route-owned, each commits once and publishes after commit
 
 
+# one open truck per order: a second "new dispatch" returns the one already open
 def create_dispatch(
     db: Session,
     user: User,
@@ -453,13 +630,15 @@ def create_dispatch(
     driver: str | None,
     driver_email: str | None = None,
 ) -> Dispatch:
-    order = db.get(Order, order_id)
-    if not order:
-        raise NotFound(f"Order {order_id} not found", field="order_id")
-    if order.status != OrderStatus.confirmed:
-        raise Conflict(
-            f"Order {order.code} is {order.status}, only confirmed orders ship", field="order_id"
-        )
+    order = _open_order(db, order_id, field="order_id")
+    existing = db.scalar(
+        select(Dispatch)
+        .where(Dispatch.order_id == order.id, Dispatch.status.in_(OPEN))
+        .order_by(Dispatch.id)
+    )
+    if existing:
+        db.commit()  # nothing written; ends the transaction and frees the order lock
+        return existing
     d = Dispatch(
         code=next_code(db, "DN"),
         order_id=order.id,
@@ -515,19 +694,6 @@ def _scan_result(db: Session, d: Dispatch, roll_code: str) -> dict:
         "remaining_m": max(qty(order.qty_m - shipped - open_other - loaded_m), ZERO),
         "bands": sorted({r.shade_band for r in loaded if r.shade_band}),
     }
-
-
-# a cancelled or closed order ships nothing more, even on a truck drafted before
-def _open_order(db: Session, order_id: int, lock: bool = False) -> Order:
-    stmt = select(Order).where(Order.id == order_id)
-    order = db.scalar(stmt.with_for_update() if lock else stmt)
-    if order.status != OrderStatus.confirmed:
-        raise Conflict(
-            f"Order {order.code} is {order.status}; nothing more ships on it",
-            field="order_id",
-            code="order_not_open",
-        )
-    return order
 
 
 # one roll onto the truck. Locks dispatch then roll, so two scanners cannot load one roll twice.
@@ -593,6 +759,15 @@ def scan(db: Session, user: User, dispatch_id: int, roll_code: str, key: str | N
     return result
 
 
+# roll off the truck; an empty truck goes back to draft. Caller commits.
+def _take_off(db: Session, d: Dispatch, link: DispatchRoll) -> None:
+    db.delete(link)
+    db.flush()
+    if d.status == DispatchStatus.loading and not _loaded(db, d.id):
+        check_transition(DISPATCH_TRANSITIONS, d.status, DispatchStatus.draft)
+        d.status = DispatchStatus.draft
+
+
 def unload(db: Session, user: User, dispatch_id: int, roll_id: int) -> dict:
     d = _get(db, dispatch_id, lock=True)
     _editable(d)
@@ -603,15 +778,25 @@ def unload(db: Session, user: User, dispatch_id: int, roll_id: int) -> dict:
     )
     if not link:
         raise NotFound("That roll is not on this dispatch", field="roll_id")
-    db.delete(link)
-    db.flush()
-    if d.status == DispatchStatus.loading and not _loaded(db, d.id):
-        check_transition(DISPATCH_TRANSITIONS, d.status, DispatchStatus.draft)
-        d.status = DispatchStatus.draft
+    _take_off(db, d, link)
     audit.record(db, user.id, "unload_roll", "dispatches", d.id, data={"roll_id": roll_id})
     db.commit()
     events.publish("dispatch", {"type": "unloaded", "id": d.id})
     return get_detail(db, d.id)
+
+
+# truck not going: every roll back on the shelf, the draft is gone; the audit row keeps it
+def cancel_dispatch(db: Session, user: User, dispatch_id: int) -> None:
+    d = _get(db, dispatch_id, lock=True)
+    _editable(d)
+    rolls = [r.code for r in _loaded(db, d.id)]
+    for link in db.scalars(select(DispatchRoll).where(DispatchRoll.dispatch_id == d.id)).all():
+        _take_off(db, d, link)
+    data = {"code": d.code, "order_id": d.order_id, "rolls": rolls}
+    audit.record(db, user.id, "cancel", "dispatches", d.id, data=data)
+    db.delete(d)
+    db.commit()
+    events.publish("dispatch", {"type": "cancelled", "id": dispatch_id})
 
 
 # supervisor allows mixed shade bands on this one dispatch; the audit row is the record
@@ -644,7 +829,7 @@ def confirm(db: Session, user: User, dispatch_id: int) -> dict:
     d = _get(db, dispatch_id, lock=True)
     check_transition(DISPATCH_TRANSITIONS, d.status, DispatchStatus.confirmed)
     # order row lock: a cancel and this truck cannot pass each other
-    order = _open_order(db, d.order_id, lock=True)
+    _open_order(db, d.order_id)
     if not d.vehicle_no:
         raise Unprocessable("Vehicle number is needed before the truck leaves", field="vehicle_no")
     rolls = _loaded(db, d.id, lock=True)
@@ -690,18 +875,42 @@ def confirm(db: Session, user: User, dispatch_id: int) -> dict:
         d.id,
         data={"rolls": [r.code for r in rolls], "invoice": invoice.code},
     )
-    db.flush()
-    # this truck completes the order: close it, so lists and the forecast stop treating it as open
-    shipped = shipped_metres(db, order.id)
-    if shipped >= order.qty_m:
-        check_transition(ORDER_TRANSITIONS, order.status, OrderStatus.closed)
-        order.status = OrderStatus.closed
-        data = {"shipped_m": str(shipped), "dispatch": d.code}
-        audit.record(db, user.id, "closed", "orders", order.id, data=data)
+    closed, reserved = _close_if_shipped(db, d.order_id, user.id)
+    following = None if closed else auto_draft(db, d.order_id, user.id)  # the rest, next truck
     db.commit()
     for topic in ("dispatch", "stock", "orders"):
         events.publish(topic, {"type": "dispatched", "id": d.id})
+    if closed:
+        events.publish("orders", {"type": "closed", "id": d.order_id})
+        inventory.publish_orders(r.order_id for r in reserved)
+    if following:
+        events.publish("dispatch", {"type": "auto_draft", "code": following.code})
     return get_detail(db, d.id)
+
+
+# the last truck closes the order and hands its leftover yarn on; a job still on a machine or
+# another open truck keeps it open (accounts closes it later)
+def _close_if_shipped(db: Session, order_id: int, user_id: int) -> tuple[bool, list]:
+    if not order_fully_shipped(db, order_id):
+        return False, []
+    # an empty draft (one drafted for a rest that this truck already took) holds nothing back
+    for d in db.scalars(
+        select(Dispatch).where(
+            Dispatch.order_id == order_id,
+            Dispatch.status == DispatchStatus.draft,
+            Dispatch.id.not_in(select(DispatchRoll.dispatch_id)),
+        )
+    ).all():
+        audit.record(
+            db, user_id, "cancel", "dispatches", d.id, "order fully shipped", {"code": d.code}
+        )
+        db.delete(d)
+    db.flush()
+    try:
+        orders.close_order(db, order_id, user_id)
+    except Conflict:
+        return False, []
+    return True, inventory.reserve_short_orders(db, user_id)
 
 
 # --- delivery: the driver link plus the buyer's code close the trip

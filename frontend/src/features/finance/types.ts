@@ -59,7 +59,10 @@ export type OrderCost = {
   reject_share_paise: number;
   cost_per_m_paise: number | null;
   cost_per_roll_paise: number | null;
+  cost_provisional: boolean; // QC or work not finished: per-metre cost can still move
+  cost_to_date: boolean; // a job is still running
   invoiced_paise: number;
+  invoiced_m: string;
   margin_paise: number | null;
   rules: string[];
 };
@@ -69,22 +72,25 @@ export type MonthView = {
   invoiced_paise: number;
   invoiced_ex_gst_paise: number;
   received_paise: number;
+  collected_of_invoiced_paise: number;
   yarn_bills_paise: number;
   wages_accrued_paise: number;
   wages_paid_paise: number;
   expenses_paise: number;
+  wage_runs: number;
   result_invoiced_paise: number;
   result_cash_paise: number;
   notes: string[];
 };
 
-export type MonthKind = "invoiced" | "received" | "yarn_bills" | "wages" | "expenses";
+export type MonthKind = "invoiced" | "received" | "yarn_bills" | "wages" | "wages_paid" | "expenses";
 export type MonthRecord = { on: string; ref: string; party: string; amount_paise: number; link: string | null };
 
 export type MachineProduction = {
   machine_id: number;
   code: string;
   name: string;
+  type: "spinning" | "weaving" | "dyeing";
   unit: "kg" | "m";
   month_qty: string;
   days: { day: string; qty: string }[];

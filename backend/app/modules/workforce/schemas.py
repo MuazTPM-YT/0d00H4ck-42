@@ -48,6 +48,18 @@ class CrewIn(BaseModel):
     machine_id: Id
 
 
+# copy one shift's crew onto the next
+class CarryIn(BaseModel):
+    date: PastDate
+    shift_id: Id
+    from_date: PastDate
+    from_shift_id: Id
+
+
+class CarryOut(BaseModel):
+    created: int
+
+
 class CrewOut(BaseModel):
     id: int
     date: date

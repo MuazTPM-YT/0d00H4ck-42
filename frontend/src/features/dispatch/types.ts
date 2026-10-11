@@ -84,13 +84,18 @@ export type ShelfGroup = {
   order_open: boolean;
   ordered_m: string;
   shipped_m: string;
-  on_shelf_m: string;
+  free_m: string; // passed, on no truck
+  on_truck_m: string; // passed, loaded on an open truck
   rolls: ShelfRoll[];
 };
 
+// a roll forgotten on the shelf, or a truck left open
 export type CornerItem = {
-  roll_id: number;
-  roll_code: string;
+  kind: "roll" | "dispatch";
+  roll_id: number | null;
+  roll_code: string | null;
+  dispatch_id: number | null;
+  dispatch_code: string | null;
   order_code: string;
   length_m: string;
   days_on_shelf: number;

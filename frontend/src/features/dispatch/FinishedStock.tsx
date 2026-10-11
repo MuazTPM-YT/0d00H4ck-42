@@ -30,21 +30,28 @@ export function FinishedStock() {
   const shelf = useQuery({ queryKey: ["dispatch", "shelf"], queryFn: () => api<ShelfGroup[]>("/dispatch/finished-stock") });
   const corner = useQuery({ queryKey: ["dispatch", "corner"], queryFn: () => api<CornerItem[]>("/dispatch/corner-check") });
   const canLoad = role === "dispatch" || role === "owner";
-  const total = (shelf.data ?? []).reduce((sum, g) => sum + Number(g.on_shelf_m), 0);
+  const total = (shelf.data ?? []).reduce((sum, g) => sum + Number(g.free_m), 0);
+  const onTruck = (shelf.data ?? []).reduce((sum, g) => sum + Number(g.on_truck_m), 0);
 
   return (
     <>
       <PageHeader
         title="Finished stock"
-        description={shelf.data ? `${shelf.data.reduce((n, g) => n + g.rolls.length, 0)} rolls, ${metres(total)} passed and waiting to ship.` : "Passed rolls waiting to ship."}
+        description={shelf.data ? `${shelf.data.reduce((n, g) => n + g.rolls.length, 0)} rolls: ${metres(total)} free on the shelf, ${metres(onTruck)} on open trucks.` : "Passed rolls waiting to ship."}
       />
       {corner.data && corner.data.length > 0 && (
         <section className="mb-6 border border-warning bg-warning-soft p-4">
           <h2 className="mb-2 flex items-center gap-2 text-base text-warning"><AlertTriangle className="size-5" /> Needs a look ({corner.data.length})</h2>
           <ul className="scroll-panel grid max-h-44 gap-1 text-sm">
-            {corner.data.map((c) => (
-              <li key={c.roll_id}><span className="font-medium">{c.roll_code}</span> ({c.order_code}, {metres(c.length_m)}, {c.days_on_shelf} days): {c.reasons.join("; ")}</li>
-            ))}
+            {corner.data.map((c) =>
+              c.kind === "dispatch" ? (
+                <li key={`d${c.dispatch_id}`}>
+                  <Link href={`/dispatch/${c.dispatch_id}`} className="font-medium hover:text-ember">Truck {c.dispatch_code}</Link> ({c.order_code}, {metres(c.length_m)} loaded): {c.reasons.join("; ")}
+                </li>
+              ) : (
+                <li key={`r${c.roll_id}`}><span className="font-medium">{c.roll_code}</span> ({c.order_code}, {metres(c.length_m)}, {c.days_on_shelf} days): {c.reasons.join("; ")}</li>
+              ),
+            )}
           </ul>
         </section>
       )}
@@ -62,11 +69,11 @@ export function FinishedStock() {
                 <div>
                   <h2 className="text-base">{g.order_code} · {g.buyer_name}</h2>
                   <p className="text-sm text-muted-foreground">
-                    {metres(g.on_shelf_m)} on shelf · {metres(g.shipped_m)} of {metres(g.ordered_m)} shipped
+                    <span className="num">{metres(g.free_m)}</span> free · <span className="num">{metres(g.on_truck_m)}</span> on a truck · {metres(g.shipped_m)} of {metres(g.ordered_m)} shipped
                     {!g.order_open && " · order not open"}
                   </p>
                 </div>
-                {canLoad && g.order_open && <Button size="lg" onClick={() => setShipOrder(g.order_id)}><Truck /> Ship</Button>}
+                {canLoad && g.order_open && Number(g.free_m) > 0 && <Button size="lg" onClick={() => setShipOrder(g.order_id)}><Truck /> Ship</Button>}
               </div>
               <Table containerClassName="scroll-panel max-h-80">
                 <TableHeader className="sticky top-0 z-10 bg-card">

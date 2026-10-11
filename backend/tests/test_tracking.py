@@ -1,5 +1,6 @@
 import importlib.util
 import json
+from datetime import date, timedelta
 from decimal import Decimal
 from pathlib import Path
 
@@ -18,12 +19,13 @@ D = Decimal
 
 
 def metres(**kw):
-    zero = ("produced", "in_qc", "passed", "rejected", "shipped", "delivered")
-    return dict.fromkeys(zero, D(0)) | {k: D(v) for k, v in kw.items()}
+    zero = ("produced", "in_production", "in_qc", "passed", "rejected", "shipped", "delivered")
+    return {k: D(0) for k in zero} | {k: D(v) for k, v in kw.items()}
 
 
-def wo(stage, status, planned=1000, produced=0):
-    return {"stage": stage, "status": status, "planned": D(planned), "produced": D(produced)}
+def wo(stage, status, planned=1000, produced=0, unit=None):
+    row = {"stage": stage, "status": status, "planned": D(planned), "produced": D(produced)}
+    return row | {"unit": unit}
 
 
 @pytest.mark.parametrize(
@@ -46,8 +48,43 @@ def wo(stage, status, planned=1000, produced=0):
         (
             OrderStatus.confirmed,
             [wo("weaving", W.done, 1000, 1000), wo("dyeing", W.queued)],
-            metres(produced=1000, in_qc=1000),
+            metres(produced=1000, in_production=1000),
             (S.in_production, "dyeing", 0),
+        ),
+        # loom still has work but already made its planned metres: QC is where it waits
+        (
+            OrderStatus.confirmed,
+            [wo("weaving", W.running, 1000, 1000)],
+            metres(produced=1000, in_qc=600, passed=400),
+            (S.being_checked, None, None),
+        ),
+        # planned 1050 (5% allowance), 525 m woven of a 1000 m order reads 52%, not 50%
+        (
+            OrderStatus.confirmed,
+            [wo("weaving", W.running, 1050, 525, "m")],
+            metres(produced=525, in_production=525),
+            (S.in_production, "weaving", 52),
+        ),
+        # rolls at the QC table, loom paused between jobs: being checked, not production
+        (
+            OrderStatus.confirmed,
+            [wo("weaving", W.queued, 1000, 300)],
+            metres(produced=300, in_qc=300),
+            (S.being_checked, None, None),
+        ),
+        # all work done, everything decided, short of the order: not "production 100%"
+        (
+            OrderStatus.confirmed,
+            [wo("weaving", W.done, 1000, 1000)],
+            metres(produced=1000, passed=900, rejected=100),
+            (S.short, None, None),
+        ),
+        # within 2%: ready
+        (
+            OrderStatus.confirmed,
+            [wo("weaving", W.done, 1000, 1000)],
+            metres(produced=1000, passed=985, rejected=15),
+            (S.ready_to_ship, None, None),
         ),
         (
             OrderStatus.confirmed,
@@ -65,7 +102,7 @@ def wo(stage, status, planned=1000, produced=0):
             OrderStatus.confirmed,
             [wo("weaving", W.done)],
             metres(produced=980, passed=900, rejected=80),
-            (S.ready_to_ship, None, None),
+            (S.short, None, None),
         ),
         (
             OrderStatus.confirmed,
@@ -77,6 +114,12 @@ def wo(stage, status, planned=1000, produced=0):
             OrderStatus.confirmed,
             [wo("weaving", W.done)],
             metres(shipped=1000),
+            (S.shipped, None, None),
+        ),
+        (
+            OrderStatus.confirmed,
+            [wo("weaving", W.done)],
+            metres(shipped=985),
             (S.shipped, None, None),
         ),
         (OrderStatus.closed, [wo("weaving", W.done)], metres(shipped=950), (S.shipped, None, None)),
@@ -108,7 +151,14 @@ def wo(stage, status, planned=1000, produced=0):
     ],
 )
 def test_derive_stage(status, stages, m, expected):
-    assert service.derive_stage(status, D(1000), stages, m) == expected
+    assert service.derive_stage(status, D(1000), stages, m, yarn_covered=False) == expected
+
+
+# yarn reserved and nothing started: planned, not waiting for yarn
+def test_covered_order_not_started_is_planned():
+    stages = [wo("weaving", W.waiting)]
+    got = service.derive_stage(OrderStatus.confirmed, D(1000), stages, metres(), True)
+    assert got == (S.planned, None, None)
 
 
 # the real seed script, inside the test transaction (rolled back after)
@@ -238,6 +288,51 @@ def test_stages_for_a_page_of_orders(client_as, db):
     assert client_as(Role.dispatch).get("/api/track/stages?ids=4,x").status_code == 422
     bad = client_as(Role.qc).get(f"/api/track/stages?ids={ready.id}")
     assert bad.status_code == 403
+
+
+# woven rolls not yet at QC are in production, not in QC
+def test_in_process_rolls_count_as_in_production(client_as, db):
+    mill = Mill(db)
+    o = mill.order(300)
+    w = mill.work_order(o, status=W.running)
+    mill.roll(w, 100, status=RollStatus.in_process)
+    mill.roll(w, 50, status=RollStatus.awaiting_qc)
+    db.commit()
+    m = client_as(Role.accounts).get(f"/api/track/orders/{o.id}").json()["metres"]
+    assert (m["in_production"], m["in_qc"]) == ("100.000", "50.000")
+
+
+# shipped order: no forecast and no risk flag on the card
+def test_shipped_order_shows_no_estimate(client, db, monkeypatch):
+    from app.modules.analytics import service as analytics
+
+    mill = Mill(db)
+    o = mill.order(100, deadline=date.today() - timedelta(days=3))
+    mill.roll(mill.work_order(o), 100, status=RollStatus.dispatched)
+    db.commit()
+
+    def boom(*a, **k):
+        raise AssertionError("no forecast for a shipped order")
+
+    monkeypatch.setattr(analytics, "delivery_estimate", boom)
+    body = client.get(f"/api/track/{o.tracking_token}").json()
+    assert body["stage"] == "shipped"
+    assert (body["projected_finish"], body["risk"]) == (None, None)
+
+
+# list column and card come from the same derive: stage agrees for every order
+def test_list_and_card_agree(client_as, db):
+    mill = Mill(db)
+    short = mill.order(1000)
+    w = mill.work_order(short)
+    mill.roll(w, 900)
+    mill.roll(w, 100, status=RollStatus.rejected)
+    db.commit()
+    office = client_as(Role.accounts)
+    row = office.get(f"/api/track/stages?ids={short.id}").json()[0]
+    card = office.get(f"/api/track/orders/{short.id}").json()
+    public = office.get(f"/api/track/{short.tracking_token}").json()
+    assert row["stage"] == card["stage"] == public["stage"] == "short"
 
 
 # buyer sees every truck that left: challan, when, rolls, metres, vehicle, driver

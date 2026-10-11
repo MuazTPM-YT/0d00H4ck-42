@@ -79,6 +79,12 @@ def scan(dispatch_id: int, data: ScanIn, db: Session = Depends(get_db), user: Us
     return service.scan(db, user, dispatch_id, data.roll_code, data.idempotency_key)
 
 
+# truck not going after all: draft or loading only, rolls go back on the shelf
+@router.delete("/dispatches/{dispatch_id}", status_code=204)
+def cancel_dispatch(dispatch_id: int, db: Session = Depends(get_db), user: User = Clerk):
+    service.cancel_dispatch(db, user, dispatch_id)
+
+
 @router.delete("/dispatches/{dispatch_id}/rolls/{roll_id}", response_model=DispatchDetail)
 def unload(dispatch_id: int, roll_id: int, db: Session = Depends(get_db), user: User = Clerk):
     return service.unload(db, user, dispatch_id, roll_id)

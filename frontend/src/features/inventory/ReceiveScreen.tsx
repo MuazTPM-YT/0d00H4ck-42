@@ -3,7 +3,7 @@
 import { Select } from "@/components/ui/select";
 
 import { type UseQueryResult, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CheckCircle2, Plus, Printer, XCircle } from "lucide-react";
+import { CheckCircle2, Plus, Printer, Trash2, XCircle } from "lucide-react";
 import Link from "next/link";
 import { type FormEvent, useState } from "react";
 
@@ -19,6 +19,8 @@ import { date, humanize, inr, kg, paiseToRupees, rupeesToPaise } from "@/lib/for
 import { useSSE } from "@/lib/useSSE";
 import { cn } from "@/lib/utils";
 import { validQuantity } from "@/lib/validation";
+
+import type { Order } from "@/features/orders/types";
 
 import { BatchSheet } from "./BatchSheet";
 import { DeliveryForm } from "./DeliveryForm";
@@ -42,6 +44,8 @@ export function ReceiveScreen() {
   const [vehicle, setVehicle] = useState("");
   // rupees per kg; only asked when no yarn request prices the truck
   const [rate, setRate] = useState("");
+  // walk-in yarn bought for one order: its lots are kept for that order
+  const [forOrder, setForOrder] = useState("");
   const [check, setCheck] = useState<{ payload: string; result: LabelCheck } | null>(null);
   const [weighed, setWeighed] = useState("");
   const [mode, setMode] = useState<"scan" | "missing" | "manual">("scan");
@@ -63,6 +67,16 @@ export function ReceiveScreen() {
     queryKey: ["stock", "receipt", receiptId],
     queryFn: () => api<Receipt>(`/inventory/receipts/${receiptId}`),
     enabled: receiptId !== null,
+  });
+  const openOrders = useQuery({
+    queryKey: ["orders", "open-options"],
+    queryFn: async () => {
+      const [confirmed, drafts] = await Promise.all(
+        (["confirmed", "draft"] as const).map((st) => api<Paged<Order>>(`/orders?status=${st}&limit=200`)),
+      );
+      return [...confirmed.items, ...drafts.items];
+    },
+    staleTime: 30_000,
   });
   const demo = useQuery({ queryKey: ["stock", "sample-labels"], queryFn: () => api<SampleLabel[]>("/inventory/sample-labels") });
   const needRate = receiptId ? !receipt.data?.expected_delivery : !deliveryId;
@@ -112,7 +126,8 @@ export function ReceiveScreen() {
       const paise = needRate ? rupeesToPaise(rate) : null;
       if (needRate && !paise) throw new ApiError(422, "validation_error", "No yarn request for this truck: enter the rate in ₹ per kg first", "rate");
       const id = await ensureReceipt();
-      return api<{ batch: Batch; created: boolean }>(`/inventory/receipts/${id}/lines`, { method: "POST", json: { ...body, rate_paise_per_kg: paise } });
+      const order_id = needRate && forOrder ? Number(forOrder) : null;
+      return api<{ batch: Batch; created: boolean }>(`/inventory/receipts/${id}/lines`, { method: "POST", json: { ...body, rate_paise_per_kg: paise, order_id } });
     },
     onSuccess: (line) => {
       setLastLine(line);
@@ -135,6 +150,18 @@ export function ReceiveScreen() {
       setDeliveryId("");
       setVehicle("");
       setRate("");
+      setForOrder("");
+      setLastLine(null);
+      qc.invalidateQueries({ queryKey: ["stock"] });
+    },
+    onError: fail,
+  });
+
+  // draft truck only: take a lot back off, or drop a truck that has none
+  const removeLot = useMutation({
+    mutationFn: (batchId: number) => api<Receipt>(`/inventory/receipts/${receiptId}/lines/${batchId}`, { method: "DELETE" }),
+    onSuccess: (data) => {
+      qc.setQueryData(["stock", "receipt", receiptId], data);
       setLastLine(null);
       qc.invalidateQueries({ queryKey: ["stock"] });
     },
@@ -177,7 +204,7 @@ export function ReceiveScreen() {
       )}
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-        <section className="grid content-start gap-4 rounded-lg border bg-card p-4">
+        <section data-tour="receive-lots" className="grid content-start gap-4 rounded-lg border bg-card p-4">
           <h2 className="font-semibold">{r ? `Truck ${r.code} · ${r.supplier_name}` : "New truck"}</h2>
           {!r && (
             <div className="grid gap-4 sm:grid-cols-2">
@@ -197,6 +224,16 @@ export function ReceiveScreen() {
           {needRate && (
             <FormField name="rate" label="Rate (₹ per kg)" required hint="No yarn request prices this truck. A scan fills in this supplier's last rate.">
               <Input id="rate" inputMode="decimal" value={rate} onChange={(e) => setRate(e.target.value)} placeholder="e.g. 285" className="h-11 sm:max-w-[calc(50%-0.5rem)]" />
+            </FormField>
+          )}
+          {needRate && (
+            <FormField name="for_order" label="For order" hint="Optional. Lots bought for one order are kept for it and not handed to others.">
+              <select id="for_order" value={forOrder} onChange={(e) => setForOrder(e.target.value)} className={`${selectClass} h-11 sm:max-w-[calc(50%-0.5rem)]`}>
+                <option value="">Any order (general stock)</option>
+                {openOrders.data?.map((o) => (
+                  <option key={o.id} value={o.id}>{`${o.code} · ${o.buyer?.name ?? "—"} · ${o.colour}${o.status === "draft" ? " (draft)" : ""}`}</option>
+                ))}
+              </select>
             </FormField>
           )}
 
@@ -252,14 +289,20 @@ export function ReceiveScreen() {
           ) : (
             <ul className="grid gap-2">
               {r.batches.map((b) => (
-                <li key={b.id}>
-                  <button type="button" onClick={() => setOpenBatch(b.id)} className="flex min-h-12 w-full flex-wrap items-center gap-2 pressable rounded-xl border p-3 text-left [@media(hover:hover)]:hover:border-input">
+                <li key={b.id} className="flex items-stretch gap-2">
+                  <button type="button" onClick={() => setOpenBatch(b.id)} className="flex min-h-12 min-w-0 flex-1 flex-wrap items-center gap-2 pressable rounded-xl border p-3 text-left [@media(hover:hover)]:hover:border-input">
                     <span className="font-medium tabular">{b.code}</span>
                     <span className="text-sm text-muted-foreground">{itemLabel(b.yarn_item)} · lot {b.supplier_lot ?? "—"}</span>
                     <span className="ml-auto tabular">{kg(b.received_kg)}</span>
                     <StatusBadge status={b.status} />
+                    {b.status === "rejected" && <span className="w-full text-xs text-muted-foreground">Rejected: not moved in or billed on confirm</span>}
                     {b.mismatch_notes && <span className="w-full text-xs text-warning">{b.mismatch_notes}</span>}
                   </button>
+                  {r.status === "draft" && (
+                    <Button variant="outline" className="h-auto" disabled={removeLot.isPending} onClick={() => removeLot.mutate(b.id)} aria-label={`Remove ${b.code} from this truck`}>
+                      <Trash2 aria-hidden /> Remove
+                    </Button>
+                  )}
                 </li>
               ))}
             </ul>

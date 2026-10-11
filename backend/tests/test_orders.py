@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from app.core.audit import AuditLog
 from app.core.security import create_token
 from app.modules.auth.models import Role
+from app.modules.dispatch.models import DispatchStatus
 from app.modules.inventory import service as inv
 from app.modules.inventory.models import (
     ExpectedDelivery,
@@ -20,15 +21,19 @@ from app.modules.inventory.models import (
     YarnBatch,
 )
 from app.modules.masters.models import Buyer, FabricRecipe, FabricType, FabricTypeStage, YarnItem
-from app.modules.orders.models import Order
+from app.modules.orders.models import Order, OrderStatus
+from app.modules.orders.service import close_order
 from app.modules.production.models import WorkOrder
+from app.modules.production.service import create_work_orders
 from tests.inventory_helpers import (
     ensure_locations,
     make_batch,
     make_item,
+    make_machine,
     make_order,
     make_supplier,
     plain_fabric,
+    ship_roll,
 )
 
 D = Decimal
@@ -79,12 +84,12 @@ def test_preview_uses_raw_white_for_dyed_fabric(api, stocked):
         json={"fabric_type_id": stocked["fabric"].id, "colour": "Maroon", "qty_m": "500"},
     )
     assert res.status_code == 200, res.text
-    # 500 m x 1.5 m x 120 g / 1000 / 0.9 = 100 kg, split 60 / 40, both Raw White
+    # 500 m x 1.05 allowance x 1.5 m x 120 g / 1000 / 0.9 = 105 kg, split 63 / 42, Raw White
     assert [
         (x["count"], x["colour"], x["kg_needed"], x["kg_free"], x["kg_short"]) for x in res.json()
     ] == [
-        ("Ne 40/1", "Raw White", "60.000", "70.000", "0.000"),
-        ("Ne 30/1", "Raw White", "40.000", "10.000", "30.000"),
+        ("Ne 40/1", "Raw White", "63.000", "70.000", "0.000"),
+        ("Ne 30/1", "Raw White", "42.000", "10.000", "32.000"),
     ]
 
 
@@ -115,8 +120,8 @@ def test_confirm_plans_work_orders_reserves_and_lists_shortfall(api, db, stocked
     assert res.status_code == 200, res.text
     alloc = res.json()
     assert [(x["kg_reserved"], x["kg_short"]) for x in alloc["lines"]] == [
-        ("60.000", "0.000"),
-        ("10.000", "30.000"),
+        ("63.000", "0.000"),
+        ("10.000", "32.000"),
     ]
     assert alloc["fully_covered"] is False
     wos = db.scalars(select(WorkOrder).where(WorkOrder.order_id == order["id"])).all()
@@ -124,7 +129,7 @@ def test_confirm_plans_work_orders_reserves_and_lists_shortfall(api, db, stocked
 
     to_buy = api(Role.accounts, "GET", "/api/orders/to-buy").json()
     row = next(r for r in to_buy if r["order_id"] == order["id"])
-    assert (row["label"], row["to_buy_kg"]) == ("Cotton Ne 30/1 Raw White", "30.000")
+    assert (row["label"], row["to_buy_kg"]) == ("Cotton Ne 30/1 Raw White", "32.000")
     assert row["suggested_supplier_id"] == stocked["sup"].id
 
     # one click: the shortfall becomes an expected delivery, and leaves the to-buy list
@@ -144,7 +149,7 @@ def test_confirm_plans_work_orders_reserves_and_lists_shortfall(api, db, stocked
     assert ed.status_code == 201, ed.text
     after = api(Role.accounts, "GET", "/api/orders/to-buy").json()
     row = next(r for r in after if r["order_id"] == order["id"])
-    assert (row["on_order_kg"], row["to_buy_kg"]) == ("30.000", "0.000")
+    assert (row["on_order_kg"], row["to_buy_kg"]) == ("32.000", "0.000")
 
     again = api(Role.accounts, "POST", f"/api/orders/{order['id']}/confirm")
     assert again.status_code == 409 and again.json()["error"]["code"] == "illegal_transition"
@@ -153,7 +158,7 @@ def test_confirm_plans_work_orders_reserves_and_lists_shortfall(api, db, stocked
 def test_cancel_releases_reservations(api, db, stocked):
     order = api(Role.accounts, "POST", "/api/orders", json=order_body(stocked)).json()
     api(Role.accounts, "POST", f"/api/orders/{order['id']}/confirm")
-    assert inv.free_stock(db, stocked["w40"].id) == D(10)
+    assert inv.free_stock(db, stocked["w40"].id) == D(7)
     res = api(
         Role.accounts,
         "POST",
@@ -171,20 +176,20 @@ def test_reserve_again_picks_up_new_stock(api, db, stocked):
     db.commit()
     alloc = api(Role.accounts, "POST", f"/api/orders/{order['id']}/reserve").json()
     assert alloc["fully_covered"] is True
-    assert alloc["lines"][1]["mixed_lots"] is True  # 10 kg lot + 30 kg from the new one
+    assert alloc["lines"][1]["mixed_lots"] is True  # 10 kg lot + 32 kg from the new one
 
 
 def test_to_buy_counts_free_stock_once_earliest_deadline_first(db, stocked, buyer):
     fabric = plain_fabric(db)  # 100% Ne 40/1, order colour kept
     w40 = stocked["w40"]  # 70 kg free
-    late = make_order(db, buyer, fabric, "Raw White", 250)  # 50 kg
+    late = make_order(db, buyer, fabric, "Raw White", 250)  # 52.5 kg
     late.deadline = date.today() + timedelta(days=40)
-    soon = make_order(db, buyer, fabric, "Raw White", 250)  # 50 kg
+    soon = make_order(db, buyer, fabric, "Raw White", 250)  # 52.5 kg
     soon.deadline = date.today() + timedelta(days=10)
     db.flush()
     rows = {r["order_id"]: r for r in inv.to_buy(db) if r["yarn_item_id"] == w40.id}
-    assert (rows[soon.id]["free_cover_kg"], rows[soon.id]["to_buy_kg"]) == (D(50), D(0))
-    assert (rows[late.id]["free_cover_kg"], rows[late.id]["to_buy_kg"]) == (D(20), D(30))
+    assert (rows[soon.id]["free_cover_kg"], rows[soon.id]["to_buy_kg"]) == (D("52.5"), D(0))
+    assert (rows[late.id]["free_cover_kg"], rows[late.id]["to_buy_kg"]) == (D("17.5"), D(35))
 
 
 def test_order_role_checks(api, stocked):
@@ -211,7 +216,7 @@ def test_concurrent_reservations_never_share_kilos(engine, monkeypatch):
         db.add(buyer)
         db.flush()
         batch = make_batch(db, sup, item, 100)
-        orders = [make_order(db, buyer, fabric, "Grey", 400) for _ in range(2)]  # 80 kg each
+        orders = [make_order(db, buyer, fabric, "Grey", 400) for _ in range(2)]  # 84 kg each
         db.commit()
         ids = {
             "batch": batch.id,
@@ -224,7 +229,7 @@ def test_concurrent_reservations_never_share_kilos(engine, monkeypatch):
         }
 
     # slow down the gap between reading free stock and writing the reservation, so without the
-    # row lock both sessions would read 100 kg free and both reserve 80 kg
+    # row lock both sessions would read 100 kg free and both reserve 84 kg
     real_pick = inv.pick_lots
 
     def slow_pick(need, lots):
@@ -265,7 +270,7 @@ def test_concurrent_reservations_never_share_kilos(engine, monkeypatch):
                     select(Reservation.kg).where(Reservation.yarn_batch_id == ids["batch"])
                 ).all()
             )
-            assert per_order == [D(20), D(80)]
+            assert per_order == [D(16), D(84)]
     finally:
         with Session(engine) as db:
             res_ids = db.scalars(
@@ -290,3 +295,129 @@ def test_concurrent_reservations_never_share_kilos(engine, monkeypatch):
             db.execute(delete(Buyer).where(Buyer.id == ids["buyer"]))
             db.execute(delete(YarnItem).where(YarnItem.id == ids["item"]))
             db.commit()
+
+
+# ---------------------------------------------------------------- workflow spine
+
+
+@pytest.fixture
+def plain(db, stocked, buyer):
+    fabric = plain_fabric(db)  # 100% Cotton Ne 40/1, yarn colour = order colour
+    db.commit()
+    return {**stocked, "fabric": fabric}
+
+
+def test_colour_with_no_yarn_item_cannot_be_confirmed(api, plain):
+    preview = api(
+        Role.accounts,
+        "POST",
+        "/api/orders/requirement-preview",
+        json={"fabric_type_id": plain["fabric"].id, "colour": "Purple", "qty_m": "500"},
+    ).json()
+    assert [(x["yarn_item_id"], x["not_in_masters"]) for x in preview] == [(None, True)]
+    ok = api(
+        Role.accounts,
+        "POST",
+        "/api/orders/requirement-preview",
+        json={"fabric_type_id": plain["fabric"].id, "colour": "raw white", "qty_m": "500"},
+    ).json()
+    assert [(x["yarn_item_id"], x["not_in_masters"]) for x in ok] == [(plain["w40"].id, False)]
+    order = api(
+        Role.accounts, "POST", "/api/orders", json=order_body(plain, colour="Purple")
+    ).json()
+    res = api(Role.accounts, "POST", f"/api/orders/{order['id']}/confirm")
+    assert res.status_code == 422 and res.json()["error"]["field"] == "colour"
+    again = api(Role.accounts, "GET", f"/api/orders/{order['id']}").json()
+    assert again["status"] == "draft"
+
+
+def test_saved_order_requirement_agrees_with_allocation(api, stocked):
+    order = api(Role.accounts, "POST", "/api/orders", json=order_body(stocked)).json()
+    api(Role.accounts, "POST", f"/api/orders/{order['id']}/confirm")
+    req = api(Role.accounts, "GET", f"/api/orders/{order['id']}/yarn-requirement").json()
+    alloc = api(Role.accounts, "GET", f"/api/orders/{order['id']}/allocation").json()
+    assert [x["kg_short"] for x in req] == [x["kg_short"] for x in alloc["lines"]]
+    # Ne 30/1: 42 needed, the 10 kg lot reserved, 32 short and nothing free left
+    assert (req[1]["kg_short"], req[1]["kg_free"]) == ("32.000", "0.000")
+
+
+def test_cancel_hands_freed_yarn_to_short_orders(api, db, stocked, buyer):
+    fabric = plain_fabric(db)
+    first = make_order(db, buyer, fabric, "Raw White", 350)  # 73.5 kg: all of the 70 kg lot
+    second = make_order(db, buyer, fabric, "Raw White", 250)  # 52.5 kg, short
+    inv.reserve(db, first.id, None)
+    db.commit()
+    assert inv.order_allocation(db, second.id)["lines"][0]["kg_short"] == D("52.5")
+    res = api(Role.accounts, "POST", f"/api/orders/{first.id}/cancel", json={"reason": "Dropped"})
+    assert res.status_code == 200, res.text
+    assert inv.order_allocation(db, second.id)["lines"][0]["kg_reserved"] == D("52.5")
+
+
+def test_cancel_refused_once_shipped_or_on_a_truck(api, db, plain, buyer):
+    order = make_order(db, buyer, plain["fabric"], "Raw White", 500)
+    create_work_orders(db, order.id, None)
+    ship_roll(db, order, 100, status=DispatchStatus.loading)
+    db.commit()
+    url = f"/api/orders/{order.id}/cancel"
+    res = api(Role.accounts, "POST", url, json={"reason": "Buyer gone"})
+    assert res.status_code == 409 and "still loading" in res.json()["error"]["message"]
+    other = make_order(db, buyer, plain["fabric"], "Raw White", 500)
+    create_work_orders(db, other.id, None)
+    ship_roll(db, other, 100)
+    db.commit()
+    res = api(Role.accounts, "POST", f"/api/orders/{other.id}/cancel", json={"reason": "x"})
+    assert res.status_code == 409 and "already shipped" in res.json()["error"]["message"]
+
+
+def test_cancel_and_close_refused_while_a_machine_runs_the_job(api, db, plain, buyer):
+    order = make_order(db, buyer, plain["fabric"], "Raw White", 500)
+    (weave,) = create_work_orders(db, order.id, None)
+    weave.machine_id = make_machine(db).id
+    weave.status = "running"
+    db.commit()
+    for action, body in (("cancel", {"reason": "Buyer gone"}), ("close", {})):
+        res = api(Role.accounts, "POST", f"/api/orders/{order.id}/{action}", json=body)
+        assert res.status_code == 409, res.text
+        assert res.json()["error"]["message"] == f"Finish or stop {weave.code} first"
+
+
+def test_close_short_needs_reason_and_releases_yarn(api, db, plain, buyer):
+    order = make_order(db, buyer, plain["fabric"], "Raw White", 250)  # 52.5 kg
+    inv.reserve(db, order.id, None)
+    create_work_orders(db, order.id, None)
+    ship_roll(db, order, 100)  # 100 of 250 m shipped
+    db.commit()
+    url = f"/api/orders/{order.id}/close"
+    blank = api(Role.accounts, "POST", url, json={})
+    assert blank.status_code == 422 and blank.json()["error"]["field"] == "reason"
+    assert api(Role.store, "POST", url, json={"reason": "x"}).status_code == 403
+    res = api(Role.accounts, "POST", url, json={"reason": "Buyer took 100 m only"})
+    assert res.status_code == 200 and res.json()["status"] == "closed"
+    assert inv.free_stock(db, plain["w40"].id) == D(70)
+    row = db.scalar(select(AuditLog).where(AuditLog.action == "close"))
+    assert row.reason == "Buyer took 100 m only"
+    again = api(Role.accounts, "POST", url, json={"reason": "again"})
+    assert again.status_code == 409 and again.json()["error"]["code"] == "illegal_transition"
+
+
+def test_fully_shipped_order_closes_without_reason(api, db, plain, buyer):
+    order = make_order(db, buyer, plain["fabric"], "Raw White", 250)
+    create_work_orders(db, order.id, None)
+    ship_roll(db, order, 260)
+    db.commit()
+    res = api(Role.owner, "POST", f"/api/orders/{order.id}/close", json={})
+    assert res.status_code == 200 and res.json()["status"] == "closed"
+    draft = make_order(db, buyer, plain["fabric"], "Raw White", 250, status=OrderStatus.draft)
+    db.commit()
+    res = api(Role.owner, "POST", f"/api/orders/{draft.id}/close", json={})
+    assert res.status_code == 409 and res.json()["error"]["code"] == "illegal_transition"
+
+
+def test_close_order_is_a_shared_service_that_does_not_commit(db, plain, buyer):
+    order = make_order(db, buyer, plain["fabric"], "Raw White", 250)
+    inv.reserve(db, order.id, None)
+    db.commit()
+    closed = close_order(db, order.id, None)
+    assert closed.status == "closed" and inv.free_stock(db, plain["w40"].id) == D(70)
+    db.rollback()
+    assert db.get(Order, order.id, populate_existing=True).status == "confirmed"

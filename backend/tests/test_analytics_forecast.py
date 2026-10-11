@@ -9,6 +9,7 @@ from app.modules.analytics.forecast import FloorMachine, Job
 from app.modules.auth.models import Role
 from app.modules.orders.models import OrderStatus
 from app.modules.production.models import MachineEvent, MachineStatus, ProductionLog
+from app.modules.quality.models import Roll, RollStatus
 from tests.floor import build_floor
 
 NOW = datetime(2026, 10, 10, 6, 0, tzinfo=UTC)
@@ -126,7 +127,7 @@ def test_delivery_estimate_api_roles_and_closed_orders(client_as, db, floor):
     body = client_as(Role.accounts).get(path).json()
     assert body["order_code"] == "SO-T1"
     assert body["status"] in {"on_track", "at_risk", "late"}
-    assert body["stages"][0]["remaining"] == 600.0
+    assert body["stages"][0]["remaining"] == float(floor.shirt_weave.planned_qty)
     assert "LM-T" in next(iter(body["basis"]["throughputs"]))
 
     floor.shirt_order.status = OrderStatus.closed
@@ -145,3 +146,64 @@ def test_delivery_board_lists_most_urgent_first(client_as, floor):
 
 def forecast_rank(row: dict) -> tuple:
     return (service.RISK_ORDER[row["status"]], row["slack_hours"] or 0)
+
+
+# running shifts with no logs give a 0 m/h median: a data gap, not a dead loom, keep rated speed
+def test_zero_median_falls_back_to_rated_speed(db, floor):
+    now = run_loom_for_shifts(db, floor, [80])
+    rates = forecast.throughputs(db, now)
+    assert rates[floor.loom1.id] == {"per_hour": 18.0, "from": "rated speed"}
+
+
+# a job that already made its planned qty is done, whatever its status says
+def test_job_with_nothing_left_counts_as_done(db, floor):
+    db.add(
+        ProductionLog(
+            work_order_id=floor.shirt_weave.id,
+            machine_id=floor.loom1.id,
+            shift_id=floor.shifts[0].id,
+            qty=floor.shirt_weave.planned_qty,
+            unit=Unit.m,
+            at=NOW - H,
+        )
+    )
+    db.commit()
+    assert service.delivery_estimate(db, floor.shirt_order.id, NOW)["stages"] == []
+
+
+# 98% shipped = done: no risk, no date, and its leftover job takes no loom time
+def test_shipped_order_is_not_forecast(db, floor):
+    db.add(
+        Roll(
+            code="R-TS1",
+            order_id=floor.shirt_order.id,
+            work_order_id=floor.shirt_weave.id,
+            loom_machine_id=floor.loom1.id,
+            shift_id=floor.shifts[0].id,
+            length_m=Decimal(590),
+            status=RollStatus.dispatched,
+            shade_band="A",
+            passed_at=NOW - H,
+            location_id=floor.loc["wip"].id,
+        )
+    )
+    db.commit()
+    est = service.delivery_estimate(db, floor.shirt_order.id, NOW)
+    assert (est["status"], est["expected_at"], est["stages"]) == ("on_track", None, [])
+
+
+# planned = order x 1.05 waste allowance: once the order's own metres are woven, nothing is left
+def test_stage_done_once_order_metres_are_made(db, floor):
+    db.add(
+        ProductionLog(
+            work_order_id=floor.shirt_weave.id,
+            machine_id=floor.loom1.id,
+            shift_id=floor.shifts[0].id,
+            qty=floor.shirt_order.qty_m,
+            unit=Unit.m,
+            at=NOW - H,
+        )
+    )
+    db.commit()
+    assert floor.shirt_weave.planned_qty > floor.shirt_order.qty_m
+    assert service.delivery_estimate(db, floor.shirt_order.id, NOW)["stages"] == []

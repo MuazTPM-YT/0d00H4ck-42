@@ -1,10 +1,16 @@
 from decimal import ROUND_HALF_UP, Decimal
 
 KG = Decimal("0.001")
+# rolls never add up exactly: an order this share shipped is fully shipped (close, stage, forecast)
+SHIPPED_SHARE = Decimal("0.98")
 
 
 def qty(value: Decimal | float | int | str) -> Decimal:
     return Decimal(str(value)).quantize(KG, rounding=ROUND_HALF_UP)
+
+
+def fully_shipped(shipped_m: Decimal, ordered_m: Decimal) -> bool:
+    return Decimal(shipped_m) >= Decimal(ordered_m) * SHIPPED_SHARE
 
 
 def rupees_to_paise(rupees: Decimal | str | int) -> int:

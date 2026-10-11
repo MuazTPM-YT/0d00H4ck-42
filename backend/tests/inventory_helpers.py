@@ -1,11 +1,12 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, time
 from decimal import Decimal
 from itertools import count
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.core.enums import Stage
+from app.core.enums import Stage, Unit
+from app.modules.dispatch.models import Dispatch, DispatchRoll, DispatchStatus
 from app.modules.inventory.models import BatchStatus, MoveReason, Receipt, ReceiptStatus, YarnBatch
 from app.modules.inventory.service import move_yarn
 from app.modules.masters.models import (
@@ -14,10 +15,14 @@ from app.modules.masters.models import (
     FabricTypeStage,
     Location,
     LocationKind,
+    Machine,
+    Shift,
     Supplier,
     YarnItem,
 )
 from app.modules.orders.models import Order, OrderStatus
+from app.modules.production.models import WorkOrder
+from app.modules.quality.models import Roll, RollStatus
 
 _seq = count(1)
 KINDS = (
@@ -59,7 +64,7 @@ def make_item(db: Session, count_: str, colour: str, reorder: int = 0, fibre="Co
 
 
 def plain_fabric(db: Session, count_: str = "Ne 40/1", fibre="Cotton", code="TSHIRT") -> FabricType:
-    # 150 cm, 120 gsm, 10% loss: 1000 m needs 200 kg yarn
+    # 150 cm, 120 gsm, 10% loss, +5% process allowance: 1000 m needs 210 kg yarn
     row = FabricType(
         code=code,
         name="Test Shirting",
@@ -128,3 +133,75 @@ def make_batch(
     }.get(status, LocationKind.inspection)
     move_yarn(db, batch, Decimal(kg), LocationKind.supplier, where, MoveReason.receipt, None)
     return batch
+
+
+def spun_fabric(db: Session, count_: str = "Ne 40/1", code="TSPUN") -> FabricType:
+    # same size as plain_fabric, but the route starts at spinning: yarn goes there first
+    row = FabricType(
+        code=code,
+        name="Test Spun Shirting",
+        width_cm=Decimal(150),
+        gsm=Decimal(120),
+        process_loss_pct=Decimal(10),
+        stages=[
+            FabricTypeStage(seq=1, stage=Stage.spinning),
+            FabricTypeStage(seq=2, stage=Stage.weaving),
+        ],
+        recipe=[FabricRecipe(fibre="Cotton", count=count_, share_pct=Decimal(100))],
+    )
+    db.add(row)
+    db.flush()
+    return row
+
+
+def make_machine(db: Session, stage=Stage.weaving) -> Machine:
+    row = Machine(
+        code=f"TM-{uid()}",
+        name="Test machine",
+        type=stage,
+        hourly_cost_paise=30000,
+        rated_output_per_hour=Decimal(18),
+        output_unit=Unit.kg if stage == Stage.spinning else Unit.m,
+    )
+    db.add(row)
+    db.flush()
+    return row
+
+
+# a passed roll of the order on a dispatch in the given status
+def ship_roll(db: Session, order: Order, length_m, status=DispatchStatus.confirmed) -> Dispatch:
+    wo = db.scalar(
+        select(WorkOrder).where(
+            WorkOrder.order_id == order.id,
+            WorkOrder.stage == Stage.weaving,
+            WorkOrder.roll_id.is_(None),
+        )
+    )
+    shift = Shift(code=f"S{uid()}"[:5], name="Test shift", start_time=time(6), end_time=time(14))
+    db.add(shift)
+    db.flush()
+    loc = db.scalar(select(Location.id).where(Location.kind == LocationKind.wip))
+    roll = Roll(
+        code=f"R-T{uid()}",
+        order_id=order.id,
+        work_order_id=wo.id,
+        loom_machine_id=make_machine(db).id,
+        shift_id=shift.id,
+        length_m=Decimal(length_m),
+        status=RollStatus.dispatched if status == DispatchStatus.confirmed else RollStatus.passed,
+        location_id=loc,
+        passed_at=datetime.now(UTC),
+    )
+    dispatch = Dispatch(
+        code=f"DN-T{uid()}",
+        order_id=order.id,
+        buyer_id=order.buyer_id,
+        vehicle_no="KA-01-AB-1234",
+        status=status,
+        confirmed_at=datetime.now(UTC) if status == DispatchStatus.confirmed else None,
+    )
+    db.add_all([roll, dispatch])
+    db.flush()
+    db.add(DispatchRoll(dispatch_id=dispatch.id, roll_id=roll.id))
+    db.flush()
+    return dispatch

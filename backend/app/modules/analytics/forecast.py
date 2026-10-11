@@ -8,7 +8,8 @@ from statistics import median
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.core.enums import Stage
+from app.core.enums import Stage, Unit
+from app.core.units import fully_shipped
 from app.modules.masters.models import Machine, Shift
 from app.modules.orders.models import Order, OrderStatus
 from app.modules.production.models import (
@@ -19,6 +20,7 @@ from app.modules.production.models import (
     WorkOrderStatus,
 )
 from app.modules.production.service import DOWNTIME, FLOW, status_durations
+from app.modules.quality.models import Roll, RollStatus
 from app.modules.workforce.schemas import IST
 from app.modules.workforce.service import shift_window
 
@@ -132,9 +134,11 @@ def throughputs(db: Session, now: datetime) -> dict[int, dict]:
                 rates.append(made / hours)
             if len(rates) == SHIFTS_USED:
                 break
+        # a median of zero (logs missing, not a dead loom) falls back to rated speed
+        per_hour = round(median(rates), 1) if rates else 0
         result[m.id] = (
-            {"per_hour": round(median(rates), 1), "from": f"median of {len(rates)} shifts"}
-            if rates
+            {"per_hour": per_hour, "from": f"median of {len(rates)} shifts"}
+            if per_hour > 0
             else {"per_hour": round(float(m.rated_output_per_hour), 1), "from": "rated speed"}
         )
     return result
@@ -180,6 +184,14 @@ def estimate_all(db: Session, now: datetime) -> dict[int, dict]:
     orders = {
         o.id: o for o in db.scalars(select(Order).where(Order.status == OrderStatus.confirmed))
     }
+    shipped = dict(
+        db.execute(
+            select(Roll.order_id, func.sum(Roll.length_m))
+            .where(Roll.order_id.in_(orders), Roll.status == RollStatus.dispatched)
+            .group_by(Roll.order_id)
+        ).all()
+    )
+    done = {i for i, o in orders.items() if fully_shipped(shipped.get(i, 0), o.qty_m)}
     produced = dict(
         db.execute(
             select(ProductionLog.work_order_id, func.sum(ProductionLog.qty)).group_by(
@@ -190,12 +202,18 @@ def estimate_all(db: Session, now: datetime) -> dict[int, dict]:
     jobs = []
     for wo in db.scalars(
         select(WorkOrder).where(
-            WorkOrder.order_id.in_(orders),
+            WorkOrder.order_id.in_(set(orders) - done),
             WorkOrder.roll_id.is_(None),
             WorkOrder.status != WorkOrderStatus.done,
         )
     ):
-        remaining = float(max(wo.planned_qty - produced.get(wo.id, Decimal(0)), Decimal(0)))
+        made = produced.get(wo.id, Decimal(0))
+        remaining = float(max(wo.planned_qty - made, Decimal(0)))
+        if remaining <= 0:
+            continue  # made everything it planned: done in all but the button press
+        # planned carries a waste allowance; once the order's metres exist the stage is done
+        if wo.unit == Unit.m and made >= orders[wo.order_id].qty_m:
+            continue
         pinned = wo.status in (WorkOrderStatus.running, WorkOrderStatus.paused)
         jobs.append(
             Job(
@@ -216,6 +234,9 @@ def estimate_all(db: Session, now: datetime) -> dict[int, dict]:
         by_order[job.order_id].append(job)
     result = {}
     for order_id, order in orders.items():
+        if order_id in done:
+            result[order_id] = _shipped(order, repair)
+            continue
         order_jobs = sorted(by_order[order_id], key=lambda j: FLOW[j.stage])
         blocked = [j.code for j in order_jobs if not j.plan]
         expected = ready.get(order_id, now) + timedelta(hours=QC_HOURS + DISPATCH_HOURS)
@@ -252,3 +273,24 @@ def estimate_all(db: Session, now: datetime) -> dict[int, dict]:
             },
         }
     return result
+
+
+# shipped orders carry no risk and no date: the truck already left
+def _shipped(order: Order, repair: float) -> dict:
+    return {
+        "order_id": order.id,
+        "order_code": order.code,
+        "deadline": order.deadline,
+        "expected_at": None,
+        "status": "on_track",
+        "slack_hours": None,
+        "blocked_by": [],
+        "stages": [],
+        "basis": {
+            "throughputs": {},
+            "qc_hours": QC_HOURS,
+            "dispatch_hours": DISPATCH_HOURS,
+            "repair_hours": repair,
+            "rule": "shipped: nothing left to make",
+        },
+    }

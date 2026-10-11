@@ -15,10 +15,18 @@ export type Order = {
   fabric_type: { id: number; code: string; name: string } | null;
 };
 
-export type YarnLine = { fibre: string; count: string; colour: string; kg_needed: string; kg_free: string; kg_short: string };
+export type YarnLine = {
+  fibre: string;
+  count: string;
+  colour: string;
+  yarn_item_id: number | null;
+  not_in_masters: boolean; // no yarn item with this fibre, count and colour
+  kg_needed: string;
+  kg_free: string;
+  kg_short: string;
+};
 
 export type AllocationLine = YarnLine & {
-  yarn_item_id: number | null;
   kg_reserved: string;
   kg_issued: string;
   lots: { yarn_batch_id: number; code: string; supplier_lot: string | null; supplier: string; reserved_kg: string; consumed_kg: string }[];

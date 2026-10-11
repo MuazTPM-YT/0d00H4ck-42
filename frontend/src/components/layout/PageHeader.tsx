@@ -8,15 +8,9 @@ import { DitherPlate } from "@/components/dither/DitherPlate";
 import { SECTION } from "@/components/dither/motifs";
 import { breadcrumbs, findRoute } from "@/nav";
 
-const FADE_LEFT = { maskImage: "linear-gradient(to right, transparent, #000 40%)" };
-const FADE_BOTH = {
-  maskImage: "linear-gradient(to right, transparent, #000 40%), linear-gradient(to bottom, #000 30%, transparent 60%)",
-  maskComposite: "intersect",
-  WebkitMaskComposite: "source-in",
-} as const;
-
-// every page opens on a ledger header: "04 — PRODUCTION" eyebrow, serif title, a dithered picture
-// of that part of the mill on the right, and the primary action top right
+// every page opens on a ledger header: "04 · PRODUCTION" eyebrow, serif title, the page's actions
+// under the description, and a dithered picture of that part of the mill in its own column, so
+// buttons never sit on the artwork
 export function PageHeader({ title, description, actions }: { title: string; description?: ReactNode; actions?: ReactNode }) {
   const pathname = usePathname();
   const crumbs = breadcrumbs(pathname);
@@ -29,12 +23,8 @@ export function PageHeader({ title, description, actions }: { title: string; des
     <header className="relative mb-8 border-t border-foreground">
       <span className="reg -top-[6px] -left-[6px]" aria-hidden />
       <span className="reg -top-[6px] -right-[6px]" aria-hidden />
-      {/* the print fades out to the left and, under the buttons, to the bottom: actions sit on clean paper */}
-      <div aria-hidden className="pointer-events-none absolute top-0 right-0 h-12 w-[46%] lg:bottom-0 lg:h-auto" style={actions ? FADE_BOTH : FADE_LEFT}>
-        <DitherPlate motif={motif} seed={pathname} />
-      </div>
-      <div className="relative flex flex-col gap-5 py-7 lg:flex-row lg:flex-wrap lg:items-end lg:justify-between">
-        <div className="min-w-0">
+      <div className="grid gap-6 py-7 sm:grid-cols-[minmax(0,1fr)_minmax(0,42%)]">
+        <div className="flex min-w-0 flex-col">
           <div className="eyebrow">
             <span className="num text-foreground">{index}</span>
             <span aria-hidden>·</span>
@@ -53,10 +43,15 @@ export function PageHeader({ title, description, actions }: { title: string; des
               <span>{group}</span>
             )}
           </div>
-          <h1 className="mt-3 text-[2.25rem] [overflow-wrap:anywhere] sm:text-[2.7rem]">{title}</h1>
+          <h1 className="mt-3 truncate text-[2.25rem] sm:text-[2.7rem]">{title}</h1>
           {description && <p className="mt-2 max-w-xl text-[0.97rem] text-body">{description}</p>}
+          {actions && <div className="mt-5 flex flex-wrap items-center gap-2">{actions}</div>}
         </div>
-        {actions && <div className="relative flex min-w-0 max-w-full flex-wrap items-center gap-2">{actions}</div>}
+        <DitherPlate
+          motif={motif}
+          seed={pathname}
+          className="pointer-events-none hidden min-h-36 sm:block [mask-image:linear-gradient(to_right,transparent,#000_30%)]"
+        />
       </div>
       <div className="h-px bg-border" aria-hidden />
     </header>
