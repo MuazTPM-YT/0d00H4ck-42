@@ -179,10 +179,10 @@ export function NewOrderForm() {
               }
             >
               {colours ? (
-                <select id="colour" value={v.colour} onChange={(e) => set("colour", e.target.value)} className={selectClass} disabled={!colours.length} {...a11y("colour")}>
+                <Select id="colour" value={v.colour} onChange={(e) => set("colour", e.target.value)} className={selectClass} disabled={!colours.length} {...a11y("colour")}>
                   <option value="">Choose…</option>
                   {colours.map((c) => <option key={c} value={c}>{c}</option>)}
-                </select>
+                </Select>
               ) : (
                 <Input id="colour" value={v.colour} maxLength={40} onChange={(e) => set("colour", e.target.value)} {...a11y("colour")} />
               )}
