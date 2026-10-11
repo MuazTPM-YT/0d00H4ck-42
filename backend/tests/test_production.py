@@ -134,6 +134,7 @@ def test_broken_machine_takes_no_new_work_and_paused_work_moves(db, floor):
 
 def test_one_running_work_order_per_machine(db, floor):
     run_on(db, floor, floor.shirt_weave, floor.loom1)
+    floor.issue(floor.dyed_weave, floor.batches[1], 50)
     service.queue_work_order(db, floor.dyed_weave.id, floor.loom1.id, floor.supervisor.id)
     with pytest.raises(Conflict):
         service.start_work_order(db, floor.dyed_weave.id, floor.supervisor.id)
@@ -160,6 +161,7 @@ def test_paused_job_holds_its_machine_for_start_and_move(db, floor):
 def test_reorder_queue_sets_positions_and_rejects_stale_set(db, floor):
     a, b = floor.shirt_weave, floor.dyed_weave
     for wo in (a, b):
+        floor.issue(wo, floor.batches[0], 50)
         service.queue_work_order(db, wo.id, floor.loom1.id, floor.supervisor.id)
     assert (a.queue_position, b.queue_position) == (1, 2)
     service.reorder_queue(db, floor.loom1.id, [b.id, a.id], floor.supervisor.id)
@@ -271,15 +273,16 @@ def test_split_kg_is_proportional_and_exact():
 
 def test_roll_lineage_sums_to_formula_kg_split_by_issued_share(db, floor):
     wo = floor.shirt_weave
-    service.queue_work_order(db, wo.id, floor.loom1.id, floor.supervisor.id)
-    with pytest.raises(Conflict) as e:
-        service.start_work_order(db, wo.id, floor.supervisor.id)
+    with pytest.raises(Conflict) as e:  # no yarn on the floor: no loom takes it
+        service.queue_work_order(db, wo.id, floor.loom1.id, floor.supervisor.id)
     assert e.value.code == "no_yarn_issued"
-    assert e.value.message == f"The store issues yarn to {wo.code} first"
+    assert e.value.message.startswith(f"The store has not issued yarn to {wo.code} yet")
+    db.rollback()
 
     b1, b2 = floor.batches
     floor.issue(wo, b1, 90)
     floor.issue(wo, b2, 30)
+    service.queue_work_order(db, wo.id, floor.loom1.id, floor.supervisor.id)
     service.start_work_order(db, wo.id, floor.supervisor.id)
     (roll,) = weave(db, floor, wo, floor.loom1, 60)
     rows = db.scalars(select(RollBatch).where(RollBatch.roll_id == roll["id"])).all()
@@ -651,6 +654,7 @@ def test_finish_consumes_yarn_left_on_the_floor(db, floor):
 
 def test_cancelled_order_jobs_leave_the_floor(client_as, db, floor):
     for wo in (floor.shirt_weave, floor.dyed_weave):
+        floor.issue(wo, floor.batches[0], 50)
         service.queue_work_order(db, wo.id, floor.loom1.id, floor.supervisor.id)
     assert service.release_order_jobs(db, floor.dyed_order.id, floor.supervisor.id) == 1
     db.commit()
@@ -740,7 +744,7 @@ def test_open_work_orders_carry_order_code_and_progress(client_as, db, floor):
     assert rows[floor.dyed_dye.code]["status"] == "waiting"
 
 
-def test_store_issuing_yarn_starts_the_queued_first_stage_job(db, floor):
+def test_store_issuing_yarn_queues_and_starts_the_first_stage_job(db, floor):
     from app.modules.inventory import service as inventory
     from app.modules.inventory.schemas import IssueIn
 
@@ -758,12 +762,16 @@ def test_store_issuing_yarn_starts_the_queued_first_stage_job(db, floor):
         )
     )
     report(db, floor, floor.loom1, MachineStatus.idle)
-    service.queue_work_order(db, floor.shirt_weave.id, floor.loom1.id, floor.supervisor.id)
-    assert floor.shirt_weave.status == WorkOrderStatus.queued  # no yarn on the floor yet
+    # no yarn on the floor yet: a hand queue would leave it on the loom unable to start
+    with pytest.raises(Conflict) as no_yarn:
+        service.queue_work_order(db, floor.shirt_weave.id, floor.loom1.id, floor.supervisor.id)
+    assert no_yarn.value.code == "no_yarn_issued"
+    db.rollback()
     data = IssueIn(
         work_order_id=floor.shirt_weave.id, yarn_batch_id=batch.id, kg=50, reason="Extra for test"
     )
     inventory.issue(db, floor.supervisor, data)
+    assert floor.shirt_weave.machine_id == floor.loom1.id  # the issue put it on the free loom
     assert floor.shirt_weave.status == WorkOrderStatus.running
 
 

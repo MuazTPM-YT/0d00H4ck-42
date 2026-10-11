@@ -24,8 +24,8 @@ def floor(db, buyer, dyed_fabric):
         f.loc[kind] = Location(code=kind.upper()[:8], name=kind, kind=kind)
         db.add(f.loc[kind])
     db.commit()
+    f.issue(f.shirt_weave, f.batches[0], 100)  # store issues yarn before the job takes a loom
     production.queue_work_order(db, f.shirt_weave.id, f.loom1.id, f.supervisor.id)
-    f.issue(f.shirt_weave, f.batches[0], 100)  # store issues yarn before the loom starts
     production.start_work_order(db, f.shirt_weave.id, f.supervisor.id)
     return f
 

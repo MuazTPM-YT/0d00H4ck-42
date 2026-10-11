@@ -281,6 +281,8 @@ def report_machine_event(
     return result
 
 
+# a first-stage job with its yarn still in the store could sit on a machine and never start:
+# it waits for the issue instead, which then puts it on a machine by itself
 def queue_work_order(
     db: Session, work_order_id: int, machine_id: int, user_id: int, at: datetime | None = None
 ) -> WorkOrder:
@@ -290,6 +292,14 @@ def queue_work_order(
         raise Conflict(f"Order {order.code} is {order.status}, not confirmed")
     check_transition(WORK_ORDER_TRANSITIONS, wo.status, WorkOrderStatus.queued)
     machine = _usable_machine(db, machine_id, wo.stage)
+    first = wo.roll_id is None and not [m for m in _mains(db, order.id) if m.seq < wo.seq]
+    if first and not _order_issued(db, order.id):
+        raise Conflict(
+            f"The store has not issued yarn to {wo.code} yet. Once it does, the job goes on a "
+            "machine by itself.",
+            field="work_order_id",
+            code="no_yarn_issued",
+        )
     _set_wo_status(db, wo, WorkOrderStatus.queued, user_id)
     wo.machine_id = machine.id
     _place_in_queue(db, wo, machine.id)

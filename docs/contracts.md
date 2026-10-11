@@ -142,7 +142,8 @@ caller. Status: **done** = implemented and tested, **stub** = raises `NotImpleme
 
 The simulator, the live feed and people all go through these; none of them lives in a script.
 
-- Yarn is issued to the route's first job only, and that job starts only once yarn is on the floor.
+- Yarn is issued to the route's first job only, and that job goes on a machine (by hand or by
+  itself) and starts only once yarn is on the floor; a hand queue before the issue is refused.
 - A later stage starts once the earlier one has started; dyeing also needs a woven roll waiting.
 - A stage finishes by itself at its plan (weaving cuts the tail roll). Dyeing finishes when weaving
   is done and no roll waits. A free machine starts its next queued job by itself.
