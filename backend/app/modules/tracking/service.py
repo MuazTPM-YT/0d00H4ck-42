@@ -77,6 +77,9 @@ def derive_stage(
     if order_status == OrderStatus.draft:
         return BuyerStage.order_received, None, None
     if order_status == OrderStatus.closed or fully_shipped(m["shipped"], qty_m):
+        # every truck signed for at the gate with the buyer's code
+        if m["shipped"] > 0 and m["delivered"] >= m["shipped"]:
+            return BuyerStage.delivered, None, None
         return BuyerStage.shipped, None, None
     if m["shipped"] > 0:
         return BuyerStage.partly_shipped, None, None
@@ -148,6 +151,13 @@ def _metres(db: Session, order_id: int) -> dict[str, Decimal]:
     for status, metres in rows:
         m[BUCKET[status]] += metres
         m["produced"] += metres
+    # shipped metres the buyer already signed for; not a roll status, the truck holds it
+    m["delivered"] = db.scalar(
+        select(func.coalesce(func.sum(Roll.length_m), 0))
+        .join(DispatchRoll, DispatchRoll.roll_id == Roll.id)
+        .join(Dispatch, Dispatch.id == DispatchRoll.dispatch_id)
+        .where(Roll.order_id == order_id, Dispatch.delivered_at.is_not(None))
+    )
     return {k: qty(v) for k, v in m.items()}
 
 
@@ -168,7 +178,7 @@ def _derive(db: Session, order: Order, m: dict[str, Decimal]) -> tuple:
 
 
 def _estimate(db: Session, order: Order, stage: BuyerStage) -> tuple:
-    if stage in (BuyerStage.shipped, BuyerStage.cancelled):
+    if stage in (BuyerStage.shipped, BuyerStage.delivered, BuyerStage.cancelled):
         return None, None  # the truck left (or never will): nothing to forecast
     if order.status == OrderStatus.confirmed:
         est = analytics.delivery_estimate(db, order.id)
@@ -348,6 +358,7 @@ def order_view(db: Session, order_id: int) -> dict:
         "buyer_phone": buyer.phone,
         "buyer_email": buyer.email,
         "tracking_token": order.tracking_token,
+        "tracking_url": get_settings().public_url(f"/track/{order.tracking_token}"),
         "rolls": [
             {
                 "id": r.id,
@@ -403,7 +414,7 @@ def rotate_token(db: Session, user: User, order_id: int) -> dict:
 def _link_message(db: Session, order: Order) -> mail.Letter:
     buyer = db.get(Buyer, order.buyer_id)
     fabric = db.get(FabricType, order.fabric_type_id)
-    url = f"{get_settings().web_url.rstrip('/')}/track/{order.tracking_token}"
+    url = get_settings().public_url(f"/track/{order.tracking_token}")
     body = (
         f"Hello {buyer.contact_name or buyer.name},\n\n"
         f"Your order {order.code} is confirmed: {fabric.name}, {order.colour}, "

@@ -1,4 +1,5 @@
-import { Check } from "lucide-react";
+import { Check, Eye, EyeOff } from "lucide-react";
+import { useState } from "react";
 
 import { date, dateTime, humanize, metres } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -13,6 +14,7 @@ export type Stage =
   | "ready_to_ship"
   | "partly_shipped"
   | "shipped"
+  | "delivered"
   | "cancelled";
 
 // same shape as TrackOut in backend/app/modules/tracking/schemas.py
@@ -47,15 +49,16 @@ export type Track = {
 
 // same 2% as the server: rolls never cut to the exact metre
 const DONE_SHARE = 0.98;
-type Step = "yarn" | "production" | "qc" | "ready" | "shipped";
+type Step = "yarn" | "production" | "qc" | "ready" | "shipped" | "delivered";
 const STEPS: { key: Step; label: string }[] = [
   { key: "yarn", label: "Yarn" },
   { key: "production", label: "Production" },
   { key: "qc", label: "Quality check" },
   { key: "ready", label: "Ready" },
   { key: "shipped", label: "Shipped" },
+  { key: "delivered", label: "Delivered" },
 ];
-const STARTED: Stage[] = ["in_production", "being_checked", "short", "ready_to_ship", "partly_shipped", "shipped"];
+const STARTED: Stage[] = ["in_production", "being_checked", "short", "ready_to_ship", "partly_shipped", "shipped", "delivered"];
 
 // each step marked by its own metres, not by where the headline stage sits
 function stepState(t: Track, step: Step): "done" | "current" | "todo" {
@@ -64,7 +67,9 @@ function stepState(t: Track, step: Step): "done" | "current" | "todo" {
   const good = Number(m.passed) + Number(m.shipped);
   const onFloor = Number(m.in_production) > 0;
   const inQc = Number(m.in_qc) > 0;
-  if (t.stage === "shipped") return "done";
+  if (t.stage === "delivered") return "done";
+  // every truck left; the step still open is the buyer's signature at the gate
+  if (t.stage === "shipped") return step === "delivered" ? "current" : "done";
   switch (step) {
     case "yarn":
       return STARTED.includes(t.stage) ? "done" : t.stage === "waiting_for_yarn" || t.stage === "planned" ? "current" : "todo";
@@ -79,6 +84,8 @@ function stepState(t: Track, step: Step): "done" | "current" | "todo" {
       return "todo";
     case "shipped":
       return t.stage === "partly_shipped" ? "current" : "todo";
+    case "delivered":
+      return "todo";
   }
 }
 
@@ -92,6 +99,7 @@ const HEADLINE: Record<Stage, string> = {
   ready_to_ship: "Ready to ship",
   partly_shipped: "Partly shipped",
   shipped: "Shipped",
+  delivered: "Delivered",
   cancelled: "Cancelled",
 };
 
@@ -131,7 +139,7 @@ export function StageCard({ t }: { t: Track }) {
       </div>
 
       {t.stage !== "cancelled" && (
-        <ol className="mt-6 grid grid-cols-5 gap-1" aria-label="Order progress">
+        <ol className="mt-6 grid grid-cols-6 gap-1" aria-label="Order progress">
           {STEPS.map((s) => {
             const state = stepState(t, s.key);
             const done = state === "done";
@@ -211,6 +219,7 @@ export function Deliveries({ items }: { items: NonNullable<Track["deliveries"]> 
 
 // the code is the buyer's signature: hand it over only once the rolls are counted
 function DeliveryState({ d }: { d: NonNullable<Track["deliveries"]>[number] }) {
+  const [show, setShow] = useState(false);
   if (d.delivered_at) {
     return (
       <p className="flex items-center gap-2 bg-success-soft px-3 py-2 text-success sm:col-span-2">
@@ -232,7 +241,16 @@ function DeliveryState({ d }: { d: NonNullable<Track["deliveries"]>[number] }) {
       <span>
         Delivery code
         {d.vehicle_no && ` for ${d.vehicle_no}`}:{" "}
-        <strong className="font-mono text-lg tracking-[0.2em] tabular">{d.code}</strong>
+        <strong className="font-mono text-lg tracking-[0.2em] tabular">{show ? d.code : "••••••"}</strong>
+        <button
+          type="button"
+          onClick={() => setShow((v) => !v)}
+          aria-label={show ? "Hide delivery code" : "View delivery code"}
+          className="pressable ml-2 inline-flex items-center gap-1 align-middle text-xs underline-offset-2 hover:underline"
+        >
+          {show ? <EyeOff className="size-4" aria-hidden /> : <Eye className="size-4" aria-hidden />}
+          {show ? "Hide" : "View code"}
+        </button>
       </span>
       <span className="text-xs">Count the rolls first, then give this code to the driver. It marks the truck as delivered.</span>
     </div>

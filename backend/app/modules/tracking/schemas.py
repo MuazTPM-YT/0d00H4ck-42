@@ -15,6 +15,7 @@ class BuyerStage(StrEnum):
     ready_to_ship = "ready_to_ship"
     partly_shipped = "partly_shipped"
     shipped = "shipped"
+    delivered = "delivered"
     cancelled = "cancelled"
 
 
@@ -120,6 +121,8 @@ class OrderView(TrackOut):
     buyer_phone: str | None
     buyer_email: str | None
     tracking_token: str
+    # same link the email sends; None when WEB_URL is unset
+    tracking_url: str | None
     mail_on: bool
     link_email: LinkEmail | None
     rolls: list[RollRow]

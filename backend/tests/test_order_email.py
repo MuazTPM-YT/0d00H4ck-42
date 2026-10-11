@@ -33,6 +33,8 @@ def test_confirm_emails_the_buyer_their_tracking_link(client_as, client, draft, 
     assert f"http://mill.test/track/{draft.tracking_token}" in body
     view = client.get(f"/api/track/orders/{draft.id}").json()
     assert view["mail_on"] is True
+    # the office page shows the very link the buyer got, not the clerk's localhost
+    assert view["tracking_url"] == f"http://mill.test/track/{draft.tracking_token}"
     assert view["link_email"]["status"] == "sent" and view["link_email"]["to"] == to
 
 

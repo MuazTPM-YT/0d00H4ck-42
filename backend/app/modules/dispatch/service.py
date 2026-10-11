@@ -313,6 +313,11 @@ def get_detail(db: Session, dispatch_id: int) -> dict:
         "invoice_id": invoice.id if invoice else None,
         "invoice_code": invoice.code if invoice else None,
         "delivery_token": d.delivery_token if d.status == DispatchStatus.confirmed else None,
+        "delivery_url": (
+            get_settings().public_url(f"/deliver/{d.delivery_token}")
+            if d.status == DispatchStatus.confirmed
+            else None
+        ),
         "has_code": d.delivery_otp is not None,
         "tries_left": _tries_left(d),
         "mail_on": mail.enabled(),
@@ -1032,7 +1037,7 @@ def _driver_letter(db: Session, d: Dispatch) -> mail.Letter:
     rolls = _loaded(db, d.id)
     loaded_m = qty(sum((r.length_m for r in rolls), ZERO))
     place = f"{buyer.name}, {buyer.city}" if buyer.city else buyer.name
-    url = f"{get_settings().web_url.rstrip('/')}/deliver/{d.delivery_token}"
+    url = get_settings().public_url(f"/deliver/{d.delivery_token}")
     body = (
         f"Hello {d.driver or 'driver'},\n\n"
         f"Delivery {d.code} on {d.vehicle_no}: {len(rolls)} rolls, "
