@@ -14,6 +14,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { date, humanize, kg, metres } from "@/lib/format";
+import { emptyJobWarning } from "@/lib/floor";
 import { useSSE } from "@/lib/useSSE";
 
 import { type BoardTile, type OpenWorkOrder, pct, type Stage, useBoard, useFloorAction, useOpenWorkOrders } from "./api";
@@ -137,6 +138,12 @@ function startBlocker(wo: OpenWorkOrder, active: OpenWorkOrder[], all: OpenWorkO
   return null;
 }
 
+// ask before an empty job finishes; still allowed so a pulled order can be cancelled
+function finishOk(wo: OpenWorkOrder): boolean {
+  const warning = emptyJobWarning(wo.stage, wo.code, wo.produced);
+  return warning === null || window.confirm(warning);
+}
+
 // one machine: its running or paused job, then its queue in order
 function MachineQueue({ machine, jobs, all, onMove }: { machine: BoardTile; jobs: OpenWorkOrder[]; all: OpenWorkOrder[]; onMove: (wo: OpenWorkOrder) => void }) {
   const queued = jobs.filter((w) => w.status === "queued").sort((a, b) => (a.queue_position ?? 0) - (b.queue_position ?? 0));
@@ -182,7 +189,7 @@ function MachineQueue({ machine, jobs, all, onMove }: { machine: BoardTile; jobs
                   </Button>
                 )
               ) : (
-                <Button variant="outline" onClick={() => act.mutate({ id: wo.id, verb: "finish" })} disabled={act.isPending}>
+                <Button variant="outline" onClick={() => finishOk(wo) && act.mutate({ id: wo.id, verb: "finish" })} disabled={act.isPending}>
                   <Square /> Finish
                 </Button>
               )}

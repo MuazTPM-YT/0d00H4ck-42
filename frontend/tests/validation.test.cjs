@@ -13,6 +13,7 @@ function load(file) {
 }
 const { acceptsNumericEdit, validQuantity, validDate, millDate } = load('validation.ts');
 const { rupeesToPaise } = load('format.ts');
+const { emptyJobWarning } = load('floor.ts');
 
 test('numeric edits reject negative paste, exponents and junk without changing their meaning', () => {
   for (const value of ['-800', '+800', '1e3', 'NaN', 'Infinity', '8.0.0', 'eight', '−800']) assert.equal(acceptsNumericEdit(value), false, value);
@@ -37,4 +38,11 @@ test('money is exact, bounded and never signed or fractional paise', () => {
   assert.equal(rupeesToPaise('1,234.50'), 123450);
   assert.equal(rupeesToPaise('0'), 0);
   for (const value of ['-800', '1.001', '1e3', 'Infinity', '9007199254740993', '1000000000000.01']) assert.equal(rupeesToPaise(value), null, value);
+});
+test('finishing a loom or jigger job that made nothing asks first, spinning never does', () => {
+  assert.match(emptyJobWarning('weaving', 'WO-000016', '0.000'), /^No roll cut yet on WO-000016\. Nothing will reach QC/);
+  assert.match(emptyJobWarning('dyeing', 'WO-000017', '0'), /^No roll dyed yet on WO-000017/);
+  assert.equal(emptyJobWarning('weaving', 'WO-1', '40.5'), null);
+  assert.equal(emptyJobWarning('dyeing', 'WO-2', '2.000'), null);
+  assert.equal(emptyJobWarning('spinning', 'WO-3', '0'), null);
 });
