@@ -137,7 +137,7 @@ function NeedsYarn({ onIssue }: { onIssue: (woCode: string) => void }) {
                   <td className="px-2 py-2 text-right num">{kg(r.kg_reserved)}</td>
                   <td className="px-2 py-2 whitespace-nowrap">{date(r.deadline)}</td>
                   <td className="px-2 py-2 text-right">
-                    <Button size="sm" onClick={() => onIssue(r.wo_code)}>Issue</Button>
+                    <Button size="sm" className="whitespace-nowrap px-2.5 text-xs" onClick={() => onIssue(r.wo_code)}>Issue</Button>
                   </td>
                 </tr>
               ))}
