@@ -11,7 +11,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { humanize, kg, metres } from "@/lib/format";
 
 import { type BoardTile, duration, MACHINE_STATUSES, todayIST, useTimeline } from "./api";
-import { OutputForm, ProcessRollForm, RollForm, StatusForm } from "./FloorForms";
+import { FastFinishButton, OutputForm, ProcessRollForm, RollForm, StatusForm } from "./FloorForms";
 import { STATUS_BAR } from "./MachineTile";
 
 const time = (iso: string) => new Date(iso).toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata", hour: "2-digit", minute: "2-digit" });
@@ -105,6 +105,9 @@ export function MachinePanel({ tile, onClose }: { tile: BoardTile | null; onClos
                     <OutputForm tile={tile} />
                   ) : (
                     <ProcessRollForm tile={tile} reworkRollId={job.roll_id} />
+                  )}
+                  {job.stage !== "spinning" && !job.roll_id && job.status === "running" && (
+                    <FastFinishButton job={{ ...job, machine_id: tile.machine_id }} className="mt-3" />
                   )}
               </Section>
             )}

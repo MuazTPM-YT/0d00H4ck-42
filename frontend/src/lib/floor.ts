@@ -5,15 +5,8 @@ export function emptyJobWarning(stage: string, code: string, produced: string): 
   return `${what} on ${code}. Nothing will reach QC. Finish anyway?`;
 }
 
-// skip on an empty loom job: the planned metres as rolls, none over the 1000 m a roll may hold
-export function rollLengths(planned: string): string[] {
-  const MAX = 1_000_000;
-  let left = Math.round(Number(planned) * 1000);
-  const out: string[] = [];
-  while (left > 0) {
-    const cut = Math.min(left, MAX);
-    out.push((cut / 1000).toFixed(3));
-    left -= cut;
-  }
-  return out;
+// fast finish: what is still to make on a job, to the gram or millimetre; "0.000" when at plan
+export function qtyLeft(planned: string, produced: string): string {
+  const left = Math.round(Number(planned) * 1000) - Math.round(Number(produced) * 1000);
+  return (Math.max(left, 0) / 1000).toFixed(3);
 }

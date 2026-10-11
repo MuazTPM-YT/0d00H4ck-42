@@ -233,7 +233,7 @@ export const STEPS: Step[] = [
     body: () => [
       "Every ~60 m the loom cuts a roll with its own ID, tied to the order, loom, shift and yarn lots.",
       "At plan the loom cuts the tail roll and the job finishes by itself. The dye job then goes onto a free dye range and dyes the lot; dyed rolls join the QC queue.",
-      "This takes a few minutes at live speed.",
+      "At live speed this takes a few minutes. For the demo, tap the loom and press Fast finish: it makes the rest of the plan at once, cuts the tail roll and finishes the job. Then tap the dye range and press Fast finish to dye every waiting roll.",
     ],
     check: async (s) => {
       const [{ count }, line] = await Promise.all([rolls(s.vars.orderId!), progressLine(s.vars.orderId!)]);

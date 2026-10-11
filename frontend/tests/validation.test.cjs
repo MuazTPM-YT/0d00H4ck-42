@@ -13,7 +13,7 @@ function load(file) {
 }
 const { acceptsNumericEdit, validQuantity, validDate, millDate } = load('validation.ts');
 const { rupeesToPaise } = load('format.ts');
-const { emptyJobWarning, rollLengths } = load('floor.ts');
+const { emptyJobWarning, qtyLeft } = load('floor.ts');
 
 test('numeric edits reject negative paste, exponents and junk without changing their meaning', () => {
   for (const value of ['-800', '+800', '1e3', 'NaN', 'Infinity', '8.0.0', 'eight', '−800']) assert.equal(acceptsNumericEdit(value), false, value);
@@ -46,9 +46,9 @@ test('finishing a loom or jigger job that made nothing asks first, spinning neve
   assert.equal(emptyJobWarning('dyeing', 'WO-2', '2.000'), null);
   assert.equal(emptyJobWarning('spinning', 'WO-3', '0'), null);
 });
-test('skip cuts the planned metres into rolls of at most 1000 m', () => {
-  assert.deepEqual(rollLengths('2.000'), ['2.000']);
-  assert.deepEqual(rollLengths('1000'), ['1000.000']);
-  assert.deepEqual(rollLengths('2500.5'), ['1000.000', '1000.000', '500.500']);
-  assert.deepEqual(rollLengths('0'), []);
+test('fast finish logs only what is left of the plan', () => {
+  assert.equal(qtyLeft('116.000', '40.500'), '75.500');
+  assert.equal(qtyLeft('2', '0'), '2.000');
+  assert.equal(qtyLeft('100', '100.000'), '0.000');
+  assert.equal(qtyLeft('100', '130'), '0.000');
 });

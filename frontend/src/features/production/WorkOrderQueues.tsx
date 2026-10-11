@@ -2,8 +2,7 @@
 
 import { Select } from "@/components/ui/select";
 
-import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, ArrowDown, ArrowUp, ClipboardList, FastForward, Play, Square, Undo2 } from "lucide-react";
+import { AlertTriangle, ArrowDown, ArrowUp, ClipboardList, Play, Square, Undo2 } from "lucide-react";
 import { useState } from "react";
 
 import { EmptyState } from "@/components/layout/EmptyState";
@@ -15,12 +14,11 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { date, humanize, kg, metres } from "@/lib/format";
-import { api } from "@/lib/api";
-import { emptyJobWarning, rollLengths } from "@/lib/floor";
+import { emptyJobWarning } from "@/lib/floor";
 import { useSSE } from "@/lib/useSSE";
 
 import { type BoardTile, type OpenWorkOrder, pct, type Stage, useBoard, useFloorAction, useOpenWorkOrders } from "./api";
-import { selectClass } from "./FloorForms";
+import { FastFinishButton, selectClass } from "./FloorForms";
 
 const STAGES: Stage[] = ["spinning", "weaving", "dyeing"];
 const qtyOf = (wo: OpenWorkOrder, v: string) => (wo.unit === "kg" ? kg(v) : metres(v));
@@ -146,28 +144,6 @@ function finishOk(wo: OpenWorkOrder): boolean {
   return warning === null || window.confirm(warning);
 }
 
-// demo shortcut for a job with no roll yet: cut the planned metres, or dye every waiting roll.
-// the server finishes the job by itself once the plan is cut or nothing is left to dye
-function useSkipRolls() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async (wo: OpenWorkOrder) => {
-      if (wo.stage === "dyeing") {
-        const res = await api<{ processed: number }>(`/production/work-orders/${wo.id}/process-waiting`, { method: "POST", json: { source: "manual" } });
-        if (res.processed === 0) throw new Error("No woven roll is waiting to dye. Cut a roll on the weaving job first.");
-        return;
-      }
-      for (const length_m of rollLengths(wo.planned_qty)) {
-        await api("/production/rolls", { method: "POST", json: { work_order_id: wo.id, length_m, source: "manual" } });
-      }
-    },
-    onSettled: () => {
-      qc.invalidateQueries({ queryKey: ["machines"] });
-      qc.invalidateQueries({ queryKey: ["quality"] });
-    },
-  });
-}
-
 // one machine: its running or paused job, then its queue in order
 function MachineQueue({ machine, jobs, all, onMove }: { machine: BoardTile; jobs: OpenWorkOrder[]; all: OpenWorkOrder[]; onMove: (wo: OpenWorkOrder) => void }) {
   const queued = jobs.filter((w) => w.status === "queued").sort((a, b) => (a.queue_position ?? 0) - (b.queue_position ?? 0));
@@ -175,7 +151,6 @@ function MachineQueue({ machine, jobs, all, onMove }: { machine: BoardTile; jobs
   const reorder = useFloorAction<{ work_order_ids: number[] }>(() => `/production/machines/${machine.machine_id}/queue`, "PUT");
   const act = useFloorAction<{ id: number; verb: string }>((b) => `/production/work-orders/${b.id}/${b.verb}`);
   const processRoll = useFloorAction<{ roll: number; work_order_id: number; source: string }>((b) => `/production/rolls/${b.roll}/process`);
-  const skip = useSkipRolls();
 
   function swap(i: number, j: number) {
     const ids = queued.map((w) => w.id);
@@ -215,10 +190,8 @@ function MachineQueue({ machine, jobs, all, onMove }: { machine: BoardTile; jobs
                 )
               ) : (
                 <>
-                  {wo.status === "running" && emptyJobWarning(wo.stage, wo.code, wo.produced) && (
-                    <Button variant="outline" onClick={() => skip.mutate(wo)} disabled={skip.isPending} title={wo.stage === "weaving" ? `Cut ${qtyOf(wo, wo.planned_qty)} as rolls` : "Dye every waiting roll"}>
-                      <FastForward /> {skip.isPending ? "Skipping…" : "Skip"}
-                    </Button>
+                  {wo.status === "running" && wo.stage !== "spinning" && (
+                    <FastFinishButton job={{ work_order_id: wo.id, machine_id: machine.machine_id, stage: wo.stage, planned: wo.planned_qty, produced: wo.produced }} />
                   )}
                   <Button variant="outline" onClick={() => finishOk(wo) && act.mutate({ id: wo.id, verb: "finish" })} disabled={act.isPending}>
                     <Square /> Finish
@@ -264,7 +237,7 @@ function MachineQueue({ machine, jobs, all, onMove }: { machine: BoardTile; jobs
         {active.length + queued.length === 0 && <li className="px-4 py-3 text-sm text-muted-foreground">Nothing queued.</li>}
       </ul>
       <div className="px-4 empty:hidden">
-        <ActionError errors={{ ...reorder.errors, ...act.errors, ...processRoll.errors, ...(skip.error ? { skip: skip.error.message } : {}) }} />
+        <ActionError errors={{ ...reorder.errors, ...act.errors, ...processRoll.errors }} />
       </div>
     </section>
   );

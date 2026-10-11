@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 
 import { api, apiAll, ApiError } from "@/lib/api";
+import { qtyLeft } from "@/lib/floor";
 
 export type Stage = "spinning" | "weaving" | "dyeing";
 export type MachineStatus = "running" | "idle" | "breakdown" | "maintenance" | "off";
@@ -118,6 +119,33 @@ export function useFloorAction<Body>(path: (body: Body) => string, method: "POST
     onError: (err) => setErrors({ [err instanceof ApiError && err.field ? err.field : "form"]: err.message }),
   });
   return { ...mutation, errors };
+}
+
+export type FastJob = { work_order_id: number; machine_id: number; stage: Stage; planned: string; produced: string };
+
+// demo shortcut: a loom logs the rest of its plan (the server cuts the tail roll and finishes the
+// job); a dye range dyes every waiting roll (it finishes once weaving is done and nothing waits)
+export function useFastFinish() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (job: FastJob) => {
+      if (job.stage === "dyeing") {
+        const res = await api<{ processed: number }>(`/production/work-orders/${job.work_order_id}/process-waiting`, { method: "POST", json: { source: "manual" } });
+        if (res.processed === 0) throw new Error("No woven roll is waiting to dye yet. Fast finish the loom first.");
+        return;
+      }
+      const left = qtyLeft(job.planned, job.produced);
+      if (Number(left) > 0) {
+        await api("/production/output", { method: "POST", json: { machine_id: job.machine_id, work_order_id: job.work_order_id, qty: left, source: "manual" } });
+      } else {
+        await api(`/production/work-orders/${job.work_order_id}/finish`, { method: "POST" });
+      }
+    },
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: ["machines"] });
+      qc.invalidateQueries({ queryKey: ["quality"] });
+    },
+  });
 }
 
 // re-render every 30 s so "time in status" keeps moving between server updates

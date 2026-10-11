@@ -2,15 +2,18 @@
 
 import { Select } from "@/components/ui/select";
 
+import { FastForward } from "lucide-react";
 import { type SubmitEvent, useState } from "react";
 
 import { FormField } from "@/components/layout/FormField";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { humanize, metres } from "@/lib/format";
+import { qtyLeft } from "@/lib/floor";
+import { cn } from "@/lib/utils";
 import { validQuantity } from "@/lib/validation";
 
-import { type BoardTile, DOWNTIME, MACHINE_STATUSES, type MachineStatus, useFloorAction, useRollsToProcess } from "./api";
+import { type BoardTile, DOWNTIME, type FastJob, MACHINE_STATUSES, type MachineStatus, useFastFinish, useFloorAction, useRollsToProcess } from "./api";
 
 const QTY_PATTERN = "\\d{1,9}(\\.\\d{1,3})?";
 const QTY_TITLE = "A number above 0, up to 3 decimals, e.g. 12.5";
@@ -182,6 +185,20 @@ function DyeAllButton({ tile, waiting }: { tile: BoardTile; waiting: number }) {
         )}
       </Button>
       <FormError message={save.errors.form ?? save.errors.work_order_id} />
+    </div>
+  );
+}
+
+// the demo can't wait for a loom at live speed: one press makes the rest of the plan
+export function FastFinishButton({ job, className }: { job: FastJob; className?: string }) {
+  const fast = useFastFinish();
+  const hint = job.stage === "dyeing" ? "Dye every waiting roll now" : `Make the last ${metres(qtyLeft(job.planned, job.produced))} now; the loom cuts the tail roll and finishes`;
+  return (
+    <div className={cn("grid gap-1", className)}>
+      <Button variant="outline" onClick={() => fast.mutate(job)} disabled={fast.isPending} title={hint} data-tour="fast-finish">
+        <FastForward /> {fast.isPending ? "Finishing…" : "Fast finish"}
+      </Button>
+      {fast.isError && <p role="alert" className="text-sm text-danger">{fast.error.message}</p>}
     </div>
   );
 }
