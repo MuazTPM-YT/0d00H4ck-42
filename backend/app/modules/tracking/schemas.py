@@ -117,6 +117,8 @@ class OrderView(TrackOut):
     buyer_phone: str | None
     buyer_email: str | None
     tracking_token: str
+    # same link the email sends; None when WEB_URL is unset
+    tracking_url: str | None
     mail_on: bool
     link_email: LinkEmail | None
     rolls: list[RollRow]

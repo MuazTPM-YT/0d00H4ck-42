@@ -154,6 +154,8 @@ class DispatchDetail(DispatchOut):
     invoice_code: str | None
     # driver link key once the truck has left; the code itself never reaches staff
     delivery_token: str | None
+    # same link the driver email sends; None when WEB_URL is unset
+    delivery_url: str | None
     received_by: str | None
     delivery_note: str | None
     has_code: bool

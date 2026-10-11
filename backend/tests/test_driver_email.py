@@ -52,8 +52,10 @@ def test_truck_leaving_emails_the_driver_their_link_not_the_code(db, loaded, out
     assert to == "ravi@roadline.in" and d.code in subject
     assert f"http://mill.test/deliver/{d.delivery_token}" in body and "2 rolls, 190 m" in body
     assert d.delivery_otp not in body
-    sent = detail(clerk, d)["driver_mail"]
+    view = detail(clerk, d)
+    sent = view["driver_mail"]
     assert sent["status"] == "sent" and sent["to"] == "ravi@roadline.in"
+    assert view["delivery_url"] == f"http://mill.test/deliver/{d.delivery_token}"
 
 
 def test_no_driver_email_is_skipped_then_sent_once_filled_in(db, loaded, outbox):

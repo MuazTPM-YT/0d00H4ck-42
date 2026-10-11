@@ -313,8 +313,10 @@ function ConfirmButton({ d, id, onDone }: { d: DispatchDetail; id: string; onDon
   );
 }
 
-function driverUrl(token: string | null): string {
-  return typeof window === "undefined" || !token ? "" : `${window.location.origin}/deliver/${token}`;
+// same link as the driver email; this browser's address only when WEB_URL is unset
+function driverUrl(d: DispatchDetail): string {
+  if (d.delivery_url) return d.delivery_url;
+  return typeof window === "undefined" || !d.delivery_token ? "" : `${window.location.origin}/deliver/${d.delivery_token}`;
 }
 
 // after the gate: share the driver link; the buyer's code, typed by the driver, closes the trip.
@@ -322,7 +324,7 @@ function driverUrl(token: string | null): string {
 function DeliveryPanel({ d, id, clerk, onChange }: { d: DispatchDetail; id: string; clerk: boolean; onChange: () => void }) {
   const [copy, setCopy] = useState<"idle" | "copied" | "failed">("idle");
   const [phone, setPhone] = useState(false);
-  const url = driverUrl(d.delivery_token);
+  const url = driverUrl(d);
   const message = `Delivery ${d.code} to ${d.buyer_name}${d.buyer_city ? `, ${d.buyer_city}` : ""}: ${d.loaded.length} rolls. At the gate, count the rolls with the buyer, ask for their delivery code and enter it here: ${url}`;
   const newCode = useMutation({
     mutationFn: () => api(`/dispatch/dispatches/${id}/new-code`, { method: "POST" }),
@@ -474,7 +476,7 @@ function Challan({ d }: { d: DispatchDetail }) {
         </div>
         {d.delivery_token && !d.delivered_at && (
           <p className="mt-6 break-all text-xs text-muted-foreground">
-            Driver: at the buyer&apos;s gate open {driverUrl(d.delivery_token)} and enter the buyer&apos;s delivery code.
+            Driver: at the buyer&apos;s gate open {driverUrl(d)} and enter the buyer&apos;s delivery code.
           </p>
         )}
       </PrintArea>

@@ -48,6 +48,8 @@ export type DispatchDetail = Omit<DispatchRow, "roll_count" | "metres"> & {
   candidates: LoadedRoll[];
   // driver link key once the truck left; the code itself only ever shows on the buyer link
   delivery_token: string | null;
+  // the link the driver email sends (WEB_URL); null when unset
+  delivery_url: string | null;
   received_by: string | null;
   delivery_note: string | null;
   has_code: boolean;

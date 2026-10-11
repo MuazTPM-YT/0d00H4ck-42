@@ -299,6 +299,7 @@ def order_view(db: Session, order_id: int) -> dict:
         "buyer_phone": buyer.phone,
         "buyer_email": buyer.email,
         "tracking_token": order.tracking_token,
+        "tracking_url": get_settings().public_url(f"/track/{order.tracking_token}"),
         "rolls": [
             {
                 "id": r.id,
@@ -354,7 +355,7 @@ def rotate_token(db: Session, user: User, order_id: int) -> dict:
 def _link_message(db: Session, order: Order) -> mail.Letter:
     buyer = db.get(Buyer, order.buyer_id)
     fabric = db.get(FabricType, order.fabric_type_id)
-    url = f"{get_settings().web_url.rstrip('/')}/track/{order.tracking_token}"
+    url = get_settings().public_url(f"/track/{order.tracking_token}")
     body = (
         f"Hello {buyer.contact_name or buyer.name},\n\n"
         f"Your order {order.code} is confirmed: {fabric.name}, {order.colour}, "

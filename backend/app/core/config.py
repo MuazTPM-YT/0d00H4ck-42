@@ -30,6 +30,10 @@ class Settings(BaseSettings):
     # where a buyer opens their link, e.g. http://192.168.1.20:3000 (not localhost)
     web_url: str = ""
 
+    # link a buyer or driver opens from their phone; None until WEB_URL is set
+    def public_url(self, path: str) -> str | None:
+        return f"{self.web_url.rstrip('/')}{path}" if self.web_url else None
+
     def db_url(self, db: str | None = None) -> str:
         return (
             f"postgresql+psycopg://{self.postgres_user}:{self.postgres_password}"

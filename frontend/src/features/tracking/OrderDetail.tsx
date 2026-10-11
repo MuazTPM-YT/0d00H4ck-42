@@ -29,6 +29,8 @@ type OrderView = Track & {
   buyer_phone: string | null;
   buyer_email: string | null;
   tracking_token: string;
+  // the link the email sends (WEB_URL); null when unset, then this browser's address
+  tracking_url: string | null;
   mail_on: boolean;
   link_email: { status: "sent" | "failed" | "skipped"; at: string; to: string | null; error: string | null } | null;
   rolls: { id: number; code: string; length_m: string; status: string; shade_band: string | null; dispatch_code: string | null }[];
@@ -151,7 +153,7 @@ function Section({ title, empty, children }: { title: string; empty: string; chi
 function BuyerLink({ o, canRotate }: { o: OrderView; canRotate: boolean }) {
   const qc = useQueryClient();
   const [copy, setCopy] = useState<"idle" | "copied" | "failed">("idle");
-  const url = typeof window === "undefined" ? "" : `${window.location.origin}/track/${o.tracking_token}`;
+  const url = o.tracking_url ?? (typeof window === "undefined" ? "" : `${window.location.origin}/track/${o.tracking_token}`);
   const message = `Hello ${o.buyer_contact ?? o.buyer_name}, you can track your order ${o.order_code} (${o.fabric}, ${o.colour}) any time here: ${url}`;
   const whatsapp = `https://wa.me/${whatsappNumber(o.buyer_phone)}?text=${encodeURIComponent(message)}`;
   const email = `mailto:${o.buyer_email ?? ""}?subject=${encodeURIComponent(`Order ${o.order_code}: tracking link`)}&body=${encodeURIComponent(message)}`;
