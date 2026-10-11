@@ -294,7 +294,7 @@ export const STEPS: Step[] = [
     target: () => "[data-tour=truck-scan]",
     body: (v) => [
       `A draft truck${v.truckCode ? ` (${v.truckCode})` : ""} was made when the first roll passed. Scan each roll or press Load, enter vehicle KA-01-AB-1234, and press Confirm dispatch.`,
-      "Try loading a roll twice: refused, a roll can never leave twice. Mixed shade bands need a supervisor.",
+      "Scan the same roll again: it is counted once, nothing changes. A roll already on another truck is refused: a roll can never leave twice. Mixed shade bands need a supervisor.",
       "Confirming makes the invoice from the rolls on the truck.",
     ],
     check: async (s) => {
