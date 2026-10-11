@@ -7,13 +7,15 @@ from sqlalchemy.orm import Session
 from app.core import audit, events, mail
 from app.core.config import get_settings
 from app.core.db import SessionLocal
+from app.core.enums import Unit
 from app.core.errors import NotFound
-from app.core.units import qty
+from app.core.units import fully_shipped, qty
 from app.modules.analytics import service as analytics
 from app.modules.auth.models import User
 from app.modules.dispatch.models import Dispatch, DispatchRoll, DispatchStatus
 from app.modules.dispatch.service import OTP_TRIES
 from app.modules.finance.models import Invoice, Payment
+from app.modules.inventory import service as inventory
 from app.modules.masters.models import Buyer, FabricType
 from app.modules.orders.models import Order, OrderStatus, new_tracking_token
 from app.modules.production import service as production
@@ -25,7 +27,7 @@ IST = timezone(timedelta(hours=5, minutes=30))
 ZERO = Decimal(0)
 # roll status -> buyer bucket; in_process rolls are woven but not yet at the QC table
 BUCKET = {
-    RollStatus.in_process: "in_qc",
+    RollStatus.in_process: "in_production",
     RollStatus.awaiting_qc: "in_qc",
     RollStatus.rework: "in_qc",
     RollStatus.passed: "passed",
@@ -33,6 +35,8 @@ BUCKET = {
     RollStatus.dispatched: "shipped",
 }
 STARTED = {WorkOrderStatus.queued, WorkOrderStatus.running, WorkOrderStatus.paused}
+BUSY = {WorkOrderStatus.running, WorkOrderStatus.paused}
+# good metres within this share of the order count as the whole order (rolls never cut exact)
 
 
 def order_by_token(db: Session, token: str) -> Order:
@@ -45,29 +49,59 @@ def order_by_token(db: Session, token: str) -> Order:
 # --- pure: the buyer stage is a function of facts, never a stored column
 
 
-# stages = route work orders in seq order, each {stage, status, planned, produced}
+# what the buyer needs from a stage: the order's metres for cloth stages (planned carries a
+# waste allowance on top), the job's own plan for yarn stages in kg
+def _target(s: dict, qty_m: Decimal) -> Decimal:
+    return qty_m if s.get("unit") == Unit.m else s["planned"]
+
+
+# a stage is done when marked done, or when it already made what the order needs
+def _stage_done(s: dict, qty_m: Decimal) -> bool:
+    if s["status"] == WorkOrderStatus.done:
+        return True
+    target = _target(s, qty_m)
+    return target > 0 and s["produced"] >= target
+
+
+# stages = route work orders in seq order, each {stage, status, planned, produced, unit};
+# yarn_covered = inventory says the order's yarn is all reserved or issued
 def derive_stage(
-    order_status: OrderStatus, qty_m: Decimal, stages: list[dict], m: dict[str, Decimal]
+    order_status: OrderStatus,
+    qty_m: Decimal,
+    stages: list[dict],
+    m: dict[str, Decimal],
+    yarn_covered: bool,
 ) -> tuple[BuyerStage, str | None, int | None]:
     if order_status == OrderStatus.cancelled:
         return BuyerStage.cancelled, None, None
     if order_status == OrderStatus.draft:
         return BuyerStage.order_received, None, None
-    if order_status == OrderStatus.closed or m["shipped"] >= qty_m:
+    if order_status == OrderStatus.closed or fully_shipped(m["shipped"], qty_m):
         return BuyerStage.shipped, None, None
     if m["shipped"] > 0:
         return BuyerStage.partly_shipped, None, None
-    if m["passed"] >= qty_m:
+    waiting_qc = m["in_qc"] > 0
+    good = m["passed"] + m["shipped"]
+    if m["passed"] >= qty_m or (fully_shipped(good, qty_m) and not waiting_qc):
         return BuyerStage.ready_to_ship, None, None
-    all_done = bool(stages) and all(s["status"] == WorkOrderStatus.done for s in stages)
-    if all_done and m["in_qc"] > 0:
+    busy = any(s["status"] in BUSY for s in stages)
+    last_done = bool(stages) and _stage_done(stages[-1], qty_m)
+    if waiting_qc and (not busy or last_done):
         return BuyerStage.being_checked, None, None
-    if all_done and m["passed"] > 0:
-        return BuyerStage.ready_to_ship, None, None
-    if any(s["status"] in STARTED or s["status"] == WorkOrderStatus.done for s in stages):
-        current = next((s for s in stages if s["status"] != WorkOrderStatus.done), stages[-1])
-        pct = int(min(current["produced"] / current["planned"], 1) * 100)
-        return BuyerStage.in_production, str(current["stage"]), pct
+    if stages and all(_stage_done(s, qty_m) for s in stages) and m["in_production"] == 0:
+        return BuyerStage.short, None, None
+    started = any(
+        s["status"] in STARTED or _stage_done(s, qty_m) or s["produced"] > 0 for s in stages
+    )
+    if started or m["produced"] > 0:
+        current = next((s for s in stages if not _stage_done(s, qty_m)), None)
+        if current is None:  # route made, woven rolls still moving between stages
+            return BuyerStage.in_production, None, None
+        target = _target(current, qty_m)
+        made = current["produced"] / target if target else 0
+        return BuyerStage.in_production, str(current["stage"]), int(min(made, 1) * 100)
+    if yarn_covered:
+        return BuyerStage.planned, None, None
     return BuyerStage.waiting_for_yarn, None, None
 
 
@@ -97,6 +131,7 @@ def _stage_progress(db: Session, order_id: int) -> list[dict]:
             "stage": w.stage,
             "status": w.status,
             "planned": w.planned_qty,
+            "unit": w.unit,
             "produced": Decimal(progress.get(w.stage, {}).get("produced", ZERO)),
         }
         for w in work_orders
@@ -109,21 +144,38 @@ def _metres(db: Session, order_id: int) -> dict[str, Decimal]:
         .where(Roll.order_id == order_id)
         .group_by(Roll.status)
     ).all()
-    m = {"produced": ZERO, "in_qc": ZERO, "passed": ZERO, "rejected": ZERO, "shipped": ZERO}
+    m = {k: ZERO for k in ("produced", "in_production", "in_qc", "passed", "rejected", "shipped")}
     for status, metres in rows:
         m[BUCKET[status]] += metres
         m["produced"] += metres
     return {k: qty(v) for k, v in m.items()}
 
 
+# no lines (recipe yarn not in masters) is not "covered"
+def _yarn_covered(db: Session, order_id: int) -> bool:
+    alloc = inventory.order_allocation(db, order_id)
+    return bool(alloc["lines"]) and alloc["fully_covered"]
+
+
+# the one place the buyer stage is worked out: card, list column and public page all call it
+def _derive(db: Session, order: Order, m: dict[str, Decimal]) -> tuple:
+    stages = _stage_progress(db, order.id)
+    # allocation only matters for a confirmed order where nothing has started
+    fresh = order.status == OrderStatus.confirmed and m["produced"] == 0
+    fresh = fresh and all(s["status"] == WorkOrderStatus.waiting for s in stages)
+    covered = fresh and _yarn_covered(db, order.id)
+    return derive_stage(order.status, order.qty_m, stages, m, covered)
+
+
 def _estimate(db: Session, order: Order, stage: BuyerStage) -> tuple:
+    if stage in (BuyerStage.shipped, BuyerStage.cancelled):
+        return None, None  # the truck left (or never will): nothing to forecast
     if order.status == OrderStatus.confirmed:
         est = analytics.delivery_estimate(db, order.id)
         finish = est["expected_at"]
         return (finish.astimezone(IST).date() if finish else None), Risk(est["status"])
     # only confirmed orders get a forecast; a missed deadline is still a plain fact
-    done = stage in (BuyerStage.shipped, BuyerStage.cancelled)
-    late = not done and datetime.now(IST).date() > order.deadline
+    late = datetime.now(IST).date() > order.deadline
     return None, Risk.late if late else None
 
 
@@ -181,9 +233,8 @@ def _dispatch_rows(db: Session, order_id: int) -> list:
 
 
 def _card(db: Session, order: Order, internal: bool) -> dict:
-    stages = _stage_progress(db, order.id)
     m = _metres(db, order.id)
-    stage, production_stage, pct = derive_stage(order.status, order.qty_m, stages, m)
+    stage, production_stage, pct = _derive(db, order, m)
     projected, risk = _estimate(db, order, stage)
     fabric = db.get(FabricType, order.fabric_type_id)
     return {
@@ -221,9 +272,7 @@ def stages(db: Session, order_ids: list[int]) -> list[dict]:
     out = []
     for order in db.scalars(select(Order).where(Order.id.in_(order_ids)).order_by(Order.id)):
         m = _metres(db, order.id)
-        stage, production_stage, pct = derive_stage(
-            order.status, order.qty_m, _stage_progress(db, order.id), m
-        )
+        stage, production_stage, pct = _derive(db, order, m)
         out.append(
             {
                 "order_id": order.id,

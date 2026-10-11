@@ -19,11 +19,10 @@ import { Suspense, type SubmitEvent, useState } from "react";
 import type { MotifName } from "@/components/dither/motifs";
 import { BrandMark } from "@/components/layout/BrandMark";
 import { GlassInput, GlassInputWrapper, type Highlight, PasswordInput, SignInPage } from "@/components/ui/sign-in";
+import { TourButton } from "@/features/tour/Tour";
 import { ApiError } from "@/lib/api";
-import { type Role, ROLE_LABEL, ROLES, roleHome, useLogin } from "@/lib/auth";
+import { DEMO_PASSWORD, demoEmail, type Role, ROLE_LABEL, ROLES, roleHome, useLogin } from "@/lib/auth";
 import { cn } from "@/lib/utils";
-
-const DEMO_PASSWORD = "demo1234";
 
 const ROLE_ICON: Record<Role, LucideIcon> = {
   owner: Gauge,
@@ -110,7 +109,7 @@ function LoginForm({ onRole }: { onRole: (role: Role | null) => void }) {
               value={email}
               onChange={(e) => {
                 setEmail(e.target.value);
-                onRole(ROLES.find((r) => e.target.value === `${r}@everest.local`) ?? null);
+                onRole(ROLES.find((r) => e.target.value === demoEmail(r)) ?? null);
               }}
               aria-invalid={!!errors.email}
               aria-describedby={errors.email ? "email-error" : undefined}
@@ -158,7 +157,7 @@ function LoginForm({ onRole }: { onRole: (role: Role | null) => void }) {
       <div className="animate-element animate-delay-700 grid grid-cols-2 gap-2">
         {ROLES.map((role) => {
           const Icon = ROLE_ICON[role];
-          const picked = email === `${role}@everest.local`;
+          const picked = email === demoEmail(role);
           return (
             <button
               key={role}
@@ -166,7 +165,7 @@ function LoginForm({ onRole }: { onRole: (role: Role | null) => void }) {
               aria-pressed={picked}
               onClick={() => {
                 onRole(role);
-                setEmail(`${role}@everest.local`);
+                setEmail(demoEmail(role));
                 setPassword(DEMO_PASSWORD);
                 setErrors({});
               }}
@@ -185,6 +184,7 @@ function LoginForm({ onRole }: { onRole: (role: Role | null) => void }) {
       <p className="animate-element animate-delay-800 text-center text-sm text-muted-foreground">
         Every demo account uses the password <span className="num font-medium text-foreground">{DEMO_PASSWORD}</span>.
       </p>
+      <TourButton className="animate-element animate-delay-800 w-full" />
     </>
   );
 }

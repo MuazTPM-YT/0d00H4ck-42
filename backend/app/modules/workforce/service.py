@@ -4,10 +4,10 @@ from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from app.core import audit, events
-from app.core.errors import Conflict, NotFound
+from app.core.errors import Conflict, NotFound, Unprocessable
 from app.core.pagination import Page, paginate
 from app.modules.finance import closing
-from app.modules.finance.models import WageRun, WageRunStatus
+from app.modules.finance.service import locking_run
 from app.modules.masters.models import Machine, Shift, Worker
 from app.modules.workforce.models import (
     Attendance,
@@ -15,7 +15,7 @@ from app.modules.workforce.models import (
     AttendanceStatus,
     CrewAssignment,
 )
-from app.modules.workforce.schemas import IST, AttendanceIn, CrewIn
+from app.modules.workforce.schemas import IST, AttendanceIn, CarryIn, CrewIn
 
 
 def list_attendance(
@@ -57,12 +57,18 @@ def day_start(day: date) -> datetime:
     return datetime.combine(day, time(0), IST).astimezone(UTC)
 
 
-# who was on this machine at that moment (latest open assignment)
+# who was on this machine at that moment: only an assignment of the shift that covers it
 def crew_on_machine(db: Session, machine_id: int, at: datetime) -> int | None:
+    try:
+        day, shift = current_shift(db, at)
+    except NotFound:
+        return None
     return db.scalar(
         select(CrewAssignment.worker_id)
         .where(
             CrewAssignment.machine_id == machine_id,
+            CrewAssignment.date == day,
+            CrewAssignment.shift_id == shift.id,
             CrewAssignment.from_at <= at,
             or_(CrewAssignment.to_at.is_(None), CrewAssignment.to_at > at),
         )
@@ -96,16 +102,11 @@ def list_crew(db: Session, on: date, shift_id: int) -> list[dict]:
     ]
 
 
-# wages for this day are final or paid: changing who worked would no longer match the payout
-def _payroll_open(db: Session, day: date) -> None:
+# wages for this day are final or paid, or its month is closed: changing who worked, or
+# what they made, would no longer match the books
+def payroll_open(db: Session, day: date) -> None:
     closing.ensure_open(db, day)
-    run = db.scalar(
-        select(WageRun).where(
-            WageRun.period_start <= day,
-            WageRun.period_end >= day,
-            WageRun.status.in_([WageRunStatus.final, WageRunStatus.paid]),
-        )
-    )
+    run = locking_run(db, day)
     if run:
         raise Conflict(
             f"Wages for {run.period_start} to {run.period_end} are {run.status}; "
@@ -122,50 +123,96 @@ def _active(db: Session, model, row_id: int, field: str):
     return row
 
 
-# put a worker on a machine; moving closes the old assignment. Writes attendance once.
-def assign_crew(
-    db: Session, body: CrewIn, user_id: int | None, at: datetime | None = None
-) -> CrewAssignment:
-    at = at or datetime.now(UTC)
-    _payroll_open(db, body.date)
-    _active(db, Shift, body.shift_id, "shift_id")
-    _active(db, Worker, body.worker_id, "worker_id")
-    _active(db, Machine, body.machine_id, "machine_id")
-    current = db.scalar(
+# still on a machine in that shift: open, or (a past shift) on until its end
+def _on_shift(db: Session, day: date, shift: Shift, worker_id: int) -> CrewAssignment | None:
+    end = shift_window(day, shift)[1]
+    return db.scalar(
         select(CrewAssignment)
         .where(
-            CrewAssignment.date == body.date,
-            CrewAssignment.shift_id == body.shift_id,
-            CrewAssignment.worker_id == body.worker_id,
-            CrewAssignment.to_at.is_(None),
+            CrewAssignment.date == day,
+            CrewAssignment.shift_id == shift.id,
+            CrewAssignment.worker_id == worker_id,
+            or_(CrewAssignment.to_at.is_(None), CrewAssignment.to_at >= end),
         )
+        .order_by(CrewAssignment.from_at.desc())
+        .limit(1)
         .with_for_update()
     )
-    if current and current.machine_id == body.machine_id:
+
+
+# a new shift's crew ends whatever is still open from earlier shifts, at their own shift end
+def _close_earlier(db: Session, day: date, shift: Shift, user_id: int | None) -> None:
+    start = shift_window(day, shift)[0]
+    shifts = {s.id: s for s in db.scalars(select(Shift))}
+    rows = db.scalars(
+        select(CrewAssignment)
+        .where(CrewAssignment.to_at.is_(None), CrewAssignment.date <= day)
+        .order_by(CrewAssignment.id)
+        .with_for_update()
+    ).all()
+    for row in rows:
+        row_start, row_end = shift_window(row.date, shifts[row.shift_id])
+        if row_start >= start:
+            continue
+        row.to_at = max(row_end, row.from_at + timedelta(seconds=1))
+        audit.record(db, user_id, "end", "crew_assignments", row.id, "shift over")
+
+
+# one placement, bounded by the shift's own window; attendance follows. Caller commits.
+def _place(
+    db: Session,
+    day: date,
+    shift: Shift,
+    worker_id: int,
+    machine_id: int,
+    user_id: int | None,
+    at: datetime,
+) -> CrewAssignment:
+    payroll_open(db, day)
+    start, end = shift_window(day, shift)
+    # a past shift is a record of the whole shift; a later one begins when it begins
+    from_at, to_at = (start, end) if at >= end else (max(at, start), None)
+    _close_earlier(db, day, shift, user_id)
+    current = _on_shift(db, day, shift, worker_id)
+    if current and current.machine_id == machine_id:
         raise Conflict("Worker is already on this machine", field="machine_id")
+    if current and current.from_at >= from_at:
+        # no time on the old machine yet: the placement was wrong, point it at the new one
+        audit.record(
+            db,
+            user_id,
+            "move",
+            "crew_assignments",
+            current.id,
+            data={"from": current.machine_id, "to": machine_id},
+        )
+        current.machine_id = machine_id
+        db.flush()
+        return current
     if current:
-        current.to_at = at
+        current.to_at = from_at
     assignment = CrewAssignment(
-        date=body.date,
-        shift_id=body.shift_id,
-        worker_id=body.worker_id,
-        machine_id=body.machine_id,
-        from_at=at,
+        date=day,
+        shift_id=shift.id,
+        worker_id=worker_id,
+        machine_id=machine_id,
+        from_at=from_at,
+        to_at=to_at,
     )
     db.add(assignment)
     attendance = db.scalar(
         select(Attendance).where(
-            Attendance.date == body.date,
-            Attendance.shift_id == body.shift_id,
-            Attendance.worker_id == body.worker_id,
+            Attendance.date == day,
+            Attendance.shift_id == shift.id,
+            Attendance.worker_id == worker_id,
         )
     )
     if not attendance:
         db.add(
             Attendance(
-                date=body.date,
-                shift_id=body.shift_id,
-                worker_id=body.worker_id,
+                date=day,
+                shift_id=shift.id,
+                worker_id=worker_id,
                 status=AttendanceStatus.present,
                 source=AttendanceSource.crew,
             )
@@ -180,11 +227,65 @@ def assign_crew(
         "move" if current else "assign",
         "crew_assignments",
         assignment.id,
-        data={"worker_id": body.worker_id, "machine_id": body.machine_id},
+        data={"worker_id": worker_id, "machine_id": machine_id},
     )
+    return assignment
+
+
+# put a worker on a machine; moving closes the old assignment. Writes attendance once.
+def assign_crew(
+    db: Session, body: CrewIn, user_id: int | None, at: datetime | None = None
+) -> CrewAssignment:
+    shift = _active(db, Shift, body.shift_id, "shift_id")
+    _active(db, Worker, body.worker_id, "worker_id")
+    _active(db, Machine, body.machine_id, "machine_id")
+    when = at or datetime.now(UTC)
+    assignment = _place(db, body.date, shift, body.worker_id, body.machine_id, user_id, when)
     db.commit()
     events.publish("machines", {"type": "crew", "id": body.machine_id})
     return assignment
+
+
+# shift change in one tap: whoever ran a machine at the end of that shift runs it in this one
+def carry_crew(db: Session, body: CarryIn, user_id: int | None, at: datetime | None = None) -> int:
+    shift = _active(db, Shift, body.shift_id, "shift_id")
+    before = _active(db, Shift, body.from_shift_id, "from_shift_id")
+    from_start, from_end = shift_window(body.from_date, before)
+    if from_start >= shift_window(body.date, shift)[0]:
+        raise Unprocessable("Bring the crew from an earlier shift", field="from_shift_id")
+    rows = db.scalars(
+        select(CrewAssignment)
+        .join(Machine, Machine.id == CrewAssignment.machine_id)
+        .join(Worker, Worker.id == CrewAssignment.worker_id)
+        .where(
+            CrewAssignment.date == body.from_date,
+            CrewAssignment.shift_id == before.id,
+            or_(CrewAssignment.to_at.is_(None), CrewAssignment.to_at >= from_end),
+            Machine.active,
+            Worker.active,
+        )
+        .order_by(CrewAssignment.from_at, CrewAssignment.id)
+    ).all()
+    absent = set(
+        db.scalars(
+            select(Attendance.worker_id).where(
+                Attendance.date == body.date,
+                Attendance.shift_id == shift.id,
+                Attendance.status == AttendanceStatus.absent,
+            )
+        )
+    )
+    last = {row.worker_id: row.machine_id for row in rows}  # latest machine per worker wins
+    when = at or datetime.now(UTC)
+    created = 0
+    for worker_id, machine_id in last.items():
+        if worker_id in absent or _on_shift(db, body.date, shift, worker_id):
+            continue
+        _place(db, body.date, shift, worker_id, machine_id, user_id, when)
+        created += 1
+    db.commit()
+    events.publish("machines", {"type": "crew", "id": shift.id})
+    return created
 
 
 def end_crew(
@@ -206,9 +307,13 @@ def end_crew(
 
 # manual entry for staff off the machines, and corrections; reason goes in the audit row
 def set_attendance(db: Session, body: AttendanceIn, user_id: int) -> Attendance:
-    _payroll_open(db, body.date)
-    _active(db, Shift, body.shift_id, "shift_id")
+    payroll_open(db, body.date)
+    shift = _active(db, Shift, body.shift_id, "shift_id")
     _active(db, Worker, body.worker_id, "worker_id")
+    if body.status == AttendanceStatus.absent and _on_shift(db, body.date, shift, body.worker_id):
+        raise Conflict(
+            "This worker is on a machine this shift. Take them off first.", field="status"
+        )
     row = db.scalar(
         select(Attendance)
         .where(

@@ -68,7 +68,7 @@ Anything not listed is illegal. Terminal states have no row.
 | | `confirmed` | `cancelled`, `closed` |
 | Expected delivery | `open` | `partially_received`, `received`, `cancelled` |
 | | `partially_received` | `received`, `cancelled` |
-| Receipt | `draft` | `confirmed` |
+| Receipt | `draft` | `confirmed` (a draft can drop lots; an empty draft can be discarded) |
 | Yarn batch | `pending_identification` | `inspection`, `quarantined`, `rejected` |
 | | `inspection` | `approved`, `quarantined`, `rejected` |
 | | `quarantined` | `approved`, `rejected` |
@@ -77,13 +77,13 @@ Anything not listed is illegal. Terminal states have no row.
 | Work order | `waiting` | `queued` |
 | | `queued` | `running`, `waiting` |
 | | `running` | `paused`, `done` |
-| | `paused` | `running` |
+| | `paused` | `running`, `done` |
 | Machine | any | any other status (a reported fact; repeating the current one is rejected) |
 | Roll | `in_process` | `awaiting_qc` |
 | | `awaiting_qc` | `passed`, `rework`, `rejected` |
 | | `rework` | `awaiting_qc`, `rejected` |
 | | `passed` | `dispatched` |
-| Dispatch | `draft` | `loading` |
+| Dispatch | `draft` | `loading` (draft or loading can be cancelled: rolls off, row deleted) |
 | | `loading` | `confirmed`, `draft` |
 | Invoice | `issued` | `part_paid`, `paid` |
 | | `part_paid` | `paid` |
@@ -110,11 +110,20 @@ caller. Status: **done** = implemented and tested, **stub** = raises `NotImpleme
 | `inventory.batch_kg_at(db, batch_id, location_kind)` | Ammaar | done | `Decimal` ledger balance of one batch at one location kind |
 | `orders.yarn_components(qty_m, fabric, order_colour)` | Ammaar | done | `[{fibre, count, colour, kg_needed}]`; dyed fabric uses `Raw White` yarn |
 | `orders.yarn_requirement(db, order_id)` | Ammaar | done | `[{fibre, count, colour, kg_needed, kg_free, kg_short}]` |
-| `production.create_work_orders(db, order_id, user_id)` | Muaz | done | `list[WorkOrder]`, one `waiting` per route stage; second call returns the same set |
+| `production.create_work_orders(db, order_id, user_id)` | Muaz | done | `list[WorkOrder]`, one `waiting` per route stage, metre stages planned at qty × 1.05 (process allowance); second call returns the same set |
 | `production.machine_status(db, machine_id)` | Muaz | done | `MachineStatus`, latest event or `off` |
 | `production.order_progress(db, order_id)` | Muaz | done | `{stage: {planned, produced, unit}}` |
 | `production.unqueue_order(db, order_id, user_id)` | Muaz | done | `int` queued jobs of a cancelled order sent back to `waiting`; caller has checked nothing runs |
 | `production.create_rework_work_order(db, roll_id, stage, user_id)` | Muaz | done | `WorkOrder` with `roll_id` set; roll must be `rework`; second call returns the open one. Processing the roll on that job sends it back to `awaiting_qc` |
+| `inventory.reserve_short_orders(db, user_id)` | Ammaar | done | `list[Reservation]` for every short confirmed order, earliest deadline first. Runs after approve, release, quarantine, return, cancel, close |
+| `inventory.first_stage_work_order(db, order_id)` | Ammaar | done | the order's first route job, the only job that takes yarn |
+| `orders.close_order(db, order_id, user_id, reason=None)` | Ammaar | done | `Order` confirmed → closed, releases its reservations; 409 while a job is on a machine or a truck is open |
+| `orders.shipped_m(db, order_id)` | Ammaar | done | `Decimal` metres on confirmed dispatches |
+| `production.pull_next(db, machine_id, user_id, at=None)`, `pull_ready(db, user_id, at=None)` | Muaz | done | start the first job in a free machine's queue that its rules allow (a blocked one does not hold up the next) |
+| `production.plan_waiting(db, user_id)`, `advance(db, user_id, at=None)` | Muaz | done | `plan_waiting` queues every ready waiting job on the least busy working machine of its stage, earliest deadline first; `advance` = plan, then pull. Run after every floor write, a yarn issue and a QC rework |
+| `production.release_order_jobs(db, order_id, user_id)` | Muaz | done | `int` queued jobs sent back to waiting; 409 if a job is running or paused. Called by order cancel |
+| `dispatch.order_fully_shipped(db, order_id)` | Ashil | done | `bool` shipped ≥ qty × 0.98; dispatch confirm then closes the order |
+| `finance.period_locked(db, day)`, `locking_run(db, day)` | Ashil | done | a final or paid wage run covers the day (`locking_run` returns it). The one payroll lock: `workforce.payroll_open` raises `wages_final` from it for attendance, crew and output writes |
 | `quality.roll_trace(db, roll_id)` | Razan | done | order, loom, shift, weaver, yarn batches + suppliers, QC attempts, events |
 | `tracking.order_stage(db, order_id)` | Ashil | done | derived buyer stage + metres per bucket |
 | `dispatch.email_driver(db, dispatch_id, user_id)` | Ashil | done | `"sent" \| "failed" \| "skipped"`; emails the driver their link (never the code), audit row, never raises on a mail error; caller commits |
@@ -125,7 +134,32 @@ caller. Status: **done** = implemented and tested, **stub** = raises `NotImpleme
 | `finance.order_cost(db, order_id)` | Ashil | done | yarn (FIFO GRN cost) + labour + machine + rework/reject vs revenue |
 | `finance.issue_invoice(db, user_id, dispatch, rolls)` | Ashil | done | `Invoice` + one line per roll; called only by dispatch confirm |
 | `analytics.delivery_estimate(db, order_id)` | Muaz | done | `{expected_at, status, slack_hours, stages, basis}`; status `on_track` / `at_risk` / `late`; 409 `not_forecastable` unless confirmed |
-| `analytics.attention_items(db, role)` | Muaz | done | up to 12 `{kind, severity, title, detail, href, entity_type, entity_id, since}`, worst first |
+| `analytics.attention_items(db, role)` | Muaz | done | up to 12 `{kind, severity, title, detail, href, entity_type, entity_id, since}`, worst first. Each role's inbox, shown on its home page: store = yarn to issue, lots to inspect, low stock; supervisor = machines stopped, jobs with no machine, shade calls; QC = rolls waiting; dispatch = trucks to start, load or send, rolls on the shelf; accounts = orders at risk or short, yarn to buy, overdue invoices, no wage run last month; owner = risk, quarantined lots, shade calls, low stock, overdue |
+| `dispatch.open_truck_work(db)` | Ashil | done | open trucks with rolls to load (`load`), loaded enough (`confirm`) or a rest in another shade band with no override (`shade`); finished orders with passed rolls and no truck (`no_truck`) |
+| `production.unplaced_jobs(db)` | Muaz | done | ready waiting jobs the planner could not place (no running or idle machine of the stage) |
+
+## Floor rules the services enforce
+
+The simulator, the live feed and people all go through these; none of them lives in a script.
+
+- Yarn is issued to the route's first job only, and that job goes on a machine (by hand or by
+  itself) and starts only once yarn is on the floor; a hand queue before the issue is refused.
+- A later stage starts once the earlier one has started; dyeing also needs a woven roll waiting.
+- A stage finishes by itself at its plan (weaving cuts the tail roll). Dyeing finishes when weaving
+  is done and no roll waits. A free machine starts its next queued job by itself.
+- Nobody has to queue a job. Once ready, a waiting job goes to the least busy running or idle machine
+  of its stage: the first stage once its yarn is issued, a later stage once the one before started,
+  dyeing once weaving is done (so a dye range never holds a job with nothing to dye), rework at once.
+  With no working machine it waits; the supervisor can still move, unqueue or queue by hand.
+- One active (running or paused) job per machine. A rework job jumps the queue and pauses the main
+  job until its roll is processed.
+- QC: a third check cannot send a roll to rework again; rework only on a confirmed order.
+- Dispatch confirm closes the order once shipped ≥ 98 % of the ordered metres. Accounts closes short
+  with a reason. Cancel is refused once anything has shipped or a job is on a machine.
+- Attendance, crew and output for a day under a final wage run are locked.
+- Production totals (floor board, machine timeline, month-end R22, owner dashboard) count route jobs
+  only; rework redoes metres already counted. Machine hours everywhere come from
+  `production.status_durations` (time before a machine's first report is off).
 
 Also callable: `workforce.current_shift(db, at)` → `(shift date, Shift)`, night shift belongs to
 the date it started; `workforce.crew_on_machine(db, machine_id, at)` → worker id or `None`.
@@ -135,7 +169,8 @@ Cross-module writes agreed by the team (decision 22): dispatch confirm sets `rol
 FG → DISP `stock_moves`; tracking rotates `orders.tracking_token`. All in the caller's
 transaction, all audited.
 
-Pure helpers in `app.core.units`: `qty`, `rupees_to_paise`, `line_amount_paise`,
+Pure helpers in `app.core.units`: `qty`, `fully_shipped(shipped_m, ordered_m)` (≥ `SHIPPED_SHARE`
+98 %, the one rule for close, buyer stage, forecast and corner check), `rupees_to_paise`, `line_amount_paise`,
 `yarn_kg_for_fabric(metres, width_cm, gsm, loss_pct)`. Yarn kg = metres × width_m × GSM / 1000 /
 (1 − loss% / 100).
 

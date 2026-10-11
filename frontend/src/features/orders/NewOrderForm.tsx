@@ -5,7 +5,7 @@ import { Select } from "@/components/ui/select";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CheckCircle2 } from "lucide-react";
 import Link from "next/link";
-import { type FormEvent, useEffect, useState } from "react";
+import { type FormEvent, useEffect, useMemo, useState } from "react";
 
 import { FormField } from "@/components/layout/FormField";
 import { PageHeader } from "@/components/layout/PageHeader";
@@ -17,10 +17,30 @@ import { kg, rupeesToPaise } from "@/lib/format";
 import { useSSE } from "@/lib/useSSE";
 import { millDate, validDate, validQuantity } from "@/lib/validation";
 
-import { selectClass, useMaster, type NamedOption } from "@/features/inventory/ui";
+import { selectClass, useMaster, type NamedOption, type YarnItemOption } from "@/features/inventory/ui";
 
 import { OrderYarnPanel } from "./OrderYarnPanel";
 import type { Order, YarnLine } from "./types";
+
+const METRES_RE = /^\d+(\.\d{1,3})?$/;
+
+type FabricOption = NamedOption & { stages: { seq: number; stage: string }[]; recipe: { fibre: string; count: string }[] };
+
+// colours that exist as a yarn item for every (fibre, count) of the recipe; others would deadlock
+function recipeColours(fabric: FabricOption, items: YarnItemOption[]): string[] {
+  const low = (x: string) => x.trim().toLowerCase();
+  const perLine = fabric.recipe.map((r) => {
+    const here = new Map<string, string>();
+    for (const i of items) if (low(i.fibre) === low(r.fibre) && low(i.count) === low(r.count)) here.set(low(i.colour), i.colour);
+    return here;
+  });
+  if (!perLine.length) return [];
+  const [first, ...rest] = perLine;
+  return [...first.entries()]
+    .filter(([k]) => rest.every((m) => m.has(k)))
+    .map(([, colour]) => colour)
+    .sort((a, b) => a.localeCompare(b));
+}
 
 // IST tomorrow; UTC gave today before 5:30 am, which the server rejects
 const tomorrow = () => millDate(1);
@@ -40,11 +60,16 @@ export function NewOrderForm() {
   useSSE(["stock", "orders"]);
   const qc = useQueryClient();
   const buyers = useMaster<NamedOption>("buyers");
-  const fabrics = useMaster<NamedOption>("fabric-types");
+  const fabrics = useMaster<FabricOption>("fabric-types");
+  const yarnItems = useMaster<YarnItemOption>("yarn-items");
   const [v, setV] = useState({ buyer_id: "", fabric_type_id: "", colour: "", qty_m: "", rate: "", deadline: "" });
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [confirmedId, setConfirmedId] = useState<number | null>(null);
   const set = (k: keyof typeof v, value: string) => setV((p) => ({ ...p, [k]: value }));
+  const fabric = fabrics.data?.items.find((f) => String(f.id) === v.fabric_type_id);
+  const dyed = !!fabric?.stages.some((st) => st.stage === "dyeing");
+  // undyed fabric: yarn colour = order colour, so only colours the yarn masters hold
+  const colours = useMemo(() => (fabric && !dyed ? recipeColours(fabric, yarnItems.data?.items ?? []) : null), [fabric, dyed, yarnItems.data]);
 
   const previewInput = useDebounced({ fabric: v.fabric_type_id, colour: v.colour.trim(), qty: v.qty_m });
   const previewReady = !!previewInput.fabric && !!previewInput.colour && previewInput.colour.length <= 40 && validQuantity(previewInput.qty, 1_000_000);
@@ -122,7 +147,7 @@ export function NewOrderForm() {
     <>
       <PageHeader title="New order" description="Yarn needed = metres × width × GSM ÷ 1000 ÷ (1 − loss%), split by the fabric recipe. Dyed fabrics use Raw White yarn." />
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-        <form noValidate onSubmit={(e: FormEvent) => { e.preventDefault(); submit(true); }} className="grid content-start gap-4 rounded-lg border bg-card p-4">
+        <form noValidate data-tour="order-form" onSubmit={(e: FormEvent) => { e.preventDefault(); submit(true); }} className="grid content-start gap-4 rounded-lg border bg-card p-4">
           <FormField name="buyer_id" label="Buyer" error={errors.buyer_id} required>
             <Select id="buyer_id" value={v.buyer_id} onChange={(e) => set("buyer_id", e.target.value)} className={selectClass} {...a11y("buyer_id")}>
               <option value="">Choose…</option>
@@ -130,14 +155,37 @@ export function NewOrderForm() {
             </Select>
           </FormField>
           <FormField name="fabric_type_id" label="Fabric" error={errors.fabric_type_id} required>
-            <Select id="fabric_type_id" value={v.fabric_type_id} onChange={(e) => set("fabric_type_id", e.target.value)} className={selectClass} {...a11y("fabric_type_id")}>
+            <Select id="fabric_type_id" value={v.fabric_type_id} onChange={(e) => setV((p) => ({ ...p, fabric_type_id: e.target.value, colour: "" }))} className={selectClass} {...a11y("fabric_type_id")}>
               <option value="">Choose…</option>
               {fabrics.data?.items.map((f) => <option key={f.id} value={f.id}>{`${f.code} · ${f.name}`}</option>)}
             </Select>
           </FormField>
           <div className="grid gap-4 sm:grid-cols-2">
-            <FormField name="colour" label="Colour" error={errors.colour} required>
-              <Input id="colour" value={v.colour} maxLength={40} onChange={(e) => set("colour", e.target.value)} {...a11y("colour")} />
+            <FormField
+              name="colour"
+              label="Colour"
+              error={errors.colour}
+              required
+              hint={
+                colours
+                  ? yarnItems.isPending
+                    ? "Loading yarn colours…"
+                    : colours.length
+                      ? "Colours that exist in the yarn masters for this fabric."
+                      : "No yarn colour exists for every yarn of this recipe. Add the yarn items in Masters."
+                  : dyed
+                    ? "Dyed after weaving: any shade. Woven from Raw White yarn."
+                    : undefined
+              }
+            >
+              {colours ? (
+                <Select id="colour" value={v.colour} onChange={(e) => set("colour", e.target.value)} className={selectClass} disabled={!colours.length} {...a11y("colour")}>
+                  <option value="">Choose…</option>
+                  {colours.map((c) => <option key={c} value={c}>{c}</option>)}
+                </Select>
+              ) : (
+                <Input id="colour" value={v.colour} maxLength={40} onChange={(e) => set("colour", e.target.value)} {...a11y("colour")} />
+              )}
             </FormField>
             <FormField name="qty_m" label="Metres" error={errors.qty_m} required>
               <Input id="qty_m" inputMode="decimal" value={v.qty_m} onChange={(e) => set("qty_m", e.target.value)} {...a11y("qty_m")} />
@@ -178,7 +226,10 @@ export function NewOrderForm() {
                 <tbody>
                   {preview.data.map((l) => (
                     <tr key={`${l.count}-${l.colour}`} className="border-t">
-                      <td className="py-2">{l.fibre} {l.count} {l.colour}</td>
+                      <td className="py-2">
+                        {l.fibre} {l.count} {l.colour}
+                        {l.not_in_masters && <div className="text-xs text-danger">Not in yarn masters</div>}
+                      </td>
                       <td className="py-2 text-right">{kg(l.kg_needed)}</td>
                       <td className="py-2 text-right">{kg(l.kg_free)}</td>
                       <td className={Number(l.kg_short) > 0 ? "py-2 text-right font-semibold text-danger" : "py-2 text-right text-success"}>{kg(l.kg_short)}</td>
@@ -186,6 +237,13 @@ export function NewOrderForm() {
                   ))}
                 </tbody>
               </table>
+              {preview.data.some((l) => l.not_in_masters) && (
+                <p role="alert" className="rounded-md bg-danger-soft p-3 text-sm text-danger">
+                  {dyed
+                    ? "Raw White yarn for this recipe is not in the yarn masters. Add it before yarn can be reserved or bought."
+                    : "No yarn item in masters for this colour, so the order cannot be confirmed. Pick a listed colour or add the yarn item first."}
+                </p>
+              )}
               {preview.data.some((l) => Number(l.kg_short) > 0) ? (
                 <p className="rounded-md bg-warning-soft p-3 text-sm text-warning">Not enough yarn to start. Confirming still reserves what is free; the rest goes on the to-buy list.</p>
               ) : (

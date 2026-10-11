@@ -118,12 +118,12 @@ export function DispatchList() {
   );
 }
 
-// only open orders with passed rolls on the shelf are offered
+// only open orders with free passed rolls (on no truck yet) are offered
 export function CreateDispatchForm({ onDone, orderId }: { onDone: (id: number) => void; orderId?: number }) {
   const qc = useQueryClient();
   const [errors, setErrors] = useState<Record<string, string>>({});
   const shelf = useQuery({ queryKey: ["dispatch", "shelf"], queryFn: () => api<ShelfGroup[]>("/dispatch/finished-stock") });
-  const ready = (shelf.data ?? []).filter((g) => g.order_open);
+  const ready = (shelf.data ?? []).filter((g) => g.order_open && Number(g.free_m) > 0);
   const create = useMutation({
     mutationFn: (body: { order_id: number; vehicle_no: string | null; driver: string | null }) =>
       api<{ id: number }>("/dispatch/dispatches", { method: "POST", json: body }),
@@ -154,7 +154,7 @@ export function CreateDispatchForm({ onDone, orderId }: { onDone: (id: number) =
           <option value="" disabled>{shelf.isPending ? "Loading orders…" : ready.length ? "Choose an order" : "No order has rolls ready"}</option>
           {ready.map((g) => (
             <option key={g.order_id} value={g.order_id}>
-              {g.order_code} · {g.buyer_name} · {metres(g.on_shelf_m)} on shelf
+              {g.order_code} · {g.buyer_name} · {metres(g.free_m)} free{Number(g.on_truck_m) > 0 ? ` · ${metres(g.on_truck_m)} on a truck` : ""}
             </option>
           ))}
         </Select>

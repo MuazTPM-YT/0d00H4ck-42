@@ -63,6 +63,7 @@ class RunOut(BaseModel):
     updated: int
     unchanged: int
     skipped: int
+    resolved: int  # open findings the run no longer sees, closed by it
 
 
 class PlannedStage(BaseModel):

@@ -29,6 +29,10 @@ const HOME: Record<Role, string> = {
 
 export const roleHome = (role: Role) => HOME[role];
 
+// the seeded demo accounts: one per role, one shared password
+export const DEMO_PASSWORD = "demo1234";
+export const demoEmail = (role: Role) => `${role}@everest.local`;
+
 export function useMe() {
   return useQuery({ queryKey: ["me"], queryFn: () => api<User>("/auth/me"), retry: false, staleTime: 60_000 });
 }

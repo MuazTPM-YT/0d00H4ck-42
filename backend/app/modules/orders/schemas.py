@@ -6,7 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.core.dates import mill_today
 from app.core.errors import FieldError
-from app.core.types import Paise, ShortText
+from app.core.types import Note, Paise, ShortText
 from app.modules.orders.models import OrderStatus
 
 OrderMetres = Annotated[Decimal, Field(gt=0, le=1_000_000, max_digits=12, decimal_places=3)]
@@ -41,6 +41,8 @@ class YarnLine(BaseModel):
     fibre: str
     count: str
     colour: str
+    yarn_item_id: int | None
+    not_in_masters: bool  # no yarn item with this fibre, count and colour
     kg_needed: Decimal
     kg_free: Decimal
     kg_short: Decimal
@@ -75,6 +77,10 @@ class OrderIn(RequirementIn):
         return v
 
 
+class CloseIn(BaseModel):
+    reason: Note | None = None  # required when shipped metres are short of the order
+
+
 class LotOut(BaseModel):
     yarn_batch_id: int
     code: str
@@ -85,7 +91,6 @@ class LotOut(BaseModel):
 
 
 class AllocationLine(YarnLine):
-    yarn_item_id: int | None
     kg_reserved: Decimal
     kg_issued: Decimal
     lots: list[LotOut]

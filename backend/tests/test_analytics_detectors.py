@@ -203,6 +203,19 @@ def test_same_reason_across_machines_is_a_cluster():
     assert found["facts"]["machines"] == ["LM-01", "LM-02"]
 
 
+# one finding per reason per week: key names the reason, entity does not follow the busiest loom
+def test_reason_cluster_key_is_stable_when_the_busiest_loom_changes():
+    week = NOW.astimezone(IST).strftime("%G-W%V")
+    fault = "Weft feeder fault"
+    for on_lm1, on_lm2 in ((3, 1), (1, 3)):
+        events = breakdowns(on_lm1, 1, "LM-01", reason=fault) + breakdowns(
+            on_lm2, 2, "LM-02", reason=fault
+        )
+        (found,) = detectors.breakdown_clusters(events, NOW)
+        assert found["facts"]["key"] == f"reason:weft feeder fault:{week}"
+        assert (found["entity_type"], found["entity_id"]) == (detectors.REASON_ENTITY, 0)
+
+
 SHIFTS = [
     Shift(id=1, code="A", start_time=time(6), end_time=time(14)),
     Shift(id=2, code="B", start_time=time(14), end_time=time(22)),
@@ -346,7 +359,38 @@ def test_detectors_find_a_late_counter_log_once(db, floor):
         "updated": 0,
         "unchanged": 1,
         "skipped": 0,
+        "resolved": 0,
     }
     insight = db.scalar(select(Insight))
     assert (insight.kind, insight.entity_type) == ("impossible_data", "production_logs")
     assert "60 min into a breakdown" in insight.narrative
+
+
+# yarn issued to another main job of the order (first route stage) still counts for its yield
+def test_yield_reads_yarn_issued_anywhere_on_the_order(db, floor):
+    from datetime import UTC
+    from decimal import Decimal
+
+    from app.modules.masters.models import LocationKind
+    from app.modules.production.models import WorkOrderStatus
+    from app.modules.quality.models import Roll, RollStatus
+
+    weave = floor.dyed_weave
+    weave.status, weave.machine_id = WorkOrderStatus.done, floor.loom1.id
+    weave.finished_at = datetime.now(UTC)
+    db.add(
+        Roll(
+            code="R-TY1",
+            order_id=weave.order_id,
+            work_order_id=weave.id,
+            loom_machine_id=floor.loom1.id,
+            shift_id=floor.shifts[0].id,
+            length_m=Decimal(100),
+            status=RollStatus.awaiting_qc,
+            location_id=floor.loc[LocationKind.wip].id,
+        )
+    )
+    db.commit()
+    floor.issue(floor.dyed_dye, floor.batches[0], 25)
+    (job,) = [j for j in detectors.load_yield_jobs(db, datetime.now(UTC)) if j.id == weave.id]
+    assert (job.issued_kg, job.metres) == (25.0, 100.0)

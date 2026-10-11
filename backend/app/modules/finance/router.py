@@ -82,6 +82,11 @@ def recompute_wage_run(run_id: int, db: Session = Depends(get_db), user: User = 
     return service.recompute_wage_run(db, user, run_id)
 
 
+@router.delete("/wage-runs/{run_id}", status_code=204)
+def delete_wage_run(run_id: int, db: Session = Depends(get_db), user: User = Accounts):
+    service.delete_wage_run(db, user, run_id)
+
+
 @router.post("/wage-runs/{run_id}/finalize", response_model=WageRunDetail)
 def finalize_wage_run(run_id: int, db: Session = Depends(get_db), user: User = Accounts):
     return service.set_wage_run_status(db, user, run_id, WageRunStatus.final)
@@ -126,7 +131,7 @@ def month_view(month: Month, db: Session = Depends(get_db)):
 @router.get("/month/records", response_model=list[MonthRecord])
 def month_records(
     month: Month,
-    kind: Literal["invoiced", "received", "yarn_bills", "wages", "expenses"],
+    kind: Literal["invoiced", "received", "yarn_bills", "wages", "wages_paid", "expenses"],
     db: Session = Depends(get_db),
 ):
     return service.month_records(db, month, kind)

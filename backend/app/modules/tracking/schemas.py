@@ -8,8 +8,10 @@ from pydantic import BaseModel
 class BuyerStage(StrEnum):
     order_received = "order_received"
     waiting_for_yarn = "waiting_for_yarn"
+    planned = "planned"  # yarn covered, no machine started yet
     in_production = "in_production"
     being_checked = "being_checked"
+    short = "short"  # all work done and decided, still under the ordered metres
     ready_to_ship = "ready_to_ship"
     partly_shipped = "partly_shipped"
     shipped = "shipped"
@@ -25,6 +27,7 @@ class Risk(StrEnum):
 # buyer link: good fabric only, rejects stay inside the mill
 class BuyerMetres(BaseModel):
     produced: Decimal
+    in_production: Decimal  # woven, still on the floor (e.g. waiting for dyeing)
     in_qc: Decimal
     passed: Decimal
     shipped: Decimal

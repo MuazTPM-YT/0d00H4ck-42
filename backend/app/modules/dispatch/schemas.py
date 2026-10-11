@@ -1,6 +1,6 @@
 from datetime import datetime
 from decimal import Decimal
-from typing import Annotated
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, StringConstraints
 
@@ -104,13 +104,18 @@ class ShelfGroup(BaseModel):
     order_open: bool
     ordered_m: Decimal
     shipped_m: Decimal
-    on_shelf_m: Decimal
+    free_m: Decimal
+    on_truck_m: Decimal
     rolls: list[ShelfRoll]
 
 
+# kind "roll": a roll forgotten on the shelf; kind "dispatch": a truck left open
 class CornerItem(BaseModel):
-    roll_id: int
-    roll_code: str
+    kind: Literal["roll", "dispatch"]
+    roll_id: int | None
+    roll_code: str | None
+    dispatch_id: int | None
+    dispatch_code: str | None
     order_code: str
     length_m: Decimal
     days_on_shelf: int

@@ -106,7 +106,7 @@ export function InsightsPage() {
       )}
       {run.isSuccess && (
         <p role="status" className="mb-4 border border-border bg-card px-4 py-3 text-sm">
-          Detectors ran: {run.data.created} new, {run.data.updated} updated, {run.data.unchanged} unchanged.
+          Detectors ran: {run.data.created} new, {run.data.updated} updated, {run.data.unchanged} unchanged, {run.data.resolved} closed as no longer found.
         </p>
       )}
       <BriefingCard />

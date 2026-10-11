@@ -34,6 +34,7 @@ export type StockRow = {
   quarantined_kg: Kg;
   wip_kg: Kg;
   needed_by_orders_kg: Kg;
+  on_order_kg: Kg; // still to arrive on deliveries not tied to an order
   projected_free_kg: Kg;
   reorder_level_kg: Kg;
   level: "ok" | "low" | "short";
@@ -108,6 +109,22 @@ export type IssuePlan = {
   reserved: PlanLine[];
   free: PlanLine[];
   on_floor: { yarn_batch_id: number; code: string; kg: Kg }[];
+};
+
+// first-stage job of a confirmed order that has not had all its yarn yet (/inventory/needs-yarn)
+export type NeedsYarnRow = {
+  work_order_id: number;
+  wo_code: string;
+  order_id: number;
+  order_code: string;
+  buyer: string;
+  stage: string;
+  machine_code: string | null;
+  status: string;
+  kg_needed: Kg;
+  kg_issued: Kg;
+  kg_reserved: Kg;
+  deadline: string;
 };
 
 // walk_in: no request behind it, so the truck needs a rate per kg

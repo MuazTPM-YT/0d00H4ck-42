@@ -4,7 +4,7 @@ from sqlalchemy import func, select
 from app.core.audit import AuditLog
 from app.modules.analytics import detectors, explainer, service
 from app.modules.analytics.models import Insight, InsightStatus, Severity
-from app.modules.auth.models import Role
+from app.modules.auth.models import Role, User
 
 
 def finding(kind="machine_slowdown", entity_id=7, key="2026-10-01", drop=22.5, **kw) -> dict:
@@ -53,11 +53,65 @@ def test_new_episode_key_is_a_new_insight_but_resolved_one_stays_quiet(db):
 
 def test_run_detectors_is_idempotent_and_audits_new_findings(db, monkeypatch):
     monkeypatch.setattr(detectors, "find_all", lambda db, now: [finding(), finding(entity_id=8)])
-    assert service.run_detectors(db) == {"created": 2, "updated": 0, "unchanged": 0, "skipped": 0}
-    assert service.run_detectors(db) == {"created": 0, "updated": 0, "unchanged": 2, "skipped": 0}
+    first = {"created": 2, "updated": 0, "unchanged": 0, "skipped": 0, "resolved": 0}
+    assert service.run_detectors(db) == first
+    again = {"created": 0, "updated": 0, "unchanged": 2, "skipped": 0, "resolved": 0}
+    assert service.run_detectors(db) == again
     assert count(db) == 2
     detected = select(func.count()).where(AuditLog.action == "detected")
     assert db.scalar(detected) == 2
+
+
+# a finding the detectors stop producing closes itself; hand-made kinds and acknowledged ones stay
+def test_run_closes_open_findings_it_no_longer_produces(db, monkeypatch):
+    seeded = Insight(
+        kind="machine_downtime",
+        severity=Severity.warn,
+        entity_type="machine",
+        entity_id=1,
+        title="seeded",
+        facts={},
+    )
+    db.add(seeded)
+    monkeypatch.setattr(
+        detectors,
+        "find_all",
+        lambda db, now: [finding(), finding(entity_id=8), finding(entity_id=9)],
+    )
+    service.run_detectors(db)
+    by_entity = {
+        i.entity_id: i
+        for i in db.scalars(select(Insight).where(Insight.kind != "machine_downtime"))
+    }
+    by_entity[9].status = InsightStatus.acknowledged
+    db.commit()
+
+    monkeypatch.setattr(detectors, "find_all", lambda db, now: [finding()])
+    assert service.run_detectors(db)["resolved"] == 1
+    assert by_entity[7].status == InsightStatus.open
+    assert by_entity[8].status == InsightStatus.resolved
+    assert by_entity[9].status == InsightStatus.acknowledged
+    assert seeded.status == InsightStatus.open
+    row = db.scalar(
+        select(AuditLog).where(AuditLog.entity_id == by_entity[8].id, AuditLog.action == "resolved")
+    )
+    assert row.user_id is None and row.data == {"auto": True}
+
+
+# closed by the run, not by a person: when the problem comes back it is raised again
+def test_auto_closed_finding_comes_back_but_person_resolved_stays_quiet(db, monkeypatch):
+    monkeypatch.setattr(detectors, "find_all", lambda db, now: [finding(), finding(entity_id=8)])
+    service.run_detectors(db)
+    monkeypatch.setattr(detectors, "find_all", lambda db, now: [finding()])
+    service.run_detectors(db)
+    assert service.upsert_insight(db, finding(entity_id=8)) == "created"
+    db.commit()
+    live = db.scalar(select(Insight).where(Insight.entity_id == 7))
+    user = User(name="QC", email="qc@insights.test", role=Role.supervisor, password_hash="x")
+    db.add(user)
+    db.commit()
+    service.set_insight_status(db, live.id, InsightStatus.resolved, "Fixed the beam", user)
+    assert service.upsert_insight(db, finding()) == "skipped"
 
 
 @pytest.fixture

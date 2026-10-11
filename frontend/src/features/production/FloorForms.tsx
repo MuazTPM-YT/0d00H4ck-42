@@ -161,8 +161,27 @@ export function ProcessRollForm({ tile, reworkRollId }: { tile: BoardTile; rewor
       )}
       <FormError message={save.errors.form ?? save.errors.work_order_id} />
       <Button type="submit" className="h-12" disabled={save.isPending || !chosen}>
-        {save.isPending ? "Saving…" : reworkRollId ? "Rework done" : "Roll processed"}
+        {save.isPending ? "Saving…" : reworkRollId ? "Process roll" : "Roll processed"}
       </Button>
+      {!reworkRollId && <DyeAllButton tile={tile} waiting={rolls.data?.total ?? 0} />}
     </form>
+  );
+}
+
+// a jigger batch: every woven roll of the order that waits goes through in one go
+function DyeAllButton({ tile, waiting }: { tile: BoardTile; waiting: number }) {
+  const job = tile.job!;
+  const save = useFloorAction<{ source: string }>(() => `/production/work-orders/${job.work_order_id}/process-waiting`);
+  return (
+    <div className="grid gap-2 border-t border-dashed border-border pt-3">
+      <Button type="button" variant="outline" className="h-12" disabled={save.isPending || waiting === 0 || job.status !== "running"} onClick={() => save.mutate({ source: "manual" })}>
+        {save.isPending ? "Dyeing…" : (
+          <>
+            Dye all waiting rolls (<span className="num">{waiting}</span>)
+          </>
+        )}
+      </Button>
+      <FormError message={save.errors.form ?? save.errors.work_order_id} />
+    </div>
   );
 }

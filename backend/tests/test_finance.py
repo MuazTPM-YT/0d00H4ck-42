@@ -8,7 +8,15 @@ from app.core.enums import Source, Stage, Unit
 from app.modules.auth.models import Role
 from app.modules.dispatch.models import Dispatch, DispatchStatus
 from app.modules.finance import service
-from app.modules.finance.models import Expense, ExpenseCategory, Invoice, InvoiceStatus, WageRun
+from app.modules.finance.models import (
+    Expense,
+    ExpenseCategory,
+    Invoice,
+    InvoiceLine,
+    InvoiceStatus,
+    WageRun,
+    WageRunStatus,
+)
 from app.modules.inventory.models import (
     BatchStatus,
     ItemKind,
@@ -38,7 +46,7 @@ def mill(db):
     return Mill(db)
 
 
-def invoice_for(db, order, subtotal, days_ago=2):
+def invoice_for(db, order, subtotal, days_ago=2, rolls=()):
     at = NOW - timedelta(days=days_ago)
     d = Dispatch(
         code=f"DN-F{order.id}",
@@ -63,6 +71,17 @@ def invoice_for(db, order, subtotal, days_ago=2):
         due_date=at.date() + timedelta(days=30),
     )
     db.add(inv)
+    db.flush()
+    db.add_all(
+        InvoiceLine(
+            invoice_id=inv.id,
+            roll_id=r.id,
+            metres=r.length_m,
+            rate_paise_per_m=order.rate_paise_per_m,
+            amount_paise=int(r.length_m * order.rate_paise_per_m),
+        )
+        for r in rolls
+    )
     db.commit()
     return inv
 
@@ -146,8 +165,9 @@ def test_order_cost_hand_calculated(db, mill):
         )
     )
     # rolls: 150 m passed, 50 m rejected; weaver paid 200 m x Rs 4 = Rs 800
+    rolls = []
     for length, status in ((150, RollStatus.passed), (50, RollStatus.rejected)):
-        mill.roll(wo, length, status=status)
+        rolls.append(mill.roll(wo, length, status=status))
         db.add(
             ProductionLog(
                 work_order_id=wo.id,
@@ -159,7 +179,7 @@ def test_order_cost_hand_calculated(db, mill):
             )
         )
     db.flush()
-    invoice_for(db, o, 150 * 18500)  # Rs 27,750 before GST
+    invoice_for(db, o, 150 * 18500, rolls=rolls[:1])  # Rs 27,750 before GST
 
     c = service.order_cost(db, o.id)
     assert (c["yarn_paise"], c["machine_paise"], c["labour_paise"]) == (740_000, 300_000, 110_000)
@@ -370,6 +390,27 @@ def test_month_view_and_drilldown(client_as, db, mill):
     assert acc.get("/api/finance/month?month=2026-13").status_code == 422
 
 
+# collected = payments on this month's own invoices, not last month's money arriving now;
+# the result says when no wage run covers the month
+def test_month_collected_is_on_its_own_invoices(client_as, db, mill):
+    today = datetime.now(IST).date()
+    old = invoice_for(db, mill.order(), 300_000, days_ago=today.day + 1)  # last month
+    new = invoice_for(db, mill.order(), 200_000, days_ago=0)
+    db.commit()
+    acc = client_as(Role.accounts)
+    assert pay(acc, old, 315_000).status_code == 201
+    assert pay(acc, new, 50_000).status_code == 201
+    month = today.strftime("%Y-%m")
+    view = acc.get(f"/api/finance/month?month={month}").json()
+    assert view["received_paise"] == 365_000
+    assert view["collected_of_invoiced_paise"] == 50_000
+    assert view["wage_runs"] == 0
+    first = today.replace(day=1)
+    db.add(WageRun(period_start=first, period_end=first, status=WageRunStatus.final))
+    db.commit()
+    assert acc.get(f"/api/finance/month?month={month}").json()["wage_runs"] == 1
+
+
 # yarn rejected back to the supplier is not a cost of the month, in the total or the rows
 def test_yarn_sent_back_is_not_a_yarn_bill(client_as, db):
     from app.modules.inventory.models import BatchStatus, Receipt, ReceiptStatus, YarnBatch
@@ -451,10 +492,27 @@ def test_machine_production_counts_metres_and_hours(client_as, db, mill):
         ]
     )
     db.commit()
+    rework = mill.work_order(o, seq=2)
+    rework.roll_id = mill.roll(wo, 40, status=RollStatus.rework).id
+    db.add(
+        ProductionLog(
+            work_order_id=rework.id,
+            machine_id=mill.loom.id,
+            shift_id=mill.shift.id,
+            qty=Decimal(40),
+            unit=Unit.m,
+            at=start + timedelta(hours=3),
+        )
+    )
+    db.commit()
     rows = client_as(Role.owner).get(f"/api/finance/machine-production?month={start:%Y-%m}").json()
     loom = next(r for r in rows if r["code"] == "LM-T1")
-    assert Decimal(loom["month_qty"]) == 95
+    assert Decimal(loom["month_qty"]) == 95  # rework redoes metres already counted
+    assert loom["type"] == "weaving"
     assert Decimal(loom["hours"]["running"]) == 6 and Decimal(loom["hours"]["breakdown"]) == 2
+    # before its first report the loom was off, as the machine timeline says
+    month_start = datetime.combine(start.date().replace(day=1), time(0), IST)
+    assert Decimal(loom["hours"]["off"]) == Decimal((start - month_start).total_seconds() / 3600)
     assert loom["days"] == [{"day": str(start.date()), "qty": "95.000"}]
 
 
@@ -477,6 +535,232 @@ def test_order_costs_lists_billed_orders_with_their_cost(client_as, db, mill):
     assert rows[0]["invoiced_paise"] == cost["invoiced_paise"]
     assert quiet.code not in {r["order_code"] for r in rows}
     assert client_as(Role.store).get(f"/api/finance/order-costs?month={month}").status_code == 403
+
+
+# --- cost stops when the work stops; margin only on what was billed
+
+
+def running_since(db, mill, wo, start):
+    db.add(
+        MachineEvent(
+            machine_id=mill.loom.id, at=start, status=MachineStatus.running, work_order_id=wo.id
+        )
+    )
+    db.flush()
+
+
+# a done job's last "running" event must not bill the loom until now
+def test_machine_cost_stops_at_job_done(db, mill):
+    o = mill.order(200)
+    wo = mill.work_order(o)
+    start = NOW - timedelta(days=4)
+    running_since(db, mill, wo, start)
+    wo.finished_at = start + timedelta(hours=5)
+    db.flush()
+    c = service.order_cost(db, o.id)
+    assert c["machine_paise"] == 150_000  # 5 h x Rs 300
+    assert c["cost_to_date"] is False
+
+
+# done job with no finish time: stop at its last production log
+def test_machine_cost_stops_at_last_log_without_finish_time(db, mill):
+    o = mill.order(200)
+    wo = mill.work_order(o)
+    start = NOW - timedelta(days=4)
+    running_since(db, mill, wo, start)
+    wo.finished_at = None
+    db.add(
+        ProductionLog(
+            work_order_id=wo.id,
+            machine_id=mill.loom.id,
+            shift_id=mill.shift.id,
+            qty=Decimal(50),
+            unit=Unit.m,
+            at=start + timedelta(hours=3),
+        )
+    )
+    db.flush()
+    assert service.order_cost(db, o.id)["machine_paise"] == 90_000  # 3 h x Rs 300
+
+
+# running job: cost to date, still counted up to now
+def test_running_job_is_cost_to_date(db, mill):
+    o = mill.order(200)
+    wo = mill.work_order(o, status=WorkOrderStatus.running)
+    running_since(db, mill, wo, NOW - timedelta(hours=2))
+    c = service.order_cost(db, o.id)
+    assert c["cost_to_date"] is True and c["cost_provisional"] is True
+    assert c["machine_paise"] >= 60_000
+
+
+# open crew assignment on a running job is clipped to its shift, never to now
+def test_crew_labour_clipped_to_shift_window(db, mill):
+    o = mill.order(200)
+    wo = mill.work_order(o, status=WorkOrderStatus.running)
+    day = (NOW - timedelta(days=3)).astimezone(IST).date()
+    shift_start = datetime.combine(day, time(6), IST)
+    running_since(db, mill, wo, shift_start)
+    helper = daily_worker(db)
+    db.add(
+        CrewAssignment(
+            date=day,
+            shift_id=mill.shift.id,
+            worker_id=helper.id,
+            machine_id=mill.loom.id,
+            from_at=shift_start,
+            to_at=None,
+        )
+    )
+    db.flush()
+    labour = service.order_cost(db, o.id)["labour"]
+    line = next(x for x in labour if x["label"].startswith("W-D1"))
+    assert line["detail"].startswith("8.000 h")
+    assert line["amount_paise"] == 60_000
+
+
+# margin = invoiced - cost per metre x invoiced metres, not the whole order's cost
+def test_margin_on_invoiced_metres_only(db, mill):
+    o = mill.order(200, rate=18500)
+    wo = mill.work_order(o)
+    start = NOW - timedelta(days=4)
+    running_since(db, mill, wo, start)
+    wo.finished_at = start + timedelta(hours=10)  # 10 h x Rs 300 = Rs 3,000
+    shipped = mill.roll(wo, 100)
+    mill.roll(wo, 100)
+    db.flush()
+    invoice_for(db, o, 100 * 18500, rolls=[shipped])
+    c = service.order_cost(db, o.id)
+    assert c["total_paise"] == 300_000 and c["invoiced_m"] == 100
+    assert c["margin_paise"] == 1_850_000 - 150_000  # half the passed metres billed
+    assert c["cost_provisional"] is False
+
+
+def test_cost_per_m_provisional_while_rolls_wait_for_qc(db, mill):
+    o = mill.order(200)
+    wo = mill.work_order(o)
+    mill.roll(wo, 100)
+    mill.roll(wo, 90, status=RollStatus.awaiting_qc)
+    c = service.order_cost(db, o.id)
+    assert c["cost_provisional"] is True and c["cost_to_date"] is False
+
+
+# rework passes are not new weaving: no piece wage, no piece cost
+def test_rework_metres_not_paid_as_piece_work(client_as, db, mill):
+    o = mill.order()
+    weave = mill.work_order(o)
+    roll = mill.roll(weave, 60, status=RollStatus.rework)
+    redo = WorkOrder(
+        code="WO-FR",
+        order_id=o.id,
+        stage=Stage.weaving,
+        seq=1,
+        roll_id=roll.id,
+        planned_qty=Decimal(60),
+        unit=Unit.m,
+        status=WorkOrderStatus.done,
+    )
+    db.add(redo)
+    db.flush()
+    at = datetime.combine(date.today() - timedelta(days=2), time(10), IST)
+    for wo, metres in ((weave, "100"), (redo, "60")):
+        db.add(
+            ProductionLog(
+                work_order_id=wo.id,
+                machine_id=mill.loom.id,
+                shift_id=mill.shift.id,
+                worker_id=mill.weaver.id,
+                qty=Decimal(metres),
+                unit=Unit.m,
+                at=at,
+            )
+        )
+    db.commit()
+    labour = service.order_cost(db, o.id)["labour"]
+    piece = next(x for x in labour if x["label"].startswith("W-T9"))
+    assert piece["amount_paise"] == 40_000  # 100 m x Rs 4
+    day = str(date.today() - timedelta(days=1))
+    start = str(date.today() - timedelta(days=3))
+    run = client_as(Role.accounts).post(
+        "/api/finance/wage-runs", json={"period_start": start, "period_end": day}
+    )
+    lines = {x["worker_code"]: x for x in run.json()["lines"]}
+    assert Decimal(lines["W-T9"]["metres"]) == 100
+
+
+# --- wage run dates, draft delete, period lock
+
+
+def test_wage_run_cannot_include_today(client_as):
+    today = datetime.now(IST).date()
+    res = client_as(Role.accounts).post(
+        "/api/finance/wage-runs",
+        json={"period_start": str(today - timedelta(days=3)), "period_end": str(today)},
+    )
+    assert res.status_code == 422 and res.json()["error"]["field"] == "period_end"
+
+
+def test_delete_draft_wage_run_only(client_as, db):
+    acc = client_as(Role.accounts)
+    yday = datetime.now(IST).date() - timedelta(days=1)
+    body = {"period_start": str(yday - timedelta(days=5)), "period_end": str(yday)}
+    rid = acc.post("/api/finance/wage-runs", json=body).json()["id"]
+    assert acc.delete(f"/api/finance/wage-runs/{rid}").status_code == 204
+    assert acc.get(f"/api/finance/wage-runs/{rid}").status_code == 404
+    rid = acc.post("/api/finance/wage-runs", json=body).json()["id"]  # dates free again
+    acc.post(f"/api/finance/wage-runs/{rid}/finalize")
+    res = acc.delete(f"/api/finance/wage-runs/{rid}")
+    assert res.status_code == 409 and res.json()["error"]["code"] == "illegal_transition"
+    assert client_as(Role.supervisor).delete(f"/api/finance/wage-runs/{rid}").status_code == 403
+
+
+def test_period_locked_by_final_or_paid_run(db):
+    db.add_all(
+        [
+            WageRun(
+                period_start=date(2026, 3, 1),
+                period_end=date(2026, 3, 15),
+                status=WageRunStatus.draft,
+            ),
+            WageRun(
+                period_start=date(2026, 3, 16),
+                period_end=date(2026, 3, 31),
+                status=WageRunStatus.final,
+            ),
+            WageRun(
+                period_start=date(2026, 4, 1),
+                period_end=date(2026, 4, 15),
+                status=WageRunStatus.paid,
+            ),
+        ]
+    )
+    db.flush()
+    assert service.period_locked(db, date(2026, 3, 10)) is False
+    assert service.period_locked(db, date(2026, 3, 16)) is True
+    assert service.period_locked(db, date(2026, 4, 15)) is True
+    assert service.period_locked(db, date(2026, 4, 16)) is False
+
+
+# cash basis "wages paid" opens paid runs only; accrued opens final + paid
+def test_month_wages_paid_drilldown_is_paid_runs_only(client_as, db):
+    today = datetime.now(IST).date()
+    if today.day < 3:
+        pytest.skip("needs two past days in this month")
+    first = today.replace(day=1)
+    second = first + timedelta(days=1)
+    db.add_all(
+        [
+            WageRun(period_start=first, period_end=first, status=WageRunStatus.final),
+            WageRun(period_start=second, period_end=second, status=WageRunStatus.paid),
+        ]
+    )
+    db.commit()
+    acc = client_as(Role.accounts)
+    month = today.strftime("%Y-%m")
+    paid = acc.get(f"/api/finance/month/records?month={month}&kind=wages_paid")
+    assert paid.status_code == 200
+    assert [r["ref"].endswith("(paid)") for r in paid.json()] == [True]
+    accrued = acc.get(f"/api/finance/month/records?month={month}&kind=wages").json()
+    assert len(accrued) == 2
 
 
 # two clerks create overlapping wage runs at the same moment: one wins, one gets the overlap 409

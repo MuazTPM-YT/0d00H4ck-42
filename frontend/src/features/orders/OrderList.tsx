@@ -36,8 +36,10 @@ type StageRow = { order_id: number; stage: string; production_stage: string | nu
 const STAGE_TEXT: Record<string, string> = {
   order_received: "Not confirmed",
   waiting_for_yarn: "Waiting for yarn",
+  planned: "Ready to start",
   in_production: "In production",
   being_checked: "Being checked",
+  short: "Being completed",
   ready_to_ship: "Ready to ship",
   partly_shipped: "Partly shipped",
   shipped: "Shipped",
@@ -49,6 +51,8 @@ const STAGE_TONE: Record<string, string> = {
   partly_shipped: "text-info",
   being_checked: "text-info",
   waiting_for_yarn: "text-warning",
+  planned: "text-info",
+  short: "text-warning",
   cancelled: "text-muted-foreground",
 };
 
@@ -187,12 +191,42 @@ function OrderSheet({ order, onClose }: { order: Order | null; onClose: () => vo
               <Button size="lg" onClick={() => confirm.mutate(order.id)} disabled={confirm.isPending}>Confirm order and reserve yarn</Button>
             )}
             <ErrorText error={confirm.error} />
+            {order.status === "confirmed" && <CloseOrder order={order} onDone={onClose} />}
             <OrderYarnPanel orderId={order.id} />
             <Button asChild variant="outline"><Link href={`/orders/${order.id}`}>Open full order page</Link></Button>
           </div>
         )}
       </SheetContent>
     </Sheet>
+  );
+}
+
+// end a confirmed order by hand: reserved yarn goes back to free stock. Short of metres needs a reason.
+function CloseOrder({ order, onDone }: { order: Order; onDone: () => void }) {
+  const qc = useQueryClient();
+  const [reason, setReason] = useState("");
+  const close = useMutation({
+    mutationFn: () => api<Order>(`/orders/${order.id}/close`, { method: "POST", json: { reason: reason.trim() || null } }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["orders"] });
+      qc.invalidateQueries({ queryKey: ["stock"] });
+      onDone();
+    },
+  });
+  return (
+    <details className="group border border-border px-3 py-2">
+      <summary className="cursor-pointer text-sm font-medium select-none group-open:mb-2">Close order</summary>
+      <form
+        noValidate
+        onSubmit={(e) => { e.preventDefault(); close.mutate(); }}
+        className="grid gap-2"
+      >
+        <label htmlFor={`close-${order.id}`} className="label">Reason (needed if less than {metres(order.qty_m)} shipped)</label>
+        <Input id={`close-${order.id}`} value={reason} maxLength={2000} onChange={(e) => setReason(e.target.value)} placeholder="e.g. Buyer accepted short delivery" />
+        <ErrorText error={close.error} />
+        <Button type="submit" variant="outline" disabled={close.isPending}>Close {order.code}</Button>
+      </form>
+    </details>
   );
 }
 

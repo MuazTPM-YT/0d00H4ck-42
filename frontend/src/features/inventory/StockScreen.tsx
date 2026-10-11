@@ -39,7 +39,7 @@ export function StockScreen() {
     <>
       <PageHeader
         title="Yarn stock"
-        description="Free = approved yarn in store minus reservations. Inspection and quarantine never count. Projected = free minus what confirmed orders still need."
+        description="Free = approved yarn in store minus reservations. Inspection and quarantine never count. Projected = free minus what confirmed orders still need, plus yarn on order that no order has claimed."
         actions={
           <Button asChild variant="outline">
             <Link href="/store/receive">Receive yarn</Link>
@@ -73,6 +73,7 @@ export function StockScreen() {
                 <TableHead className="text-right">Reserved</TableHead>
                 <TableHead className="text-right">Free</TableHead>
                 <TableHead className="text-right">Still needed</TableHead>
+                <TableHead className="text-right">On order</TableHead>
                 <TableHead className="text-right">Projected</TableHead>
                 <TableHead className="text-right">Reorder at</TableHead>
                 <TableHead className="text-right">On hold</TableHead>
@@ -89,6 +90,7 @@ export function StockScreen() {
                   <TableCell className="text-right">{kg(r.reserved_kg)}</TableCell>
                   <TableCell className="text-right font-medium">{kg(r.free_kg)}</TableCell>
                   <TableCell className="text-right">{kg(r.needed_by_orders_kg)}</TableCell>
+                  <TableCell className="text-right">{kg(r.on_order_kg)}</TableCell>
                   <TableCell className="text-right font-medium">{kg(r.projected_free_kg)}</TableCell>
                   <TableCell className="text-right text-muted-foreground">{kg(r.reorder_level_kg)}</TableCell>
                   <TableCell className="text-right text-muted-foreground" title="In inspection · in quarantine; neither counts as free">

@@ -1,6 +1,7 @@
+import { Activity, CirclePause, Clock, type LucideIcon, Pause, Power, TriangleAlert, Wrench } from "lucide-react";
+
 import { DitherPlate } from "@/components/dither/DitherPlate";
 import type { MotifName } from "@/components/dither/motifs";
-import { StatusBadge } from "@/components/layout/StatusBadge";
 import { humanize, kg, metres } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
@@ -25,6 +26,26 @@ const TILE_TINT: Partial<Record<MachineStatus, string>> = {
 const machineMotif = (code: string): MotifName => (code.startsWith("LM") ? "loom" : code.startsWith("DY") ? "rolls" : code.startsWith("SP") || code.startsWith("RF") ? "cones" : "gear");
 const BAR: Record<MachineStatus, string> = { ...STATUS_BAR, idle: "bg-primary", off: "bg-primary" };
 
+// state as one icon in a square, coloured by meaning; the word lives in the tooltip and for
+// screen readers, so a long status can never push the card out of shape
+const STATE: Record<MachineStatus, { icon: LucideIcon; tone: string }> = {
+  running: { icon: Activity, tone: "border-info/40 bg-info-soft text-info" },
+  idle: { icon: Pause, tone: "border-neutral/30 bg-neutral-soft text-neutral" },
+  breakdown: { icon: TriangleAlert, tone: "border-danger/50 bg-danger text-white" },
+  maintenance: { icon: Wrench, tone: "border-warning/50 bg-warning-soft text-warning" },
+  off: { icon: Power, tone: "border-neutral/30 bg-neutral-soft text-neutral" },
+};
+
+function StateIcon({ status }: { status: MachineStatus }) {
+  const { icon: Icon, tone } = STATE[status];
+  return (
+    <span className={cn("grid size-9 shrink-0 place-items-center border", tone)} title={humanize(status)}>
+      <Icon className="size-[1.1rem]" strokeWidth={2.2} aria-hidden />
+      <span className="sr-only">{humanize(status)}</span>
+    </span>
+  );
+}
+
 export function MachineTile({ tile, now, onOpen }: { tile: BoardTile; now: number; onOpen: () => void }) {
   const fmt = tile.unit === "kg" ? kg : metres;
   const job = tile.job;
@@ -35,22 +56,28 @@ export function MachineTile({ tile, now, onOpen }: { tile: BoardTile; now: numbe
     <button
       type="button"
       onClick={onOpen}
+      data-machine={tile.code}
       aria-label={`${tile.code}, ${humanize(tile.status)}${job ? `, ${job.order_code}` : ""}. Open machine`}
       className={cn(
-        "dither-hover relative flex min-h-52 min-w-0 flex-col overflow-hidden border border-border border-t-2 border-t-foreground bg-card text-left outline-none focus-visible:ring-2 focus-visible:ring-ember",
+        "dither-hover relative flex min-h-48 min-w-0 flex-col overflow-hidden border border-border border-t-2 border-t-foreground bg-card text-left outline-none focus-visible:ring-2 focus-visible:ring-ember",
         TILE_TINT[tile.status],
       )}
     >
-      <span className="relative grid min-w-0 flex-1 grid-cols-1 content-start gap-3 p-5">
-        <span className="grid grid-cols-1 gap-1">
-          <span className="flex min-w-0 items-center justify-between gap-2">
-            <span className="figure text-[1.45rem] whitespace-nowrap">{tile.code}</span>
-            <StatusBadge status={tile.status} className="shrink-0" />
+      <span className="relative flex min-w-0 flex-1 flex-col gap-3.5 p-5">
+        <span className="flex min-w-0 items-start justify-between gap-3">
+          <span className="grid min-w-0 gap-1">
+            <span className="figure truncate text-[1.5rem]">{tile.code}</span>
+            <span className="label truncate normal-case tracking-[0.04em]">{tile.name}</span>
+            {since && (
+              <span className="num flex min-w-0 items-center gap-1.5 text-[0.75rem] text-muted-foreground">
+                <Clock className="size-3.5 shrink-0" aria-hidden />
+                <span className="truncate">
+                  {humanize(tile.status)} {since}
+                </span>
+              </span>
+            )}
           </span>
-          <span className="flex min-w-0 items-baseline justify-between gap-3 text-[0.84rem] text-muted-foreground">
-            <span className="truncate">{tile.name}</span>
-            {since && <span className="num shrink-0 text-[0.78rem]">{since}</span>}
-          </span>
+          <StateIcon status={tile.status} />
         </span>
 
         {tile.reason && tile.status !== "running" && tile.status !== "idle" && (
@@ -58,32 +85,40 @@ export function MachineTile({ tile, now, onOpen }: { tile: BoardTile; now: numbe
         )}
 
         {job ? (
-          <span className="grid grid-cols-1 gap-1.5">
+          <span className="grid min-w-0 gap-1.5">
             <span className="flex min-w-0 items-center justify-between gap-2 text-[0.92rem]">
-              <span className="min-w-0 truncate font-semibold">
+              <span className="min-w-0 truncate font-semibold" title={`${job.order_code} · ${job.code}${job.roll_id ? " · rework" : ""}`}>
                 {job.order_code}
                 {job.roll_id && " · rework"}
               </span>
-              {job.status === "paused" && <StatusBadge status="paused" className="shrink-0" />}
+              {job.status === "paused" && (
+                <span className="shrink-0 text-warning" title="Job paused">
+                  <CirclePause className="size-5" aria-hidden />
+                  <span className="sr-only">Job paused</span>
+                </span>
+              )}
             </span>
-            <span className="h-2 overflow-hidden border border-border bg-[radial-gradient(var(--input)_0.7px,transparent_1px)] bg-[size:4px_4px]" role="progressbar" aria-valuenow={done} aria-valuemin={0} aria-valuemax={100} aria-label={`${job.code} progress`}>
+            <span className="h-2 overflow-hidden border border-border bg-[radial-gradient(var(--input)_0.7px,transparent_1px)] bg-[size:4px_4px]" role="progressbar" aria-valuenow={done} aria-valuemin={0} aria-valuemax={100} aria-label={`${job.code} progress against its plan`}>
               <span className={cn("block h-full transition-[width] duration-500 ease-out", BAR[tile.status])} style={{ width: `${done}%` }} />
             </span>
-            <span className="num truncate text-[0.78rem] text-muted-foreground" title={`${job.code} · ${fmt(job.produced)} of ${fmt(job.planned)}`}>
-              {done}% · {fmt(Number(job.produced).toFixed(0))} of {fmt(job.planned)}
+            <span className="num flex min-w-0 items-baseline justify-between gap-2 text-[0.78rem] text-muted-foreground">
+              <span className="min-w-0 truncate">
+                {fmt(job.produced)} / {fmt(job.planned)}
+              </span>
+              <span className="shrink-0 font-medium text-foreground" title="Of the job's plan: the order plus the 5% allowance">{done}%</span>
             </span>
           </span>
         ) : (
-          <span className="text-sm text-muted-foreground">{tile.queued ? `No job running · ${tile.queued} queued` : "No job"}</span>
+          <span className="truncate text-sm text-muted-foreground">{tile.queued ? `No job running · ${tile.queued} queued` : "No job"}</span>
         )}
       </span>
 
       <span className="relative mx-5 flex items-end justify-between gap-2 border-t border-border pt-3 pb-3">
-        <span>
+        <span className="min-w-0">
           <span className="label block">Made today</span>
-          <span className="num text-lg font-medium">{fmt(tile.today_output)}</span>
+          <span className="num block truncate text-lg font-medium">{fmt(tile.today_output)}</span>
         </span>
-        <span className="min-w-0 truncate text-right text-[0.82rem] text-muted-foreground">{tile.crew.length ? tile.crew.join(", ") : "No crew"}</span>
+        <span className="min-w-0 shrink truncate text-right text-[0.82rem] text-muted-foreground" title={tile.crew.join(", ")}>{tile.crew.length ? tile.crew.join(", ") : "No crew"}</span>
       </span>
       <DitherPlate motif={machineMotif(tile.code)} seed={tile.code} live={tile.status === "running"} className="pointer-events-none !h-12 border-t border-border opacity-70 [mask-image:linear-gradient(to_right,transparent,#000_55%)]" />
     </button>

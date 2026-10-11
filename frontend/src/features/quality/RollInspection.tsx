@@ -15,6 +15,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { dateTime, humanize, kg, metres } from "@/lib/format";
 import { useMe } from "@/lib/auth";
 import { cn } from "@/lib/utils";
+import { canSee, findRoute } from "@/nav";
 import { validQuantity } from "@/lib/validation";
 
 import { type Decision, DEFECTS, type DefectType, defectLabel, defectPoints, type RollDetail, SHADE_BANDS, type ShadeBand, SIZES, scorePer100, type Stage, useDecide, useQueue, useRoll, useTrace } from "./api";
@@ -66,6 +67,8 @@ export function RollInspection({ id, compact = false }: { id: number; compact?: 
     );
   }
   const r = roll.data;
+  const orderRoute = findRoute(`/orders/${r.order_id}`);
+  const canOpenOrder = !!role && !!orderRoute && canSee(orderRoute, role);
 
   return (
     <div className="grid gap-6">
@@ -82,9 +85,13 @@ export function RollInspection({ id, compact = false }: { id: number; compact?: 
 
       <dl className={cn("grid gap-x-4 gap-y-3", compact ? "grid-cols-2" : "grid-cols-2 sm:grid-cols-4")}>
         <Fact label="Order">
-          <Link href={`/orders/${r.order_id}`} className="num hover:text-ember">
-            {r.order_code}
-          </Link>
+          {canOpenOrder ? (
+            <Link href={`/orders/${r.order_id}`} className="num hover:text-ember">
+              {r.order_code}
+            </Link>
+          ) : (
+            <span className="num">{r.order_code}</span>
+          )}
         </Fact>
         <Fact label="Buyer">{r.buyer_name}</Fact>
         <Fact label="Fabric">{r.fabric_name}</Fact>
@@ -113,7 +120,12 @@ export function RollInspection({ id, compact = false }: { id: number; compact?: 
         </div>
       )}
 
-      {r.status === "awaiting_qc" && inspector && <DecisionForm key={`${r.id}-${r.checks.length}`} roll={r} onDone={setDone} />}
+      {r.status === "awaiting_qc" &&
+        (inspector ? (
+          <DecisionForm key={`${r.id}-${r.checks.length}`} roll={r} onDone={setDone} />
+        ) : (
+          <p className="border-t border-foreground pt-5 text-sm text-muted-foreground">Waiting for QC.</p>
+        ))}
 
       {r.checks.length > 0 && (
         <Section title="QC history">
@@ -243,10 +255,12 @@ function TraceSections({ id }: { id: number }) {
   );
 }
 
-// the rework job goes where the fault can be fixed: colour faults to dyeing, cloth faults to the loom
-function defaultStage(stages: Stage[], types: string[]): Stage | null {
-  if (stages.includes("dyeing") && types.some((t) => t === "colour_mismatch" || t === "stain")) return "dyeing";
-  return stages.includes("weaving") ? "weaving" : (stages.at(-1) ?? null);
+// same rules as the server: rework only for a confirmed order, and not after two checks
+const MAX_REWORK_CHECKS = 2;
+function reworkBlocked(roll: RollDetail): string | null {
+  if (roll.order_status !== "confirmed") return `Order is ${humanize(roll.order_status).toLowerCase()}: reject instead.`;
+  if (roll.checks.length >= MAX_REWORK_CHECKS) return "Third check: pass or reject.";
+  return null;
 }
 
 function DecisionForm({ roll, onDone }: { roll: RollDetail; onDone: (message: string) => void }) {
@@ -266,7 +280,9 @@ function DecisionForm({ roll, onDone }: { roll: RollDetail; onDone: (message: st
   const picked = DEFECTS.filter((d) => defects[d.type]).map((d) => ({ type: d.type, count: defects[d.type]!, points: d.type === "hole" ? 4 : (sizes[d.type] ?? 1) }));
   const points = defectPoints(picked);
   const score = scorePer100(points, Number(roll.length_m), Number(width) > 0 ? Number(width) : Number(roll.fabric_width_cm));
-  const reworkStage = stage ?? defaultStage(stages, picked.map((d) => d.type));
+  // server default: last stage on the route, unless the inspector picks another
+  const reworkStage = stage ?? stages.at(-1) ?? null;
+  const blocked = reworkBlocked(roll);
   // measured vs spec, signed percent
   const off = (measured: string, spec: string) => (Number(measured) > 0 ? Math.round(((Number(measured) - Number(spec)) / Number(spec)) * 1000) / 10 : null);
   const gsmOff = off(gsm, roll.fabric_gsm);
@@ -316,9 +332,11 @@ function DecisionForm({ roll, onDone }: { roll: RollDetail; onDone: (message: st
               type="button"
               role="radio"
               aria-checked={decision === value}
+              disabled={value === "rework" && !!blocked}
+              title={value === "rework" ? (blocked ?? undefined) : undefined}
               onClick={() => setDecision(value)}
               className={cn(
-                "pressable flex h-20 flex-col items-center justify-center gap-1.5 border text-[0.95rem] font-semibold outline-none focus-visible:ring-1 focus-visible:ring-ember",
+                "pressable flex h-20 flex-col items-center justify-center gap-1.5 border text-[0.95rem] font-semibold outline-none focus-visible:ring-1 focus-visible:ring-ember disabled:cursor-not-allowed disabled:opacity-40",
                 decision === value ? on : "border-border bg-card text-foreground hover:border-foreground",
               )}
             >
@@ -327,6 +345,7 @@ function DecisionForm({ roll, onDone }: { roll: RollDetail; onDone: (message: st
             </button>
           ))}
         </div>
+        {blocked && <p className="text-[0.82rem] text-muted-foreground">Rework not offered. {blocked}</p>}
       </Section>
 
       <Section title="Defects">

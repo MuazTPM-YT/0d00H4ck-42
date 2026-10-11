@@ -16,6 +16,8 @@ from app.modules.production.schemas import (
     MoveIn,
     OpenWorkOrderOut,
     OutputIn,
+    ProcessWaitingIn,
+    ProcessWaitingOut,
     ProductionLogOut,
     QueueIn,
     ReorderIn,
@@ -74,6 +76,16 @@ def move(work_order_id: int, body: MoveIn, db: Session = Depends(get_db), user: 
 @router.post("/work-orders/{work_order_id}/finish", response_model=WorkOrderOut)
 def finish(work_order_id: int, db: Session = Depends(get_db), user: User = Supervisor):
     return service.finish_work_order(db, work_order_id, user.id)
+
+
+@router.post("/work-orders/{work_order_id}/process-waiting", response_model=ProcessWaitingOut)
+def process_waiting(
+    work_order_id: int,
+    body: ProcessWaitingIn | None = None,
+    db: Session = Depends(get_db),
+    user: User = Supervisor,
+):
+    return service.process_waiting(db, work_order_id, body or ProcessWaitingIn(), user.id)
 
 
 @router.put("/machines/{machine_id}/queue", response_model=list[WorkOrderOut])

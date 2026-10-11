@@ -21,6 +21,8 @@ import type { WageRun, WageRunDetail } from "./types";
 
 const LIMIT = 20;
 const istToday = () => new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
+// a wage run ends yesterday at the latest: today's attendance and logs can still change
+const istYesterday = () => new Date(Date.now() - 86_400_000).toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
 
 const columns: Column<WageRun>[] = [
   { key: "period", header: "Period", cell: (r) => `${date(r.period_start)} – ${date(r.period_end)}` },
@@ -98,6 +100,7 @@ function NewRunForm({ onDone }: { onDone: (id: number) => void }) {
     const start = String(f.get("period_start"));
     const end = String(f.get("period_end"));
     if (end < start) return setErrors({ period_end: "End date must be on or after start date" });
+    if (end >= istToday()) return setErrors({ period_end: "A wage run must end yesterday or earlier" });
     if ((Date.parse(end) - Date.parse(start)) / 86_400_000 > 62) return setErrors({ period_end: "A wage run covers at most 62 days" });
     create.mutate({ period_start: start, period_end: end });
   }
@@ -107,10 +110,10 @@ function NewRunForm({ onDone }: { onDone: (id: number) => void }) {
       setErrors((p) => ({ ...p, [el.name]: el.validationMessage }));
     }} className="grid gap-3">
       <FormField name="period_start" label="From" required error={errors.period_start}>
-        <Input id="period_start" name="period_start" type="date" required max={istToday()} aria-invalid={!!errors.period_start} />
+        <Input id="period_start" name="period_start" type="date" required max={istYesterday()} aria-invalid={!!errors.period_start} />
       </FormField>
       <FormField name="period_end" label="To" required error={errors.period_end}>
-        <Input id="period_end" name="period_end" type="date" required max={istToday()} aria-invalid={!!errors.period_end} />
+        <Input id="period_end" name="period_end" type="date" required max={istYesterday()} aria-invalid={!!errors.period_end} />
       </FormField>
       {errors.form && <p role="alert" className="text-sm text-danger">{errors.form}</p>}
       <Button type="submit" disabled={create.isPending}>{create.isPending ? "Working out…" : "Create draft"}</Button>
@@ -124,6 +127,14 @@ function RunDetail({ id }: { id: number }) {
   const act = useMutation({
     mutationFn: (action: "recompute" | "finalize" | "pay") => api(`/finance/wage-runs/${id}/${action}`, { method: "POST" }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["finance"] }),
+  });
+  const { setOpen } = useOpenParam();
+  const remove = useMutation({
+    mutationFn: () => api(`/finance/wage-runs/${id}`, { method: "DELETE" }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["finance"] });
+      setOpen(null);
+    },
   });
   if (run.isPending) return <Skeleton className="h-64 w-full" />;
   if (run.isError) return <EmptyState icon={AlertTriangle} title="Could not load wage run">{run.error.message}</EmptyState>;
@@ -157,7 +168,9 @@ function RunDetail({ id }: { id: number }) {
         </table>
       </div>
       {act.isError && <p role="alert" className="text-sm text-danger">{act.error.message}</p>}
+      {remove.isError && <p role="alert" className="text-sm text-danger">{remove.error.message}</p>}
       <div className="flex flex-wrap justify-end gap-2">
+        {r.status === "draft" && <Button variant="outline" className="mr-auto text-danger" disabled={remove.isPending} onClick={() => window.confirm("Delete this draft wage run?") && remove.mutate()}>Delete draft</Button>}
         {r.status === "draft" && <Button variant="outline" disabled={act.isPending} onClick={() => act.mutate("recompute")}>Recompute</Button>}
         {r.status === "draft" && <Button disabled={act.isPending} onClick={() => window.confirm("Lock this wage run?") && act.mutate("finalize")}>Finalise</Button>}
         {r.status === "final" && <Button disabled={act.isPending} onClick={() => window.confirm("Mark wages as paid out?") && act.mutate("pay")}>Mark paid</Button>}

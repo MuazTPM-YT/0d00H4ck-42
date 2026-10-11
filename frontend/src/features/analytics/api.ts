@@ -146,7 +146,7 @@ export function useInsightAction(id: number) {
 export function useRunDetectors() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: () => api<{ created: number; updated: number; unchanged: number; skipped: number }>("/analytics/run", { method: "POST" }),
+    mutationFn: () => api<{ created: number; updated: number; unchanged: number; skipped: number; resolved: number }>("/analytics/run", { method: "POST" }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["insights"] }),
   });
 }

@@ -196,6 +196,7 @@ class ReceiptLineIn(BaseModel):
     received_kg: MaxKg
     label_missing: bool = False
     rate_paise_per_kg: Paise | None = None
+    order_id: int | None = Field(default=None, gt=0)  # walk-in yarn bought for one order
 
     @model_validator(mode="after")
     def complete(self):
@@ -292,6 +293,7 @@ class StockRow(BaseModel):
     quarantined_kg: Decimal
     wip_kg: Decimal
     needed_by_orders_kg: Decimal
+    on_order_kg: Decimal  # still to arrive on deliveries not tied to an order
     projected_free_kg: Decimal
     reorder_level_kg: Decimal
     level: str  # ok | low | short
@@ -363,3 +365,18 @@ class IssuePlanOut(BaseModel):
     reserved: list[PlanLine]
     free: list[PlanLine]
     on_floor: list[OnFloor]
+
+
+class NeedsYarnRow(BaseModel):
+    work_order_id: int
+    wo_code: str
+    order_id: int
+    order_code: str
+    buyer: str
+    stage: str
+    machine_code: str | None
+    status: str
+    kg_needed: Decimal
+    kg_issued: Decimal
+    kg_reserved: Decimal
+    deadline: date

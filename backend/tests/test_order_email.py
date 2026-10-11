@@ -5,7 +5,7 @@ import pytest
 from app.core import mail
 from app.core.config import get_settings
 from app.modules.auth.models import Role
-from app.modules.masters.models import Buyer
+from app.modules.masters.models import Buyer, YarnItem
 from app.modules.orders.models import Order, OrderStatus
 from tests.mill import Mill
 
@@ -14,6 +14,7 @@ from tests.mill import Mill
 def draft(db):
     mill = Mill(db)
     mill.buyer.email = "buyer@test.local"
+    db.add(YarnItem(fibre="Cotton", count="Ne 40/1", colour="Navy"))  # confirm needs the yarn
     order = mill.order(status=OrderStatus.draft)
     db.commit()
     return order

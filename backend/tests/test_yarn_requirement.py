@@ -24,12 +24,13 @@ def test_formula_worked_example():
 
 
 def test_split_by_recipe_share_keeps_order_colour_without_dyeing():
+    # 1000 m + 5% process allowance = 1050 m -> 210 kg, split 60 / 40
     lines = yarn_components(
         Decimal(1000), fabric([Stage.weaving], [("Ne 40/1", 60), ("Ne 30/1", 40)]), "Navy"
     )
     assert [(x["count"], x["kg_needed"], x["colour"]) for x in lines] == [
-        ("Ne 40/1", Decimal("120.000"), "Navy"),
-        ("Ne 30/1", Decimal("80.000"), "Navy"),
+        ("Ne 40/1", Decimal("126.000"), "Navy"),
+        ("Ne 30/1", Decimal("84.000"), "Navy"),
     ]
 
 
@@ -38,7 +39,7 @@ def test_dyed_route_needs_raw_white_yarn():
         Decimal(1000), fabric([Stage.weaving, Stage.dyeing], [("Ne 40/1", 100)]), "Maroon"
     )
     assert lines[0]["colour"] == RAW_WHITE
-    assert lines[0]["kg_needed"] == Decimal("200.000")
+    assert lines[0]["kg_needed"] == Decimal("210.000")
 
 
 def test_rounds_to_grams():
