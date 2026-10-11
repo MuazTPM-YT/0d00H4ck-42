@@ -41,11 +41,13 @@ const STAGE_TEXT: Record<string, string> = {
   ready_to_ship: "Ready to ship",
   partly_shipped: "Partly shipped",
   shipped: "Shipped",
+  delivered: "Delivered",
   cancelled: "Cancelled",
 };
 const STAGE_TONE: Record<string, string> = {
   ready_to_ship: "text-success",
   shipped: "text-success",
+  delivered: "text-success",
   partly_shipped: "text-info",
   being_checked: "text-info",
   waiting_for_yarn: "text-warning",

@@ -11,6 +11,7 @@ export type Stage =
   | "ready_to_ship"
   | "partly_shipped"
   | "shipped"
+  | "delivered"
   | "cancelled";
 
 // same shape as TrackOut in backend/app/modules/tracking/schemas.py
@@ -49,8 +50,9 @@ const STEPS: { stage: Stage; label: string }[] = [
   { stage: "being_checked", label: "Quality check" },
   { stage: "ready_to_ship", label: "Ready" },
   { stage: "shipped", label: "Shipped" },
+  { stage: "delivered", label: "Delivered" },
 ];
-const ORDER: Stage[] = ["order_received", "waiting_for_yarn", "in_production", "being_checked", "ready_to_ship", "partly_shipped", "shipped"];
+const ORDER: Stage[] = ["order_received", "waiting_for_yarn", "in_production", "being_checked", "ready_to_ship", "partly_shipped", "shipped", "delivered"];
 
 const HEADLINE: Record<Stage, string> = {
   order_received: "Order received, not confirmed yet",
@@ -60,6 +62,7 @@ const HEADLINE: Record<Stage, string> = {
   ready_to_ship: "Ready to ship",
   partly_shipped: "Partly shipped",
   shipped: "Shipped",
+  delivered: "Delivered",
   cancelled: "Cancelled",
 };
 
@@ -92,11 +95,11 @@ export function StageCard({ t }: { t: Track }) {
       </div>
 
       {t.stage !== "cancelled" && (
-        <ol className="mt-6 grid grid-cols-5 gap-1" aria-label="Order progress">
+        <ol className="mt-6 grid grid-cols-6 gap-1" aria-label="Order progress">
           {STEPS.map((s) => {
             const idx = ORDER.indexOf(s.stage);
-            const done = at > idx || t.stage === "shipped";
-            const current = at === idx || (t.stage === "partly_shipped" && s.stage === "shipped");
+            const done = at > idx || t.stage === "delivered";
+            const current = !done && (at === idx || (t.stage === "partly_shipped" && s.stage === "shipped"));
             return (
               <li key={s.stage} className="grid gap-1 text-center text-xs">
                 <span className={cn("h-2 rounded-full", done ? "bg-success" : current ? "bg-primary" : "bg-muted")} />

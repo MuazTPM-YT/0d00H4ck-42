@@ -13,6 +13,7 @@ class BuyerStage(StrEnum):
     ready_to_ship = "ready_to_ship"
     partly_shipped = "partly_shipped"
     shipped = "shipped"
+    delivered = "delivered"
     cancelled = "cancelled"
 
 

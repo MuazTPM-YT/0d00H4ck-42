@@ -7,7 +7,7 @@ Owner: Ashil. Code: `backend/app/modules/tracking/`, `frontend/src/features/trac
 
 - **Answers "where is my order?"** without anyone walking the floor. The answer is a buyer
   stage: order received → waiting for yarn → in production (stage name and %) → being checked →
-  ready to ship → partly shipped → shipped, or cancelled.
+  ready to ship → partly shipped → shipped → delivered, or cancelled.
 - **Shows metres by bucket:** produced, in QC (in process, awaiting QC or rework), passed and on
   the shelf, rejected, shipped.
 - **Answers "when?"** It shows the deadline and the projected finish from
@@ -66,7 +66,8 @@ Nothing is stored. Every request recomputes the stage from the rows.
 one that matches wins:
 
 1. Order cancelled → **cancelled**. Draft → **order received**.
-2. Shipped metres ≥ ordered, or order closed → **shipped**. Any shipped metres → **partly shipped**.
+2. Shipped metres ≥ ordered, or order closed → **delivered** if every truck's delivery code was
+   entered, else **shipped**. Any shipped metres → **partly shipped**.
 3. Passed metres ≥ ordered → **ready to ship**.
 4. All route work orders done: rolls still in QC → **being checked**; otherwise any passed metres
    → **ready to ship**.

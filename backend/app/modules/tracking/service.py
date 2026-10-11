@@ -54,6 +54,9 @@ def derive_stage(
     if order_status == OrderStatus.draft:
         return BuyerStage.order_received, None, None
     if order_status == OrderStatus.closed or m["shipped"] >= qty_m:
+        # every truck signed for at the gate with the buyer's code
+        if m["shipped"] > 0 and m["delivered"] >= m["shipped"]:
+            return BuyerStage.delivered, None, None
         return BuyerStage.shipped, None, None
     if m["shipped"] > 0:
         return BuyerStage.partly_shipped, None, None
@@ -113,6 +116,13 @@ def _metres(db: Session, order_id: int) -> dict[str, Decimal]:
     for status, metres in rows:
         m[BUCKET[status]] += metres
         m["produced"] += metres
+    # shipped metres the buyer already signed for; not a roll status, the truck holds it
+    m["delivered"] = db.scalar(
+        select(func.coalesce(func.sum(Roll.length_m), 0))
+        .join(DispatchRoll, DispatchRoll.roll_id == Roll.id)
+        .join(Dispatch, Dispatch.id == DispatchRoll.dispatch_id)
+        .where(Roll.order_id == order_id, Dispatch.delivered_at.is_not(None))
+    )
     return {k: qty(v) for k, v in m.items()}
 
 
@@ -122,7 +132,7 @@ def _estimate(db: Session, order: Order, stage: BuyerStage) -> tuple:
         finish = est["expected_at"]
         return (finish.astimezone(IST).date() if finish else None), Risk(est["status"])
     # only confirmed orders get a forecast; a missed deadline is still a plain fact
-    done = stage in (BuyerStage.shipped, BuyerStage.cancelled)
+    done = stage in (BuyerStage.shipped, BuyerStage.delivered, BuyerStage.cancelled)
     late = not done and datetime.now(IST).date() > order.deadline
     return None, Risk.late if late else None
 

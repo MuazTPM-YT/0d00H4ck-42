@@ -18,9 +18,8 @@ D = Decimal
 
 
 def metres(**kw):
-    return {"produced": D(0), "in_qc": D(0), "passed": D(0), "rejected": D(0), "shipped": D(0)} | {
-        k: D(v) for k, v in kw.items()
-    }
+    zero = ("produced", "in_qc", "passed", "rejected", "shipped", "delivered")
+    return dict.fromkeys(zero, D(0)) | {k: D(v) for k, v in kw.items()}
 
 
 def wo(stage, status, planned=1000, produced=0):
@@ -81,6 +80,31 @@ def wo(stage, status, planned=1000, produced=0):
             (S.shipped, None, None),
         ),
         (OrderStatus.closed, [wo("weaving", W.done)], metres(shipped=950), (S.shipped, None, None)),
+        # delivered only once every metre left and every truck's code was entered
+        (
+            OrderStatus.confirmed,
+            [wo("weaving", W.done)],
+            metres(shipped=1000, delivered=1000),
+            (S.delivered, None, None),
+        ),
+        (
+            OrderStatus.confirmed,
+            [wo("weaving", W.done)],
+            metres(shipped=1000, delivered=600),
+            (S.shipped, None, None),
+        ),
+        (
+            OrderStatus.confirmed,
+            [wo("weaving", W.done)],
+            metres(produced=1000, passed=700, shipped=300, delivered=300),
+            (S.partly_shipped, None, None),
+        ),
+        (
+            OrderStatus.closed,
+            [wo("weaving", W.done)],
+            metres(shipped=950, delivered=950),
+            (S.delivered, None, None),
+        ),
     ],
 )
 def test_derive_stage(status, stages, m, expected):

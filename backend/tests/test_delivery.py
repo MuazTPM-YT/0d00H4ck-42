@@ -24,7 +24,12 @@ def mill(db):
 # a truck that really left: rolls scanned on, confirmed by the clerk through the API
 @pytest.fixture
 def truck(db, mill, client_as):
-    o = mill.order(300)
+    return send_truck(db, mill, client_as, 300)
+
+
+# 190 m of rolls leave on one truck for an order of order_m
+def send_truck(db, mill, client_as, order_m):
+    o = mill.order(order_m)
     wo = mill.work_order(o)
     rolls = [mill.roll(wo, 100), mill.roll(wo, 90)]
     d = Dispatch(
@@ -221,3 +226,16 @@ def test_last_try_cannot_be_spent_twice(committed, monkeypatch):
     assert sorted(outcomes) == ["otp_locked", "wrong_otp"]
     with Session(committed) as s:
         assert s.get(Dispatch, d_id).otp_tries == 5
+
+
+def test_stage_turns_delivered_once_the_last_truck_code_is_entered(client, db, mill, client_as):
+    d, o, _ = send_truck(db, mill, client_as, 190)
+    assert client.get(f"/api/track/{o.tracking_token}").json()["stage"] == "shipped"
+    assert give(client, d, d.delivery_otp).status_code == 200
+    assert client.get(f"/api/track/{o.tracking_token}").json()["stage"] == "delivered"
+
+
+def test_part_order_delivered_is_still_partly_shipped(client, truck):
+    d, o, _ = truck
+    assert give(client, d, d.delivery_otp).status_code == 200
+    assert client.get(f"/api/track/{o.tracking_token}").json()["stage"] == "partly_shipped"
