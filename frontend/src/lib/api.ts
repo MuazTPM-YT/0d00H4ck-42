@@ -14,7 +14,30 @@ export class ApiError extends Error {
 
 type Options = Omit<RequestInit, "body"> & { json?: unknown };
 
-export async function api<T>(path: string, { json, headers, ...init }: Options = {}): Promise<T> {
+// every write and its answer, for whoever listens (the guided tour's action log)
+export type ApiWrite = { method: string; path: string; status: number; message: string | null };
+const listeners = new Set<(w: ApiWrite) => void>();
+export function onApiWrite(fn: (w: ApiWrite) => void): () => void {
+  listeners.add(fn);
+  return () => listeners.delete(fn);
+}
+const told = (w: ApiWrite) => listeners.forEach((fn) => fn(w));
+
+export async function api<T>(path: string, options: Options = {}): Promise<T> {
+  const method = (options.method ?? "GET").toUpperCase();
+  if (method === "GET" || !listeners.size) return send<T>(path, options);
+  try {
+    const result = await send<T>(path, options);
+    told({ method, path, status: 200, message: null });
+    return result;
+  } catch (e) {
+    const err = e as ApiError;
+    told({ method, path, status: err.status ?? 0, message: err.message });
+    throw e;
+  }
+}
+
+async function send<T>(path: string, { json, headers, ...init }: Options): Promise<T> {
   let res: Response;
   try {
     res = await fetch(`/api${path}`, {
