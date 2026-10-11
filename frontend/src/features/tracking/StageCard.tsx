@@ -1,4 +1,5 @@
-import { Check } from "lucide-react";
+import { Check, Eye, EyeOff } from "lucide-react";
+import { useState } from "react";
 
 import { date, dateTime, humanize, metres } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -175,6 +176,7 @@ export function Deliveries({ items }: { items: NonNullable<Track["deliveries"]> 
 
 // the code is the buyer's signature: hand it over only once the rolls are counted
 function DeliveryState({ d }: { d: NonNullable<Track["deliveries"]>[number] }) {
+  const [show, setShow] = useState(false);
   if (d.delivered_at) {
     return (
       <p className="flex items-center gap-2 bg-success-soft px-3 py-2 text-success sm:col-span-2">
@@ -196,7 +198,16 @@ function DeliveryState({ d }: { d: NonNullable<Track["deliveries"]>[number] }) {
       <span>
         Delivery code
         {d.vehicle_no && ` for ${d.vehicle_no}`}:{" "}
-        <strong className="font-mono text-lg tracking-[0.2em] tabular">{d.code}</strong>
+        <strong className="font-mono text-lg tracking-[0.2em] tabular">{show ? d.code : "••••••"}</strong>
+        <button
+          type="button"
+          onClick={() => setShow((v) => !v)}
+          aria-label={show ? "Hide delivery code" : "View delivery code"}
+          className="pressable ml-2 inline-flex items-center gap-1 align-middle text-xs underline-offset-2 hover:underline"
+        >
+          {show ? <EyeOff className="size-4" aria-hidden /> : <Eye className="size-4" aria-hidden />}
+          {show ? "Hide" : "View code"}
+        </button>
       </span>
       <span className="text-xs">Count the rolls first, then give this code to the driver. It marks the truck as delivered.</span>
     </div>
