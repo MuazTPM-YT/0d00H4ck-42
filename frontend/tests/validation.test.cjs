@@ -13,7 +13,7 @@ function load(file) {
 }
 const { acceptsNumericEdit, validQuantity, validDate, millDate } = load('validation.ts');
 const { rupeesToPaise } = load('format.ts');
-const { emptyJobWarning } = load('floor.ts');
+const { emptyJobWarning, rollLengths } = load('floor.ts');
 
 test('numeric edits reject negative paste, exponents and junk without changing their meaning', () => {
   for (const value of ['-800', '+800', '1e3', 'NaN', 'Infinity', '8.0.0', 'eight', '−800']) assert.equal(acceptsNumericEdit(value), false, value);
@@ -45,4 +45,10 @@ test('finishing a loom or jigger job that made nothing asks first, spinning neve
   assert.equal(emptyJobWarning('weaving', 'WO-1', '40.5'), null);
   assert.equal(emptyJobWarning('dyeing', 'WO-2', '2.000'), null);
   assert.equal(emptyJobWarning('spinning', 'WO-3', '0'), null);
+});
+test('skip cuts the planned metres into rolls of at most 1000 m', () => {
+  assert.deepEqual(rollLengths('2.000'), ['2.000']);
+  assert.deepEqual(rollLengths('1000'), ['1000.000']);
+  assert.deepEqual(rollLengths('2500.5'), ['1000.000', '1000.000', '500.500']);
+  assert.deepEqual(rollLengths('0'), []);
 });
